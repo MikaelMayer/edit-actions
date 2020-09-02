@@ -4,18 +4,18 @@
  * Around date: July 2020
  *******************************/
 
-var editactions = {};
+var editActions = {};
 
-(function(editactions) {
+(function(editActions) {
   var displayVar = 1
   var NAME = Symbol("name");
   var TRANSFORM = Symbol("transform");
   var PARENT = Symbol("parent");
   
-  editactions.__absolute = false;
-  editactions.__syntacticSugar = true;
-  editactions.__syntacticSugarFork = true;
-  editactions.choose = editactions.choose ? editactions.choose : Symbol("choose"); // For evaluation purposes.
+  editActions.__absolute = false;
+  editActions.__syntacticSugar = true;
+  editActions.__syntacticSugarFork = true;
+  editActions.choose = editActions.choose ? editActions.choose : Symbol("choose"); // For evaluation purposes.
   
   var Type = {
      Up: "Up",       // Navigate the tree
@@ -35,21 +35,20 @@ var editactions = {};
   var PathElemType = {
     Offset: "Offset"
   }
-    // A HPathStack is like a stack of provenance. It describes an absolute location in the input from which the observed output is from.
-  var StackType = {
-    Field: "Field",
-    SSlice: "SSlice",
-    ConcatPath: "ConcatPath"
-  }
-  editactions.Type = Type;
+  editActions.Type = Type;
   
-  var debug = function debug(x, msg) {
+  // Debugs the value of x, possibly with a nice message.
+  // Return x;
+  function debug(x, msg) {
     if(typeof x == "string" && typeof msg != "string") {
-      return debug(msg, x);F
+      return debug(msg, x);
     }
-    if(msg) console.log(msg, x);
-    else console.log(x);
+    if(msg) console.log(msg, stringOf(x));
+    else console.log(stringOf(x));
+    return x;
   }
+  editActions.debug = debug;
+  
   var cons = function(x, y) { 
     return {hd: x, tl: y} }
   var List = {
@@ -102,7 +101,7 @@ var editactions = {};
       return x.hd;
     }
   }
-  editactions.List = List;
+  editActions.List = List;
   Collection = {
     // Foreach that also adapts to non-collection items.
     foreach: function collectionForEach(c, callback, reduce) {
@@ -185,7 +184,7 @@ var editactions = {};
       }
     }
   }
-  editactions.Collection = Collection;
+  editActions.Collection = Collection;
   
   /* apply(New(1), x) = 1                 */
   /* apply(New({0: New(2)}, []), x) = [2] */
@@ -215,23 +214,10 @@ var editactions = {};
     }
     return { ctor: Type.New, model: model, childEditActions: childEditActions || {}, outsideLevel};
   }
-  editactions.New = New;
+  editActions.New = New;
   
   // apply(Reuse({a: New(1)}), {a: 2, b: 3}) = {a: 1, b: 3}
   function Reuse(childEditActions) {
-    if(arguments.length > 1) { // Backward compatibility with the syntax Reuse(up("a"), "b")
-      // Interpret the elements like a path before.
-      if(typeof arguments[0] == "object" && arguments[0].ctor == "upDeprecated") {
-        return Up(...arguments[0].keys, Reuse(...[...arguments].slice(1)))
-      } else if(typeof arguments[0] == "function" && arguments[0] === bam.up) {
-        console.log("/!\\ Please stop using Reuse(up, X). Userather Up(key or offset, Reuse(X)).")
-        return Up("?", Reuse(...[...arguments].slice(1)));
-      } else if(typeof arguments[0] == "string" && arguments[0] === "..") {
-        return Up(arguments[0], Reuse(...[...arguments].slice(1)));
-      } else {
-        return Down(arguments[0], Reuse(...[...arguments].slice(1)));
-      }
-    }
     var outsideLevel = 0;
     childEditActions = mapChildren(childEditActions, (k, c) => {
       if(!isEditAction(c)) {
@@ -239,29 +225,28 @@ var editactions = {};
       }
       outsideLevel = Math.max(outsideLevel, c.outsideLevel - 1);
       return c;
-    })
-    // TODO: wrap elements in childEditActions that are not edit actions with New
+    });
     return {ctor: Type.Reuse, childEditActions: childEditActions || {}, outsideLevel};
   }
-  editactions.Reuse = Reuse;
+  editActions.Reuse = Reuse;
 
   // Offset changes the current start position by +count on Down, -count on Up
   // Changes the length of the current slice to newLength on Down, on oldLength on Up
   function Offset(count, newLength, oldLength) {
     return {ctor: PathElemType.Offset, count: count, newLength: newLength, oldLength: oldLength};
   } 
-  editactions.Offset = Offset;
+  editActions.Offset = Offset;
   function isOffset(k) {
     return typeof k === "object" && k.ctor == PathElemType.Offset;
   }
-  editactions.isOffset = isOffset;
+  editActions.isOffset = isOffset;
   function isOffsetIdentity(offset) {
     return offset.count == 0 && offset.oldLength === undefined && offset.newLength === undefined;
   }
   
   function Up(keyOrOffset, subAction) {
     if(arguments.length == 1) subAction = Reuse();
-    if(editactions.__absolute) {
+    if(editActions.__absolute) {
       printDebug("Up", keyOrOffset, subAction);
       throw "Unexpected Up() in absolute mode"
     }
@@ -276,7 +261,7 @@ var editactions = {};
         let isk = isOffset(subAction.keyOrOffset);
         if(ik && isk) {
           let newOffset = upUpOffset(keyOrOffset, subAction.keyOrOffset);
-          /*if(editactions.__debug) {
+          /*if(editActions.__debug) {
             console.log("upUpOffset "+keyOrOffsetToString(keyOrOffset) + " "  + keyOrOffsetToString(subAction.keyOrOffset));
             console.log("=> "+ keyOrOffsetToString(newOffset));
           }*/
@@ -317,7 +302,7 @@ var editactions = {};
     }
     return {ctor: Type.Up, keyOrOffset: keyOrOffset, subAction: subAction};
   }
-  editactions.Up = Up;
+  editActions.Up = Up;
   
   function Down(keyOrOffset, subAction) {
     if(arguments.length == 1) subAction = Reuse();
@@ -367,7 +352,7 @@ var editactions = {};
     }
     return {ctor: Type.Down, keyOrOffset: keyOrOffset, subAction: subAction};
   }
-  editactions.Down = Down;
+  editActions.Down = Down;
 
   // apply(Concat(1, New([Down(5)]), Reuse()), [0, 1, 2, 3, 4, x]) = [x] ++ [0, 1, 2, 3, 4, x]
   function Concat(count, first, second) {
@@ -395,7 +380,7 @@ var editactions = {};
     // TODO: Optimizations when first and second are just Reuse.
     return result;
   }
-  editactions.Concat = Concat;
+  editActions.Concat = Concat;
   
   // apply(Custom(Down("x"), n => n + 1, ean => New(ean.model - 1)), {x: 2}) = 3
   function Custom(subAction, applyOrLens, update, name) {
@@ -414,13 +399,13 @@ var editactions = {};
      }
      return {ctor: Type.Custom, subAction: subAction, lens: lens/*, toString: stringOf*/};
   }
-  editactions.Custom = Custom;
+  editActions.Custom = Custom;
   
   // apply(Reuse({a: UseResult(Up("a"))}), {a: 1}) = {a: {a: {a: ...}}}
   function UseResult(subAction) {
     return {ctor: Type.UseResult, subAction: subAction};
   }
-  editactions.UseResult = UseResult;
+  editActions.UseResult = UseResult;
   
   // apply(Sequence(e1, e2, ectx), x, xctx)
   // = apply(e2, apply(e1, x, xctx), apply(ectx, x, xctx))
@@ -431,7 +416,7 @@ var editactions = {};
     }
     return {ctor: Type.Sequence, first, second, ctx};
   }
-  editactions.Sequence = Sequence;
+  editActions.Sequence = Sequence;
   
   // Non-deterministic edit action.
   // apply(Choose(E1, E2), x, xCtx) = {[choose]: [apply(E1, x, xCtx), apply(E2, x, xCtx)]};
@@ -442,7 +427,7 @@ var editactions = {};
       return arguments[0];
     }
   }
-  editactions.Choose = Choose;
+  editActions.Choose = Choose;
   
   //// HELPERS: Fork, Insert, Keep, Delete //////
   
@@ -463,7 +448,7 @@ var editactions = {};
     }
     return Concat(outCount, Down(Offset(0, inCount), first), Down(Offset(inCount), second));
   }
-  editactions.Fork = Fork;
+  editActions.Fork = Fork;
   
   function argumentsIfDownOffset(editAction, defaultOffsetIfNone) {
     //printDebug("argumentsIfDownOffset", editAction);
@@ -610,24 +595,24 @@ var editactions = {};
     /*return Fork(0, count, Up(Offset(0, 0, undefined), first), second || Reuse());
     */
   }
-  editactions.Insert = Insert;
+  editActions.Insert = Insert;
   function Keep(count, subAction) {
     return Fork(count, count, Reuse(), subAction);
     // Concat(count, Down(Offset(0, count)), Down(Offset(count, subAction))
   }
-  editactions.Keep = Keep;
+  editActions.Keep = Keep;
   // Delete back-propagates deletions, not building up the array. To build up the array, prefix the Fork with a Down(Offset(0, totalLength, undefined), 
   function Delete(count, subAction = Reuse()) {
     return Fork(count, 0, Down(Offset(0, 0, count)), subAction);
     // return Down(Offset(count), subAction);
     // return Fork(count, 0, New(?), subAction)
   }
-  editactions.Delete = Delete;
+  editActions.Delete = Delete;
   // Replace needs the length of replacement as a check and for reasoning purposes
   function Replace(start, end, replaced, subAction, nextAction = Reuse()) {
     return Keep(start, Fork(end - start, replaced, subAction, nextAction));
   }
-  editactions.Replace = Replace;
+  editActions.Replace = Replace;
   // ReuseOffset(offset, X) is to Down(offset, X)
   // what Reuse({key: X}) is to Down(key, X)
   function ReuseOffset(offset, replaced, subAction) {
@@ -657,7 +642,7 @@ var editactions = {};
       return Keep(offset.count, subAction);
     }
   }
-  editactions.ReuseOffset = ReuseOffset;
+  editActions.ReuseOffset = ReuseOffset;
   function ReuseKeyOrOffset(keyOrOffset, subAction) {
     if(isOffset(keyOrOffset)) {
       return ReuseOffset(keyOrOffset, subAction);
@@ -665,7 +650,7 @@ var editactions = {};
       return Reuse({[keyOrOffset]: subAction});
     }
   }
-  editactions.ReuseKeyOrOffset = ReuseKeyOrOffset;
+  editActions.ReuseKeyOrOffset = ReuseKeyOrOffset;
   
   function isKeepInsertDelete(editAction) {
     return isDelete(editAction) ||
@@ -757,6 +742,7 @@ var editactions = {};
   function ContextElem(keyOrOffset, prog) {
     return {keyOrOffset: keyOrOffset, prog: prog};
   }
+  editActions.__ContextElem = ContextElem;
   
   // Tells the context what key were used from the current program (or edit action) to arrive at the current edit action.
   function AddContext(keyOrOffset, prog, ctx) {
@@ -797,11 +783,11 @@ var editactions = {};
   
   // Applies the edit action to the given program/context
   function apply(editAction, prog, ctx, resultCtx) {
-    if(editactions.__debug) {
+    if(editActions.__debug) {
       console.log("apply(");
       console.log(stringOf(editAction));
       console.log(uneval(prog));
-      console.log("-|" + List.toArray(ctx).map(prog => bam.uneval(prog)).join(","));
+      console.log("-|" + List.toArray(ctx).map(prog => uneval(prog)).join(","));
     }
     if(typeof editAction !== "object" || !("ctor" in editAction) || !(editAction.ctor in Type)) return apply(New(editAction), prog, ctx, resultCtx);
     if(editAction.ctor == Type.Up) {
@@ -837,8 +823,9 @@ var editactions = {};
       return monoid.add(o1, o2);      
     }
     if(editAction.ctor == Type.Choose) {
-      let alternatives = Collection.map(editAction.subActions, ;
-      
+      return Collection.map(editAction.subActions, subAction =>
+        apply(subAction, prog, ctx, resultCtx)
+      );
     }
     let isNew = editAction.ctor == Type.New;
     let model = modelToCopy(editAction, prog);
@@ -847,7 +834,7 @@ var editactions = {};
       return model;
     } else if(prog === undefined && !isNew) {
       console.log("apply problem. undefined program and child edit actions....");
-      editactions.debug(editAction);
+      editActions.debug(editAction);
       console.log("context:\n",List.toArray(ctx).map(x => uneval(x.prog, "  ")).join("\n"));
     }
     let t = treeOpsOf(model);
@@ -856,77 +843,19 @@ var editactions = {};
       t.update(o, k, t.access(model, k));
     }
     for(let k in childEditActions) {
-      let newProg = bam.__absolute ? ctx == undefined ? prog : List.last(ctx).prog : isNew ? prog : prog[k];
-      let newCtx = bam.__absolute ? undefined : isNew ? ctx : AddContext(k, prog, ctx);
+      let newProg = editActions.__absolute ? ctx == undefined ? prog : List.last(ctx).prog : isNew ? prog : prog[k];
+      let newCtx = editActions.__absolute ? undefined : isNew ? ctx : AddContext(k, prog, ctx);
       t.update(o, k,
          apply(childEditActions[k], newProg, newCtx, AddContext(k, o, resultCtx)));
     }
     return o;
   }
-  bam.apply = apply;
-
-  // A context element for an action.
-  function ActionContextElem(keyOrOffset, action, relativePath) {
-    return {keyOrOffset, action, relativePath}
-  }
-  bam.ActionContextElem = ActionContextElem;
-  
-  // Change the action context from the second actiont's perspective
-  function AddActionContext(keyOrOffset, action, relativePath, ctx) {
-    if(relativePath === undefined) {
-      console.trace("undefined relative path");
-      throw "stop";
-    }
-    if(!ctx) {
-      return List.cons(ActionContextElem(keyOrOffset, action, relativePath))
-    }
-    if(isOffset(keyOrOffset) && isOffsetIdentity(keyOrOffset) && isIdentity(action)) {
-      if(relativePath.ctor == Type.Up && isOffset(relativePath.keyOrOffset) && isIdentity(relativePath.subAction)) {
-      /**
-        Proof that (Offset(0), Reuse(), Up(Offset(c, n, o), Reuse()))::(k, E0, X)::ECtx
-        == (k, E0, Up(Offset(c, n, o), X))::ECtx
-        
-          apply(andThen(E2, E1, (Offset(0), Reuse(), Up(Offset(c, n, o), Reuse()))::(k, E0, X)::ECtx), r[a..a+n[, (Offset(a, n), r)::rCtx)
-        = apply(E2, apply(E1, r[a..a+n[, (Offset(a, n), r)::rCtx), apply((Offset(0), Reuse(), Up(Offset(c, n, o), Reuse()))::(k, E0, X)::ECtx, r[a..a+n[, (Offset(a, n), r)::rCtx)
-        = apply(E2, apply(E1, r[a..a+n[, (Offset(a, n), r)::rCtx), apply((Offset(0), Reuse(), Reuse())::(k, E0, X)::ECtx, r[a-c..a-c+o[, (Offset(a-c, o), r)::rCtx)
-        = apply(E2, apply(E1, r[a..a+n[, (Offset(a, n), r)::rCtx), (Offset(0), apply(Reuse(), r[a-c..a-c+o[, (Offset(a-c, o), r)::rCtx))::apply((k, E0, X)::ECtx, r[a-c..a-c+o[, (Offset(a-c, o), r)::rCtx))
-        = apply(E2, apply(E1, r[a..a+n[, (Offset(a, n), r)::rCtx), (Offset(0), r[a-c..a-c+o[)::apply((k, E0, X)::ECtx, r[a-c..a-c+o[, (Offset(a-c, o), r)::rCtx))
-        // Whatever the context, Offset(0) will just cancel it
-        = apply(E2, apply(E1, r[a..a+n[, (Offset(a, n), r)::rCtx), apply((k, E0, X)::ECtx, r[a-c..a-c+o[, (Offset(a-c, o), r)::rCtx))
-        = apply(E2, apply(E1, r[a..a+n[, (Offset(a, n), r)::rCtx), apply((k, E0, Up(Offset(c, n, o), X))::ECtx, r[a..a+n[, (Offset(a, n), r)::rCtx))
-        = apply(andThen(E2, E1, (k, E0, Up(Offset(c, n, o), X))::ECtx), r[a..a+n[, (Offset(a, n), r)::rCtx)
-        QED.
-      */
-        return List.cons(ActionContextElem(ctx.hd.keyOrOffset, ctx.hd.action, Up(relativePath.keyOrOffset, ctx.hd.relativePath)), ctx.tl);
-      } else if(isIdentity(relativePath)) {
-        // We don't add empty offset contexts.
-        return ctx;
-      }
-    }
-    if(ctx !== undefined && isOffset(ctx.hd.keyOrOffset) && isOffset(keyOrOffset)) {
-      //if(!isIdentity(relativePath)) {
-      /*console.trace("Two offsets composed - disrearding"+stringOf(relativePath));*/
-      //}
-      return List.cons(ActionContextElem(downDownOffset(ctx.hd.keyOrOffset, keyOrOffset), ctx.hd.action, ctx.hd.relativePath), ctx.tl);
-    }
-    let newContextElem = ActionContextElem(
-          keyOrOffset, action, relativePath);
-    return List.cons(newContextElem, ctx);
-  }
-  // Change the action context from the first action's perspective
-  function ModifyActionContext(ctx, relativePathTransformer) {
-    if(!ctx) return ctx;
-    return List.cons(ActionContextElem(ctx.hd.keyOrOffset, ctx.hd.action, relativePathTransformer(ctx.hd.relativePath)), ctx.tl);
-  }
-  
-  // firstActionContext is a 
-  // List[(keyOrOffset, actionInFirstAction, pathRelativeToOriginal)]
-
+  editActions.apply = apply;
   
   function andThenWithLog(secondAction, firstAction, firstActionContext = undefined) {
     let res = andThen(secondAction, firstAction, firstActionContext);
-    if(bam.__debug) {
-      console.log("  bam.andThen(");
+    if(editActions.__debug) {
+      console.log("  andThen(");
       console.log("  ",addPadding(stringOf(secondAction), "  "));
       console.log("  ,", addPadding(stringOf(firstAction), "  "));
       console.log("  -|" + addPadding(stringOf(firstActionContext), "    "));
@@ -954,13 +883,13 @@ var editactions = {};
         = apply(andThen(andThen(E2, E1, []), E0, []), r, rCtx)
   */
   function andThen(secondAction, firstAction, firstActionContext = undefined) {
-    if(bam.__debug) {
-      console.log("bam.andThen(");
+    if(editActions.__debug) {
+      console.log("andThen(");
       console.log(stringOf(secondAction));
       console.log(stringOf(firstAction));
       console.log("-|" + addPadding(stringOf(firstActionContext), "  "));
     }
-    let recurse = /*customRecurse || */bam.__debug ? andThenWithLog : andThen;
+    let recurse = /*customRecurse || */editActions.__debug ? andThenWithLog : andThen;
     let isSecondRaw = !isEditAction(secondAction);
     if(isSecondRaw) { // Happens when secondAction is a context.
       if(typeof secondAction == "object") {
@@ -992,7 +921,7 @@ var editactions = {};
           = apply(Up(k, E2), apply(E1, r[m], (m, r)::rCtx), apply((k, E0, Up(m, X))::E2Ctx, r[m], (m, r)::rCtx)) -- GOAL
           QED
         */
-        if(bam.__debug) {
+        if(editActions.__debug) {
           console.log("Pre-pending Up("+ keyOrOffsetToString(firstActionContext.keyOrOffset)+", |)");
         }
         return Up(firstActionContext.keyOrOffset,
@@ -1012,7 +941,7 @@ var editactions = {};
           = apply(Up(k, E2), apply(E1, r, rCtx), apply((k, E0, Down(m, X))::E2Ctx, r, rCtx)) --APCTX-UP -- GOAL
           QED
         */
-        if(bam.__debug) {
+        if(editActions.__debug) {
           console.log("Pre-pending Down("+keyOrOffsetToString(firstActionContext.keyOrOffset), ", |)");
         }
         return Down(firstActionContext.keyOrOffset,
@@ -1058,7 +987,7 @@ var editactions = {};
           = apply(E2, apply(Down(Offset(c, n), E1), r, rCtx)), apply(ECtx, r, rCtx)) -- GOAL
           QED.
         */
-        if(bam.__debug) {
+        if(editActions.__debug) {
           console.log("Pre-pending Down("+keyOrOffsetToString(firstAction.keyOrOffset)+", |)");
         }
         return Down(firstAction.keyOrOffset, recurse(secondAction, firstAction.subAction, Up(firstAction.keyOrOffset, firstActionContext)));
@@ -1073,7 +1002,7 @@ var editactions = {};
           = apply(E2, apply(Down(f, E1), r, rCtx), apply((k, E0, X)::ECtx, r, rCtx)) -- GOAL
           QED.
         */
-        if(bam.__debug) {
+        if(editActions.__debug) {
           console.log("Pre-pending Down("+ keyOrOffsetToString(firstAction.keyOrOffset)+", |)");
         }
         return Down(firstAction.keyOrOffset, recurse(secondAction, firstAction.subAction, Up(firstAction.keyOrOffset, firstActionContext)));
@@ -1091,14 +1020,14 @@ var editactions = {};
         
         QED.
       */
-      if(bam.__debug) {
+      if(editActions.__debug) {
         console.log("Pre-pending Up("+ keyOrOffsetToString(firstAction.keyOrOffset)+", ...)");
       }
       return Up(firstAction.keyOrOffset, recurse(secondAction, firstAction.subAction, Down(firstAction.keyOrOffset, firstActionContext)));
       // firstAction is Reuse, New, Custom, Concat, UseResult, or Sequence
       // secondAction is Custom, Up, Down, Reuse, New, Concat, UseResult or Sequence
     } else if(secondAction.ctor == Type.Custom) {
-      if(bam.__debug) {
+      if(editActions.__debug) {
         console.log("Pre-pending Custom(|, ...)");
       }
       /** Proof:
@@ -1122,11 +1051,11 @@ var editactions = {};
           = apply(Concat(n, E2f, E2s), apply(E1, r, rCtx), apply(ECtx, r, rCtx))
           QED;
       */
-      if(bam.__debug) {
+      if(editActions.__debug) {
         console.log("Pre-pending Concat("+secondAction.count+", | , ...)");
       }
       let newSecondFirst = recurse(secondAction.first, firstAction, firstActionContext);
-      if(bam.__debug) {
+      if(editActions.__debug) {
         console.log("Filling Concat("+secondAction.count+", ... , |)", secondAction.count);
       }
       let newSecondSecond = recurse(secondAction.second, firstAction, firstActionContext);
@@ -1281,12 +1210,12 @@ Assuming ?1 = apply(E0, r, rCtx)
           if(k in firstAction.childEditActions) {
             let g = firstAction.childEditActions[k];
             let newCtx = Up(k, AddContext(k, firstAction, firstActionContext));
-            if(bam.__debug) {
+            if(editActions.__debug) {
               console.log("Inside Reuse({ " + k + ": ");
             }
             newChildren[k] = recurse(f, g, newCtx);
           } else {
-            if(bam.__debug) {
+            if(editActions.__debug) {
               console.log("Inside Reuse({ " + k + ": ");
             }
             newChildren[k] = recurse(f, Reuse(), Up(k, AddContext(k, firstAction, firstActionContext)));
@@ -1315,7 +1244,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         for(let k in firstAction.childEditActions) {
           k = numIfPossible(k);
           if(k in secondAction.childEditActions) {
-            if(bam.__debug) {
+            if(editActions.__debug) {
               console.log("Inside New({ " + k + ": ");
             }
             newChildren[k] = recurse(secondAction.childEditActions[k], firstAction.childEditActions[k], AddContext(k, firstAction, firstActionContext));
@@ -1436,11 +1365,11 @@ Assuming ?1 = apply(E0, r, rCtx)
           }
         }
         
-        if(bam.__debug) {
+        if(editActions.__debug) {
           console.log("Inside left of Concat(" + firstAction.count, ", |, ...)");
         }
         let newFirst = recurse(Reuse(leftChildren), firstAction.first, AddContext(Offset(0, firstAction.count), firstAction, firstActionContext));
-        if(bam.__debug) {
+        if(editActions.__debug) {
           console.log("Inside right of Concat(" + firstAction.count, ", ..., |)");
         }
         let newSecond = recurse(Reuse(rightChildren), firstAction.second, AddContext(Offset(firstAction.count), firstAction, firstActionContext));
@@ -1479,7 +1408,7 @@ Assuming ?1 = apply(E0, r, rCtx)
       let newChildren = {};
       let notFirst = 0;
       for(let g in secondAction.childEditActions) {
-        if(bam.__debug) {
+        if(editActions.__debug) {
           console.log((notFirst ? "Back i" : notFirst++ || "I")+"nside New({ "+g+":... })");
         }
         newChildren[g] = recurse(secondAction.childEditActions[g], firstAction, firstActionContext);
@@ -1506,7 +1435,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     */      
     return Sequence(firstAction, secondAction, firstActionContext);
   }
-  bam.andThen = andThenWithLog//andThen;
+  editActions.andThen = andThenWithLog//andThen;
   
   function actionContextToString(ECtx) {
     return List.toArray(ECtx).map(elem => "("+ keyOrOffsetToString(elem.keyOrOffset) + ", " + stringOf(elem.action) + ", " + stringOf(elem.relativePath)+ ")").join("\n")
@@ -1758,7 +1687,7 @@ Assuming ?1 = apply(E0, r, rCtx)
   // apply(left, r, rCtx) ++count apply(right, r, rCtx))
   // = apply(editAction, r, rCtx);
   function splitAt(count, editAction) {
-    if(bam.__debug) {
+    if(editActions.__debug) {
       console.log("splitAt(", count, "," , stringOf(editAction), ")")
     }
     if(count == 0) {
@@ -2042,7 +1971,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     }
     return [];
   }
-  bam.splitAt = splitAt;
+  editActions.splitAt = splitAt;
   
   /** Proof:
     apply(editAction, r, rCtx)
@@ -2076,7 +2005,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         name: "applyOffset("+keyOrOffsetToString(newOffset) + ", _)"});
     }
     let [leftFirst, rightFirst] = splitAt(newOffset.count, editAction);
-    if(bam.__debug) console.log("splitting")
+    if(editActions.__debug) console.log("splitting")
     if(newOffset.newLength !== undefined) {
       let [rightFirst1, rightFirst2] = splitAt(newOffset.newLength, rightFirst);
       return rightFirst1;
@@ -2084,7 +2013,7 @@ Assuming ?1 = apply(E0, r, rCtx)
       return rightFirst;
     }
   }
-  bam.offsetAt = offsetAt;
+  editActions.offsetAt = offsetAt;
   
   // Returns true if the edit action is anyhow reusing something below where it is applied
   function isReusingBelow(editAction) {
@@ -2106,7 +2035,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     editAction.ctor == Type.Up && isFinal(editAction.subAction) ||
     editAction.ctor == Type.Down && isFinal(editAction.subAction));
   }
-  bam.isFinal = isFinal;
+  editActions.isFinal = isFinal;
   
   function intersectOffsets(offset1, offset2) {
     let newCount = Math.max(offset1.count, offset2.count);
@@ -2130,7 +2059,7 @@ Assuming ?1 = apply(E0, r, rCtx)
   // Given a bound on an input, try to find what the bound on the output of the edit action would be like.
   function adaptInBoundTo(editAction, position, isLeft) {
     let [inCount, outCount, first, second] = argumentsIfFork(editAction);
-    if(bam.__debug) {
+    if(editActions.__debug) {
       console.log("adaptInBoundTo"+(isLeft ? "Left" : "")+"("+stringOf(editAction)+", " + position);
     }
     if(second !== undefined) {
@@ -2163,7 +2092,7 @@ Assuming ?1 = apply(E0, r, rCtx)
   
   // assumes the input array is now restricted to the given offset. Will be prefixed a Down(offset, |) to the result;
   function restrictInput(offset, editAction) {
-    if(bam.__debug) console.log("restrictInput(", keyOrOffsetToString(offset), stringOf(editAction));
+    if(editActions.__debug) console.log("restrictInput(", keyOrOffsetToString(offset), stringOf(editAction));
     let [inCount, outCount, first, second] = argumentsIfFork(editAction);
     if(second != undefined) {
       if(inCount <= offset.count) {
@@ -2172,16 +2101,16 @@ Assuming ?1 = apply(E0, r, rCtx)
         return restrictInput(offset, Down(Offset(0, inCount), first));
       } else { // A bit on each side.
         // offset.count < inCount && inCount < offet.newLength + offset.count
-        if(bam.__debug) {
+        if(editActions.__debug) {
           console.log("Inside Fork(" + (inCount -offset.count) + ", |, ...)")
         }
         let newLeft = restrictInput(Offset(offset.count, inCount - offset.count), first);
-        if(bam.__debug) {
+        if(editActions.__debug) {
           console.log("Inside Fork(" + (inCount -offset.count) + ", "+stringOf(newLeft)+", |)")
         }
         let newRight = restrictInput(Offset(0, MinusUndefined(offset.newLength, (inCount - offset.count))), second);
         let lengthLeft = outLength(newLeft, inCount - offset.count);
-        if(bam.__debug) {
+        if(editActions.__debug) {
           console.log("returning Fork(" + (inCount -offset.count) + ", "+lengthLeft+", "+stringOf(newLeft)+", "+stringOf(newRight)+")")
         }
         return Fork(inCount - offset.count, lengthLeft,
@@ -2194,9 +2123,9 @@ Assuming ?1 = apply(E0, r, rCtx)
           return Down(Offset(0, 0, editAction.keyOrOffset.oldLength));
         } else { // Intervals not disjoint.
           let newOffset = intersectOffsets(offset, editAction.keyOrOffset);
-          if(bam.__debug) console.log("newOffset", keyOrOffsetToString(newOffset))
+          if(editActions.__debug) console.log("newOffset", keyOrOffsetToString(newOffset))
           let newOffset1 = diffOffset(editAction.keyOrOffset, newOffset);
-          if(bam.__debug) console.log("newOffset1", keyOrOffsetToString(newOffset1))
+          if(editActions.__debug) console.log("newOffset1", keyOrOffsetToString(newOffset1))
           return restrictInput(newOffset1, editAction.subAction);
         }
       } else { // It's a key.
@@ -2220,7 +2149,7 @@ Assuming ?1 = apply(E0, r, rCtx)
   function addLogMerge(fun) {
     return function(E1, E2, multiple = false) {
       let res = fun(E1, E2, multiple);
-      if(bam.__debug) {
+      if(editActions.__debug) {
         console.log("  merge returns");
         console.log(addPadding("  " + stringOf(E1), "  "));
         console.log(addPadding("  " + stringOf(E2), "  "));
@@ -2253,10 +2182,10 @@ Assuming ?1 = apply(E0, r, rCtx)
   */
   // Action resulting if we applied E1 and E2 in parallel and merged the result.
   var merge = addLogMerge(function mergeRaw(E1, E2, multiple = false) {
-    if(bam.__debug) {
+    if(editActions.__debug) {
       console.log("merge");
-      bam.debug(E1);
-      bam.debug(E2);
+      editActions.debug(E1);
+      editActions.debug(E2);
     }
     let result = [];
     merge_cases: {
@@ -2272,9 +2201,9 @@ Assuming ?1 = apply(E0, r, rCtx)
       }
       // (E1, E2) is [R*, N, F, C, U, D, UR] x [R*, N, F, C, U, D, UR]
       if(E1.ctor == Type.New && E2.ctor == Type.New) {
-        if(bam.merge.hints) {
+        if(editActions.merge.hints) {
           let tmp;
-          for(let hint of bam.merge.hints) {
+          for(let hint of editActions.merge.hints) {
             tmp = hint(E1, E2);
             if(tmp) break;
           }
@@ -2294,15 +2223,18 @@ Assuming ?1 = apply(E0, r, rCtx)
       // We only merge children that have reuse in them. The other ones, we don't merge.
       if(E1.ctor == Type.New) {
         if(isReusingBelow(E1)) {
+          printDebug("pushing #1")
           result.push(New(mapChildren(E1.childEditActions, (k, c) => isReusingBelow(c) ? merge(c, E2, multiple) : c), E1.model));
         }
       }
       if(E2.ctor == Type.New) {
         if(isReusingBelow(E2)) {
+          printDebug("pushing #2")
           result.push(New(mapChildren(E2.childEditActions, (k, c) => isReusingBelow(c) ? merge(E1, c, multiple) : c), E2.model));
         }
       }
       if(E1.ctor == Type.New && !isReusingBelow(E1) && E2.ctor != Type.New || E2.ctor == Type.New && !isReusingBelow(E2) && E1.ctor != Type.New) {
+        printDebug("pushing #3 and #4")
         result.push(E1);
         result.push(E2);
         break merge_cases;
@@ -2374,6 +2306,15 @@ Assuming ?1 = apply(E0, r, rCtx)
         let [inCount1, outCount1, left1, right1] = argumentsIfFork(E1);
         let [inCount2, outCount2, left2, right2] = argumentsIfFork(E2);
         if(right1 && right2) {
+          if(inCount1 == 0 && outCount1 > 0) { // First is an insertion
+            result.push(Insert(outCount1, left1, merge(right1, E2, multiple)));
+          }
+          if(inCount2 == 0 && outCount2 > 0) { // Second is an insertion
+            result.push(Insert(outCount2, left2, merge(E1, right2, multiple)));
+          }
+          if((inCount1 == 0 && outCount1 > 0) || (inCount2 == 0 && outCount2 > 0)) {
+            break merge_cases; // We are done with insertions.
+          }
           if(outCount1 == 0 && outCount2 == 0 && inCount1 > 0 && inCount2 > 0) {
             // Two deletes. We factor out the smaller delete and continue.
             let minDelete = Math.min(inCount1, inCount2);
@@ -2393,7 +2334,7 @@ Assuming ?1 = apply(E0, r, rCtx)
           // But usually, the biggest first action indicates a Reuse of it.
             // [ inCount1   ][     .... ]
             // [  inCount2   |   ] [.....]
-            if(bam.__debug) console.log("inCount1 = ", inCount1);
+            if(editActions.__debug) console.log("inCount1 = ", inCount1);
             let newE2Left = restrictInput(Offset(0, inCount1), E2);
             let newE2Right = restrictInput(Offset(inCount1), E2);
             let leftPart = merge(
@@ -2404,11 +2345,11 @@ Assuming ?1 = apply(E0, r, rCtx)
             result.push(Concat(newLeftCount, Down(Offset(0, inCount1), leftPart), Down(Offset(inCount1), rightPart)));
             /*
             let newOutPosition = Math.max(0, adaptInBoundTo(E2, inCount1));
-            if(bam.__debug) console.log("newOutPosition = ", stringOf(newOutPosition));
+            if(editActions.__debug) console.log("newOutPosition = ", stringOf(newOutPosition));
             let [left21, left22] = splitAt(newOutPosition, Down(Offset(0, inCount2), left2));
             // left2 = Concat(, left21, left22)
-            if(bam.__debug) console.log("left21 = ", stringOf(left21));
-            if(bam.__debug) console.log("left22 = ", stringOf(left22)); 
+            if(editActions.__debug) console.log("left21 = ", stringOf(left21));
+            if(editActions.__debug) console.log("left22 = ", stringOf(left22)); 
             
             let leftPart = merge(
               Down(Offset(0, inCount1), left1),
@@ -2426,13 +2367,13 @@ Assuming ?1 = apply(E0, r, rCtx)
           } else { // inCount1 > inCount2
             // [  inCount1   |   ] [.....]
             // [  inCount2   ][     .... ]
-            if(bam.__debug) console.log("inCount2 = ", inCount2);
+            if(editActions.__debug) console.log("inCount2 = ", inCount2);
             let newOutPosition = Math.max(0, adaptInBoundTo(E1, inCount2));
-            if(bam.__debug) console.log("newOutPosition = ", stringOf(newOutPosition));
+            if(editActions.__debug) console.log("newOutPosition = ", stringOf(newOutPosition));
             let [left11, left12] = splitAt(newOutPosition, Down(Offset(0, inCount1), left1));
             // left1 = Concat(, left11, left12)
-            if(bam.__debug) console.log("left11 = ", stringOf(left11));
-            if(bam.__debug) console.log("left12 = ", stringOf(left12)); 
+            if(editActions.__debug) console.log("left11 = ", stringOf(left11));
+            if(editActions.__debug) console.log("left12 = ", stringOf(left12)); 
             
             let leftPart = merge(
               left11,
@@ -2474,12 +2415,10 @@ Assuming ?1 = apply(E0, r, rCtx)
           let newE2 = downAt(ko, E2);
           result.push(merge(E1.subAction, newE2, multiple));
         }
-      }
       // (E1, E2) is [R*, F, C, U, D, UR] x [R*, F, C, U, D, UR] \ [R*, C] x [R*, C] \ [R*, F] x D \ D x [R*, F]
 
       // Beyond this point, there are changes immediately made to the tree.
-
-      if(E1.ctor == Type.Up && E2.ctor == Type.Up && keyOrOffsetAreEqual(E1.keyOrOffset, E2.keyOrOffset)) {
+      } else if(E1.ctor == Type.Up && E2.ctor == Type.Up && keyOrOffsetAreEqual(E1.keyOrOffset, E2.keyOrOffset)) {
         result.push(Up(E1.keyOrOffset, merge(E1.subAction, E2.subAction, multiple)));
       
       // (E1, E2) is [R*, F, C, U, D, UR] x [R*, F, C, U, D, UR] \ [R*, C] x [R*, C] \ [R*, F] x D \ D x [R*, F] \ U x U
@@ -2544,7 +2483,7 @@ Assuming ?1 = apply(E0, r, rCtx)
             // etc.
             // We take the intersection of the two offsets. TODO: This is wrong. We take an offsetAt assuming newOffset1 on the output, not the input.
             let newOffset = intersectOffsets(E1.keyOrOffset, E2.keyOrOffset);
-            if(bam.__debug) {
+            if(editActions.__debug) {
               console.log("newOffset:"+keyOrOffsetToString(newOffset))
             }
             if(newOffset.newLength <= 0) {
@@ -2554,13 +2493,13 @@ Assuming ?1 = apply(E0, r, rCtx)
               // We take the offset relative to the previous offsets.
               let newOffset1 = diffOffset(E1.keyOrOffset, newOffset);
               let newOffset2 = diffOffset(E2.keyOrOffset, newOffset);
-              if(bam.__debug) {
+              if(editActions.__debug) {
                 console.log("newOffset1:"+keyOrOffsetToString(newOffset1))
                 console.log("newOffset2:"+keyOrOffsetToString(newOffset2))
               }
               //newOffset1 = adaptInOffsetAt(E1.subAction, newOffset1);
               //newOffset2 = adaptInOffsetAt(E2.subAction, newOffset2);
-              if(bam.__debug) {
+              if(editActions.__debug) {
                 console.log("Adapted newOffset1:"+keyOrOffsetToString(newOffset1))
                 console.log("Adapted newOffset2:"+keyOrOffsetToString(newOffset2))
               }
@@ -2642,7 +2581,7 @@ Assuming ?1 = apply(E0, r, rCtx)
             let finalChildEditActions = {};
             let finalStrict = s1 && s2 ? s1.strict || s2.strict : s1 ? s1.strict : s2 ? s2.strict : false;
             let finalRemove = s1 && s2 ? Remove.portions.merge(s1.portions, s2.portions, finalStrict) : s1 ? s1.portions : s2 ? s2.portions : undefined;
-            if(bam.__debug) {
+            if(editActions.__debug) {
               console.log("s1 portions: ", s1 ? s1.portions : undefined);
               console.log("s2 portions: ", s2 ? s2.portions : undefined);
               console.log("final portions: ", finalRemove);
@@ -2669,12 +2608,12 @@ Assuming ?1 = apply(E0, r, rCtx)
                   }
                 }
                 let kAbs = portions ? Number(k1) + fromK1ToAbs : k1;
-                if(bam.__debug) {
+                if(editActions.__debug) {
                   console.log("k1", k1, "kAbs", kAbs);
                 }
                 if(finalRemove) {
                   while(iFR < finalRemove.length && Number(kAbs) >= finalRemove[iFR]) {
-                    if(bam.__debug) console.log("iFR", iFR, "fromAbsToFinalK", fromAbsToFinalK);
+                    if(editActions.__debug) console.log("iFR", iFR, "fromAbsToFinalK", fromAbsToFinalK);
                     if(iFR+1 < finalRemove.length) {
                       fromAbsToFinalK -= finalRemove[iFR + 1] - finalRemove[iFR];
                     } else {
@@ -2682,11 +2621,11 @@ Assuming ?1 = apply(E0, r, rCtx)
                     }
                     iFR += 2;
                   }
-                  if(bam.__debug) console.log("iFR", iFR, "fromAbsToFinalK", fromAbsToFinalK);
+                  if(editActions.__debug) console.log("iFR", iFR, "fromAbsToFinalK", fromAbsToFinalK);
                 }
                 if(portions2) {
                   while(i2 < portions2.length && Number(kAbs) >= portions2[i2]) {
-                    if(bam.__debug) console.log("i2", i2, "fromAbsToK2", fromAbsToK2);
+                    if(editActions.__debug) console.log("i2", i2, "fromAbsToK2", fromAbsToK2);
                     if(i2+1 < portions2.length) {
                       fromAbsToK2 -= portions2[i2 + 1] - portions2[i2];
                     } else {
@@ -2694,7 +2633,7 @@ Assuming ?1 = apply(E0, r, rCtx)
                     }
                     i2 += 2;
                   }
-                  if(bam.__debug) console.log("i2", i2, "fromAbsToK2", fromAbsToK2);
+                  if(editActions.__debug) console.log("i2", i2, "fromAbsToK2", fromAbsToK2);
                 }
                 
                 let finalK = finalRemove !== undefined ? kAbs + fromAbsToFinalK : kAbs;
@@ -2702,7 +2641,7 @@ Assuming ?1 = apply(E0, r, rCtx)
                   continue;
                 }
                 let k2 = portions2 !== undefined ? kAbs + fromAbsToK2 : kAbs;
-                if(bam.__debug) {
+                if(editActions.__debug) {
                   console.log("finalK", finalK, "k2", k2);
                 }
                 if(step == 0 && fromAbsToK2 !== undefined && k2 in E2.childEditActions) {
@@ -2713,7 +2652,7 @@ Assuming ?1 = apply(E0, r, rCtx)
               }
               if(step == 0) {
                 // Ok, so now let's revert the role of E1 and E2
-                if(bam.__debug) console.log("merging on the other way.")
+                if(editActions.__debug) console.log("merging on the other way.")
                 let tmp = E1; E1 = E2; E2 = tmp;
                 tmp = s1; s1 = s2; s2 = tmp;
                 step++;
@@ -2721,49 +2660,49 @@ Assuming ?1 = apply(E0, r, rCtx)
                 break;
               }
             }
-            result.push(bam.Reuse(relPath1, finalRemove ? Remove(finalRemove, finalStrict) : undefined, finalChildEditActions));
+            result.push(Reuse(relPath1, finalRemove ? Remove(finalRemove, finalStrict) : undefined, finalChildEditActions));
             continue;
           }
         } else if(E1.ctor == Type.Fork && E2.ctor == Type.Fork) {
           if(E1.count == E2.count) {
             if(E1.count == 0) { // Pure insertions, they can 
               let nextActionMerged = merge2DDiffs(E1.nextAction, E2.nextAction);
-              result.push(bam.Fork(0, E1.subAction, 0, E2.subAction, nextActionMerged));
+              result.push(Fork(0, E1.subAction, 0, E2.subAction, nextActionMerged));
               if(E1.toString() != E2.toString()) {
-                result.push(bam.Fork(0, E2.subAction, 0, E1.subAction, nextActionMerged));
+                result.push(Fork(0, E2.subAction, 0, E1.subAction, nextActionMerged));
               }
             } else {
-              result.push(bam.Fork(E1.count, merge2DDiffs(E1.subAction, E2.subAction), merge2DDiffs(E1.nextAction, E2.nextAction)))
+              result.push(Fork(E1.count, merge2DDiffs(E1.subAction, E2.subAction), merge2DDiffs(E1.nextAction, E2.nextAction)))
             }
           } else if(E1.count < E2.count) {
             if(E1.count === 0) { // Insertion
-              result.push(bam.Fork(E1.count, E1.subAction, merge2DDiffs(E1.nextAction, E2)));
+              result.push(Fork(E1.count, E1.subAction, merge2DDiffs(E1.nextAction, E2)));
             } else if(E2.subAction.ctor == Type.New && (
                             (Array.isArray(E2.subAction.model) && lengthOfArray(E2.subAction.childEditActions) == 0) || 
                             (typeof E2.subAction.model == "string" && E2.subAction.model.length == 0))) { // deletion.
-              result.push(bam.Fork(E1.count, E2.subAction, merge2DDiffs(E1.nextAction, bam.Fork(E2.count - E1.count, E2.subAction, E2.nextAction))));
+              result.push(Fork(E1.count, E2.subAction, merge2DDiffs(E1.nextAction, Fork(E2.count - E1.count, E2.subAction, E2.nextAction))));
             } else if(isDSame(E2.subAction)) { // Replacement while other identity
-              result.push(bam.Fork(E1.count, E1.subAction, merge2DDiffs(E1.nextAction, bam.Fork(E2.count - E1.count, E2.subAction, E2.nextAction))));
+              result.push(Fork(E1.count, E1.subAction, merge2DDiffs(E1.nextAction, Fork(E2.count - E1.count, E2.subAction, E2.nextAction))));
             } else {
               let [diff2Left, diff2Right] = splitArrayActionAt(E1.count, E2.subAction);
-              result.push(bam.Fork(E1.count,
+              result.push(Fork(E1.count,
                 merge2DDiffs(E1.subAction, diff2Left),
-                merge2DDiffs(E1.nextAction, bam.Fork(E2.count - E1.count, diff2Right, E2.nextAction))))
+                merge2DDiffs(E1.nextAction, Fork(E2.count - E1.count, diff2Right, E2.nextAction))))
             }
           } else { // E2.count < E1.count
             if(E2.count === 0) { // Insertion
-              result.push(bam.Fork(E2.count, E2.subAction, merge2DDiffs(E1, E2.nextAction)));
+              result.push(Fork(E2.count, E2.subAction, merge2DDiffs(E1, E2.nextAction)));
             } else if(E1.subAction.ctor == Type.New && (
                             (Array.isArray(E1.subAction.model) && lengthOfArray(E1.subAction.childEditActions) == 0) || 
                             (typeof E1.subAction.model == "string" && E1.subAction.model.length == 0))) { // deletion.
-              result.push(bam.Fork(E2.count, E1.subAction, merge2DDiffs(bam.Fork(E1.count - E2.count, E1.subAction, E1.nextAction), E2.nextAction)));
+              result.push(Fork(E2.count, E1.subAction, merge2DDiffs(Fork(E1.count - E2.count, E1.subAction, E1.nextAction), E2.nextAction)));
             } else if(isDSame(E1.subAction)) { // Replacement while other identity
-              result.push(bam.Fork(E2.count, E2.subAction, merge2DDiffs(bam.Fork(E1.count - E2.count, E1.subAction, E1.nextAction), E2.nextAction)));
+              result.push(Fork(E2.count, E2.subAction, merge2DDiffs(Fork(E1.count - E2.count, E1.subAction, E1.nextAction), E2.nextAction)));
             } else {
               let [diff1Left, diff1Right] = splitArrayActionAt(E2.count, E1.subAction);
-              result.push(bam.Fork(E2.count,
+              result.push(Fork(E2.count,
                 merge2DDiffs(diff1Left, E2.subAction),
-                merge2DDiffs(bam.Fork(E1.count - E2.count, diff1Right, E1.nextAction), E2.nextAction)))
+                merge2DDiffs(Fork(E1.count - E2.count, diff1Right, E1.nextAction), E2.nextAction)))
             }
           }
         }
@@ -2772,20 +2711,21 @@ Assuming ?1 = apply(E0, r, rCtx)
         result.push(E2);
       }*/
     }
+    return Choose(...result);
     if(multiple) {
-      return result;
+      return Choose(...result);
     } else {
       if(result.length === 0) {
         console.log("Problem merging two edit actions, got empty result");
-        bam.debug(E1);
-        bam.debug(E2);
+        debug(E1);
+        debug(E2);
         console.log("returning second only");
         return E2;
       }
       return result[0];
     }
-  })
-  bam.merge = merge;
+  });
+  editActions.merge = merge;
   /**/
   
   // ReuseUp(Up("a", Up("b")), New(1))
@@ -2793,7 +2733,7 @@ Assuming ?1 = apply(E0, r, rCtx)
   function ReuseUp(initUp, action) {
     let finalUp = initUp;
     while(!isIdentity(finalUp)) {
-      if(bam.__debug) {
+      if(editActions.__debug) {
         console.log("ReuseUp goes up " + keyOrOffsetToString(finalUp.keyOrOffset) + " on " + stringOf(action));
       }
       action = ReuseKeyOrOffset(finalUp.keyOrOffset, action);
@@ -2805,32 +2745,6 @@ Assuming ?1 = apply(E0, r, rCtx)
   function ActionContextWithInitUp(ECtx = undefined, initUp = Reuse()) {
     return {ctx: ECtx, initUp: initUp};
   }
-  function AddUp(keyOrOffset, ctxWithInitUp) {
-    if(ctxWithInitUp.ctx === undefined) {
-      return {ctx: undefined, initUp: Up(keyOrOffset, ctxWithInitUp.initUp)};
-    } else {
-      return {ctx: ModifyActionContext(ctxWithInitUp.ctx, r => Up(keyOrOffset, r)), initUp: ctxWithInitUp.initUp};
-    }
-  }
-  function AddDown(keyOrOffset, ctxWithInitUp) {
-    if(ctxWithInitUp.ctx === undefined) {
-      return {ctx: undefined, initUp: Down(keyOrOffset, ctxWithInitUp.initUp)};
-    } else {
-      return {ctx: ModifyActionContext(ctxWithInitUp.ctx, r => Down(keyOrOffset, r)), initUp: ctxWithInitUp.initUp};
-    }
-  }
-  function AddPathReverse(path, ctxWithInitUp) {
-    if(bam.__debug) {
-      console.log("AddPathReverse(" + stringOf(path) + ", " + actionContextToString(ctxWithInitUp.ctx) + ", " + stringOf(ctxWithInitUp.initUp) + ")");
-    }
-    if(path.ctor == Type.Up) {
-      return AddPathReverse(path.subAction, AddDown(path.keyOrOffset, ctxWithInitUp));
-    } else if(path.ctor == Type.Down) {
-      return AddPathReverse(path.subAction, AddUp(path.keyOrOffset, ctxWithInitUp));
-    } else {
-      return ctxWithInitUp;
-    }
-  }
   
   /* Returns [e', subs, initUp] where
      e' is an edit built from U suitable to apply onthe entire array.
@@ -2838,7 +2752,7 @@ Assuming ?1 = apply(E0, r, rCtx)
      initUp is the path to apply ReuseUp on
      */
   function partitionEdit(E, U, ECtx) {
-    if(bam.__debug) {
+    if(editActions.__debug) {
       console.log("partitionEdit");
       console.log("  "+addPadding(stringOf(E), "  "));
       console.log("<="+addPadding(stringOf(U), "  "));
@@ -2846,7 +2760,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     }
     if(U.ctor == Type.Reuse) {
       let buildPart = buildingPartOf(E);
-      if(bam.__debug) {
+      if(editActions.__debug) {
         console.log("Recovered a build part: " + stringOf(buildPart));
       }
       return [buildPart, [[E, U, ECtx]], ECtx];
@@ -2855,7 +2769,7 @@ Assuming ?1 = apply(E0, r, rCtx)
       let o = {};
       let next = [];
       for(let k in U.childEditActions) {
-        if(bam.__debug) {
+        if(editActions.__debug) {
           console.log("Pre-pending New({..."+k+": | })");
         }
         let [subK, nexts] = partitionEdit(E, U.childEditActions[k], ECtx);
@@ -2866,7 +2780,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     }
     if(U.ctor == Type.Down) {
       let [E1p, E1Ctxp] = walkDownActionCtx(U.keyOrOffset, E, ECtx);
-      if(bam.__debug) {
+      if(editActions.__debug) {
         console.log("After walking down " + keyOrOffsetToString(U.keyOrOffset) + ", we get "+stringOf(E1p));
         console.log("E1Ctxp: "+actionContextToString(E1Ctxp));
       }
@@ -2878,7 +2792,7 @@ Assuming ?1 = apply(E0, r, rCtx)
       }
       if(ECtx.ctor == Type.Up || ECtx.ctor == Type.Down) {
         let newECtx = ECtx.subAction;
-        if(bam.__debug) {
+        if(editActions.__debug) {
           console.log("Pre-pending " + (ECtx.ctor == Type.Up ? "Up" : "Down") + "(" + keyOrOffsetToString(ECtx.keyOrOffset) + ", |)");
         }
         let [solution, next, ECtxInit2] = partitionEdit(E, U, newECtx)
@@ -2899,14 +2813,14 @@ Assuming ?1 = apply(E0, r, rCtx)
         return [Reuse(), [[E, U, ECtx]], ECtx];
       }*/
       // Unless there is a zero out length
-      if(bam.__debug && U.count > 0) {
+      if(editActions.__debug && U.count > 0) {
         console.log("Pre-pending Concat("+U.count+", ... , |)");
       }
       let [F2, next2] = partitionEdit(E, U.second, ECtx);
       if(U.count == 0) { // We don't bother about building first element.
         return [F2, next2, ECtx];
       }
-      if(bam.__debug) {
+      if(editActions.__debug) {
         console.log("Inside Concat("+U.count+", | , [done])");
       }
       let [F1, next1] = partitionEdit(E, U.first, ECtx);
@@ -2967,7 +2881,7 @@ Assuming ?1 = apply(E0, r, rCtx)
   }
   
   function backPropagate(E, U, ECtx = undefined) {
-    if(bam.__debug) {
+    if(editActions.__debug) {
       console.log("backPropagate");
       console.log("  "+addPadding(stringOf(E), "  "));
       console.log("<="+addPadding(stringOf(U), "  "));
@@ -2996,10 +2910,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     // A hybrid possiblity is to have a first-level Down(Offset(m, n, o), R) where either o is known, or the edit action is a Concat, i.e. we are in a Fork. In this case, we want to remove [0, m] and [n, ...], and continue back-propagating in R, but not treat Forks are actions to rebuild something.
     if(U.ctor == Type.Down && isOffset(U.keyOrOffset) && (U.keyOrOffset.oldLength !== undefined || E.ctor == Type.Concat)) {
       let newU = U.subAction;
-      let did = false;
-      //bam.__debug = true;
-      //console.log("keyOrOffset" + keyOrOffsetToString(U.keyOrOffset));  
-      //console.log("U" + stringOf(U));  
+      let did = false; 
       if(U.keyOrOffset.newLength !== undefined && U.keyOrOffset.newLength > 0) {
         //console.log("newLength rewrite");  
         let o = outLength(U.subAction, U.keyOrOffset.newLength);
@@ -3014,7 +2925,7 @@ Assuming ?1 = apply(E0, r, rCtx)
       }
       if(did) {
         U = newU;
-        if(bam.__debug) {
+        if(editActions.__debug) {
           console.log("Rewritten user action to \n"+stringOf(U));
         }
       } else { // (U.keyOrOffset.newLength == undefined || U.keyOrOffset.newLength == 0) && U.keyOrOffset.count  == 0
@@ -3022,7 +2933,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         // In this particular case, if E is a Fork, we split the deletion to both sides as well.
         if(U.keyOrOffset.newLength === 0 && E.ctor == Type.Concat) {
           U = Fork(E.count, 0, Down(Offset(0, 0, E.count)), Down(Offset(0, 0, MinUndefined(U.keyOrOffset.oldLength, E.count))));
-          if(bam.__debug) {
+          if(editActions.__debug) {
             console.log("Rewritten user action from Down to \n"+stringOf(U));
           }
         }
@@ -3047,7 +2958,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     let [solution, subProblems, newECtx] = partitionEdit(E, U, ECtx);
     // Now we prefix action with the Reuse and ReuseOffset from the context and call it a solution.
     solution = prefixReuse(newECtx, solution);
-    if(bam.__debug) {
+    if(editActions.__debug) {
       console.log("intermediate solution:\n"+stringOf(solution));
     }
     for(let [E, U, ECtx] of subProblems) {
@@ -3055,7 +2966,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     }
     return solution;
   }
-  bam.backPropagate = backPropagate;
+  editActions.backPropagate = backPropagate;
   
   // Computes the output length that a children of ChildEditActions would produce on original data
   function lengthOfArray(childEditActions) {
@@ -3071,7 +2982,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     if(Array.isArray(editAction)) {
       return outLength(editAction[0]);//Approximation
     }
-    if(bam.__debug) console.log("outLength", stringOf(editAction), "("+contextCount+")");
+    if(editActions.__debug) console.log("outLength", stringOf(editAction), "("+contextCount+")");
     if(typeof editAction.cachedOutLength == "number") {
       return editAction.cachedOutLength;
     }
@@ -3090,7 +3001,7 @@ Assuming ?1 = apply(E0, r, rCtx)
       }
     }
     if(editAction.ctor == Type.Reuse) {
-      if(bam.__debug) console.log("contextCount", contextCount);
+      if(editActions.__debug) console.log("contextCount", contextCount);
       let l = contextCount || 0;
       let hadSome = false;
       for(let k in editAction.childEditActions) {
@@ -3098,7 +3009,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         hadSome = true;
       }
       let result = hadSome ? l : typeof contextCount != "undefined" ? l : undefined;
-      if(bam.__debug) console.log("Results in ", result);
+      if(editActions.__debug) console.log("Results in ", result);
       return result;
     }
     if(editAction.ctor == Type.Custom) {
@@ -3181,16 +3092,16 @@ Assuming ?1 = apply(E0, r, rCtx)
     }
     return "" + x;
   }
-  bam.uneval = uneval;
+  editActions.uneval = uneval;
   /*
   function isSimpleChildClone(editAction) {
     return editAction.ctor == Type.Reuse && editAction.path.up == undefined && List.length(editAction.path.down) == 1 && !hasAnyProps(editAction.childEditActions)
   }
   // Find all paths from complexVal to simpleVal if complexVal contains simpleVal, up to given depth
   function allClonePaths_(complexVal, simpleVal, maxDepth) {
-      //console.log("allClonePaths_", bam.uneval({complexVal, simpleVal}));
-      if (bam.uneval(simpleVal) === bam.uneval(complexVal))
-          return [bam.path()];
+      //console.log("allClonePaths_", editActions.uneval({complexVal, simpleVal}));
+      if (editActions.uneval(simpleVal) === editActions.uneval(complexVal))
+          return [editActions.path()];
       if(typeof maxDepth == "undefined" || maxDepth <= 0) return [];
       if (typeof complexVal == "object") {
           var paths = [];
@@ -3198,7 +3109,7 @@ Assuming ?1 = apply(E0, r, rCtx)
               paths.push.apply(paths,
                 allClonePaths_(complexVal[k], simpleVal, maxDepth - 1)
                 .map(function (p) {
-                  return bam.path(k, p);
+                  return editActions.path(k, p);
               }));
           };
           let a = Array.isArray(complexVal);
@@ -3223,9 +3134,9 @@ Assuming ?1 = apply(E0, r, rCtx)
   */
   // options: { onlyReuse: If set to true, if it finds the element somewhere else, it will not provide the edit action to create element from scratch }
   /*
-  bam.nd.diff = function ndDiff(oldVal, newVal, options, oldValCtx) {
+  editActions.nd.diff = function ndDiff(oldVal, newVal, options, oldValCtx) {
     // TODO: include the context while computing diffs to recover sibling clones.
-    if(bam.__debug) console.log("ndDiff", bam.uneval({oldVal, newVal}, "") + " -| " + bam.uneval(oldValCtx));
+    if(editActions.__debug) console.log("ndDiff", editActions.uneval({oldVal, newVal}, "") + " -| " + editActions.uneval(oldValCtx));
     let o = typeof oldVal;
     let n = typeof newVal;
     options = {maxCloneUp: 2, maxCloneDown: 2, isCompatibleForReuseObject: isCompatibleForReuseObjectDefault, isCompatibleForFork: isCompatibleForForkDefault, ...options};
@@ -3242,7 +3153,7 @@ Assuming ?1 = apply(E0, r, rCtx)
       let lastClosestOffset = 0;
       for(var key in newVal) {
         if(typeof oldVal == "object" && lastClosestOffset == 0 &&
-           bam.uneval(oldVal[key]) == bam.uneval(newVal[key])) {
+           editActions.uneval(oldVal[key]) == editActions.uneval(newVal[key])) {
           // Same key, we try not to find fancy diffs with it.
           childDiffs[key] = nd.Reuse(key);
         } else {
@@ -3321,9 +3232,9 @@ Assuming ?1 = apply(E0, r, rCtx)
         // o: ["p", {}, ["img", {}, []]];
         // We want to detect that.
         let diffs = [];
-        let sameKeys = bam.uneval(Object.keys(newVal)) == bam.uneval(Object.keys(oldVal));
+        let sameKeys = editActions.uneval(Object.keys(newVal)) == editActions.uneval(Object.keys(oldVal));
         if(sameKeys) { // Check if they are compatible for reuse. Treats like tuple.
-          if(bam.uneval(newVal) == bam.uneval(oldVal)) {
+          if(editActions.uneval(newVal) == editActions.uneval(oldVal)) {
             return nd.Reuse();
           }
           if(options.isCompatibleForReuseObject(oldVal, newVal)) {
@@ -3331,7 +3242,7 @@ Assuming ?1 = apply(E0, r, rCtx)
             for(let k in oldVal) {
               let oldValChild = oldVal[k];
               let newValChild = newVal[k];
-              if(bam.uneval(oldValChild) != bam.uneval(newValChild)) {
+              if(editActions.uneval(oldValChild) != editActions.uneval(newValChild)) {
                 childEditActions[k] = ndDiff(oldValChild, newValChild, options, cons(oldVal, oldValCtx));
               }
             }
@@ -3343,17 +3254,17 @@ Assuming ?1 = apply(E0, r, rCtx)
           // Find the split point: 1) Where does the first element comes from? 2) Where did the first element go?
           // At this 
           function findFork(oldVal, newVal, globalArray) {
-            if(bam.__debug) console.log("findFork", "\n" + bam.uneval(oldVal) +"\n => \n" + bam.uneval(newVal) )
+            if(editActions.__debug) console.log("findFork", "\n" + editActions.uneval(oldVal) +"\n => \n" + editActions.uneval(newVal) )
             if(oldVal.length == 0 && newVal.length == 0) {
-              if(bam.__debug) console.log("returns nd.Reuse()");
+              if(editActions.__debug) console.log("returns nd.Reuse()");
               return nd.Reuse();
             }
             if(oldVal.length == 0) {
               let x = nd.New.nested(newVal);
-              let result = bam.nd.concatMap(x, ndNew => {
+              let result = editActions.nd.concatMap(x, ndNew => {
                 for(let k in ndNew.childEditActions) { // For each index, let's find if it comes from elsewhere in global array
                   let ndSubValue = ndNew.childEditActions[k];
-                  ndNew.childEditActions[k] = bam.nd.concatMap(ndSubValue, subValueNew => {
+                  ndNew.childEditActions[k] = editActions.nd.concatMap(ndSubValue, subValueNew => {
                       let result = allClonePaths_(globalArray, newVal[k], options.maxCloneDown).map(
                         p => globalArray ? Reuse(up(k), p) : Reuse(p))
                       return (result.length == 0 || !options.onlyReuse) ? result.concat( [subValueNew]) : result;
@@ -3362,18 +3273,18 @@ Assuming ?1 = apply(E0, r, rCtx)
                 }
                 return [ndNew];
               });
-              if(bam.__debug) console.log("returns", stringOf(result));
+              if(editActions.__debug) console.log("returns", stringOf(result));
               return result;
             }
             if(newVal.length == 0) {
-              if(bam.__debug) console.log("returns", stringOf(nd.New([])));
+              if(editActions.__debug) console.log("returns", stringOf(nd.New([])));
               return nd.New([]);
             }
             // Two split indices, if applicable. If they are equal to 0, it means that the first element is the same.
             let i = 0;
             // TODO: If tags, try to align tags instead of considering equal / not equal.
-            let newValStr = newVal.map(x => bam.uneval(x));
-            let oldValStr = oldVal.map(x => bam.uneval(x));
+            let newValStr = newVal.map(x => editActions.uneval(x));
+            let oldValStr = oldVal.map(x => editActions.uneval(x));
             if(newValStr.join(",") == oldValStr.join(",") && globalArray) {
               return nd.Reuse();
             }
@@ -3382,7 +3293,7 @@ Assuming ?1 = apply(E0, r, rCtx)
               var i = fromIndex;
               while(i < inArray.length) {
                 let cmpElement = inArray[i];
-                if(bam.uneval(cmpElement) === bam.uneval(toElement)) return i;
+                if(editActions.uneval(cmpElement) === editActions.uneval(toElement)) return i;
                 i++;
               }
               return -1;
@@ -3422,7 +3333,7 @@ Assuming ?1 = apply(E0, r, rCtx)
                   res[j] = ndDiff(oldVal[j], newVal[j]);
                 }
                 let result = i > 0 ? i == oldVal.length && tmp.length == 0 ? nd.Reuse(res) : nd.Fork(i, nd.Reuse(res), tmp) : tmp;
-                if(bam.__debug) console.log("returns", stringOf(result));
+                if(editActions.__debug) console.log("returns", stringOf(result));
                 return result;
               }
               i++;
@@ -3443,7 +3354,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     }
     // Symbols
     return [];
-  } // bam.nd.diff
+  } // editActions.nd.diff
   */
   // Diff algorithm
   /**
@@ -4255,7 +4166,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     }
     return aux(linear_diff);
   }
-  bam.nd.strDiff = ndStrDiff;  
+  //editActions.nd.strDiff = ndStrDiff;  
   
   function arrayFlatMap(array, fun) {
     let result = [];
@@ -4359,7 +4270,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     }
   }
   
-  bam.display = function display(editAction) {
+  editActions.display = function display(editAction) {
     displayVar = 1;
     let record = {};
     let s = Symbol("START");
@@ -4508,10 +4419,10 @@ Assuming ?1 = apply(E0, r, rCtx)
     }
     return false;
   }
-  bam.isIdentity = isIdentity;
+  editActions.isIdentity = isIdentity;
   
   function printDebug() {
-    if(bam.__debug) console.log(...arguments);
+    if(editActions.__debug) console.log(...arguments);
   }
   
   // Plus with support for a or b to be undefined (infinity);
@@ -4640,9 +4551,9 @@ Assuming ?1 = apply(E0, r, rCtx)
         let child = self.childEditActions[k];
         let childStr =
           Array.isArray(child) ?
-             isNew && child.length == 1 && childIsSimple(child[0]) ? bam.uneval(child[0].model) :
+             isNew && child.length == 1 && childIsSimple(child[0]) ? editActions.uneval(child[0].model) :
              stringOf(child)
-          : isNew && childIsSimple(child) ? bam.uneval(child.model) : stringOf(child);
+          : isNew && childIsSimple(child) ? editActions.uneval(child.model) : stringOf(child);
         childrenStr += (childrenStr.length == 0 ? "" : ",\n") + k + ": " +
           childStr
       }
@@ -4709,10 +4620,10 @@ Assuming ?1 = apply(E0, r, rCtx)
           let childStr =
             Array.isArray(child) ?
               child.length == 1 && childIsSimple(child[0]) ?
-                bam.uneval(child[0].model)
+                editActions.uneval(child[0].model)
               : stringOf(child)
             : childIsSimple(child) ?
-                bam.uneval(child.model) :
+                editActions.uneval(child.model) :
                 stringOf(child);
           parts.push([k, childStr]);
           expectedIndex++;
@@ -4729,22 +4640,22 @@ Assuming ?1 = apply(E0, r, rCtx)
     } else if(self.ctor == Type.Concat) { // Fork
       let [inCount, outCount, left, right] = argumentsIfFork(self);
       str = "";
-      if(right !== undefined && bam.__syntacticSugarFork) {
+      if(right !== undefined && editActions.__syntacticSugarFork) {
         let [keep, subAction] = argumentsIfForkIsKeep(inCount, outCount, left, right);
-        if(subAction !== undefined && bam.__syntacticSugar) {
+        if(subAction !== undefined && editActions.__syntacticSugar) {
           str = "Keep(" + keep + ", ";
           let childStr = stringOf(subAction);
           str += addPadding(childStr, "  ");
           str += ")";
         } else {
           let [del, subAction] = argumentsIfForkIsDelete(inCount, outCount, left, right);
-          if(subAction !== undefined && bam.__syntacticSugar) {
+          if(subAction !== undefined && editActions.__syntacticSugar) {
             str = "Delete(" + del;
             str += isIdentity(subAction) ? "" : ", " + addPadding(stringOf(subAction), "  ");
             str += ")";
           } else {
             let [nInsert, inserted, second] =argumentsIfForkIsInsert(inCount, outCount, left, right);
-            if(second !== undefined && bam.__syntacticSugar) {
+            if(second !== undefined && editActions.__syntacticSugar) {
               str += "Insert(" + nInsert + ", ";
               str += addPadding(childIsSimple(inserted) ? uneval(inserted.model) : stringOf(inserted), "  ");
               str += isIdentity(second) ? "" : ", " + addPadding(stringOf(second), "  ");
@@ -4778,10 +4689,7 @@ Assuming ?1 = apply(E0, r, rCtx)
       str += addPadding(stringOf(self.first) + ",\n", padding);
       str += addPadding(stringOf(self.second), padding);
       if(self.ctx !== undefined) {
-        str += ", List.fromArray([\n" + padding +
-        List.toArray(self.ctx).map(({keyOrOffset, action, relativePath}) =>
-          "ActionContextElem(" + keyOrOffsetToString(keyOrOffset) + "," + stringOf(action) + ", " + stringOf(relativePath) + ")"
-        ).join(",\n" + padding);
+        str += ", " + stringOf(self.ctx);
         str += "])";
       }
       str += ")";
@@ -4797,23 +4705,10 @@ Assuming ?1 = apply(E0, r, rCtx)
       return self.ctor;
     }
   }
-  bam.stringOf = stringOf;
-  bam.debug = function(editAction, msg) {
-    if(msg) { 
-      console.log(msg, stringOf(editAction));
-    } else {
-      console.log(stringOf(editAction));
-    }
-    return editAction;
-  }
+  editActions.stringOf = stringOf;
   
-  /**
-    Proof:
-    
-  */
   
   /**Proof of specification:
-    
       apply(Reuse({k, Ek}), r@{...k: x...}, rCtx)
     = {...k: apply(Ek, x, (k, r)::rCtx)...}
     = r[0..c[ ++c r[c[.[k -> apply(Ek, x, (k, r)::rCtx)] 
@@ -4843,14 +4738,13 @@ Assuming ?1 = apply(E0, r, rCtx)
     apply(Ej, x, LCtx ++ (k, r)::rCtx)
     = apply(mapUpHere(Ej, k, Offset(c), mkPath(LCtx, Up(k))), x, LCtx ++ (k-c, r[c[)::(Offset(c), r)::rCtx)
   */
-  
   // mapUpHere enables us to change the key of a Reuse statement by an offset. We change its underlying sub edit action by wrapping it up calls to the main expression to Up(the new offseted key, the offset, the edit action on the main expression)
   //
   // Formally, if k >= c, then
   //   apply(Reuse({k: Ek}), r, rCtx)
   // = r[0..c[ ++c apply(Reuse({(k-c): mapUpHere(Ek, k, Offset(c, n), Up(k))}), r[c..c+n[, (Offset(c, n), r)::rCtx)
   function mapUpHere(editAction, k, offset, pathToHere = Reuse()) {
-    if(bam.__debug) {
+    if(editActions.__debug) {
       console.log("mapUpHere(", stringOf(editAction), stringOf(pathToHere));
     }
     switch(editAction.ctor) {
@@ -4972,8 +4866,8 @@ Assuming ?1 = apply(E0, r, rCtx)
     default: return editAction;
     }
   }
-})(bam)
+})(editActions)
 
 if(typeof module === "object") {
-  module.exports = bam;
+  module.exports = editActions;
 }

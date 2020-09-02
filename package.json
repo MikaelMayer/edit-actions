@@ -1,6 +1,6 @@
 {
   "name": "edit-actions",
-  "version": "1.0",
+  "version": "1.0.0",
   "description": "Library for building reversible interpreters by rewriting them to use Edit Actions",
   "main": "edit-actions.js",
   "scripts": {

@@ -1,8 +1,9 @@
-var bam = require("./bam.js");
-var {List,Reuse,New,Concat,Keep,Insert,Delete,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Fork, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, up, ReuseArray, merge, ReuseOffset, backPropagate, isIdentity, Choose, choose} = bam;
+var editActions = require("./edit-actions.js");
+var {List,Reuse,New,Concat,Keep,Insert,Delete,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Fork, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, up, ReuseArray, merge, ReuseOffset, backPropagate, isIdentity, Choose, choose} = editActions;
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
+var failAtFirst = true;
 
 shouldBeEqual(
   stringOf(Choose(New(1), New(2))),
@@ -26,7 +27,7 @@ shouldBeEqual(
 // - The first one had a non-null relative path.
 // I want to check if it's possible to put the relative path in front of the context.
 //
-bamBeEqual(
+shouldBeEqual(
   andThen(
     Reuse({9: Up(9, Down(0))}),
     Concat(5, Down(Offset(0, 5), Reuse({0: Up(0, Offset(0, 5), Down(2))})), Down(Offset(5), Concat(3, Down(Offset(0, 3)), Down(Offset(3)))))
@@ -38,7 +39,7 @@ shouldBeEqual(
     [0, 1, 2, 3]),
     {1: 2, 2: {a: [0, 0, 2, 3]}, 3: undefined});
 
-bamBeEqual(
+shouldBeEqual(
   Down(1, New([])), New([]) 
 );
 
@@ -71,7 +72,7 @@ shouldBeEqual(stringOf(Fork(5, 0, Down(Offset(0, 0)), Reuse())),
 
 shouldBeEqual(stringOf(Fork(3, 3, Reuse(), Down(Offset(0, 0)))), "Keep(3, Down(Offset(0, 0)))");
 
-bamBeEqual(
+shouldBeEqual(
   andThen(Down(Offset(3, 5)), Custom(Reuse(), {apply: x => "1"+ x, update: e => ReuseOffset(Offset(1), e), name: "append1"})),
   Custom(Custom(Reuse(), {name: "append1"}), {name: "applyOffset(Offset(3, 5), _)"}))
 
@@ -87,63 +88,50 @@ shouldBeEqual(
 );
 
 /*
-bamBeEqual(andThen(Down("f"), Custom(Reuse(), x => x, y => y, "id")), Reuse())
+shouldBeEqual(andThen(Down("f"), Custom(Reuse(), x => x, y => y, "id")), Reuse())
 */
 
-// Backward compatibility tests
-bamBeEqual(Reuse(up("a", "b"), "c", {d: {e: 1}}), Up("a", "b", Down("c", Reuse({d: New({e: New(1)})}))));
-bamBeEqual(ReuseArray(4, Reuse(), New([1])), Fork(4, 4, Reuse(), New([1])))
-bamBeEqual(ReuseArray(4, New([1]), Reuse()), Fork(4, 1, New([1]), Reuse()))
-bamBeEqual(ReuseArray(4, Up(Offset(0, 4, 6)), Reuse()), Fork(4, 6, Up(Offset(0, 4, 6)), Reuse()));
-bamBeEqual(ReuseArray(up, "b", 1, 5, New([1]), 2, Reuse(), 3, New([1]), Reuse()),
-           Up("?", Down("b", 1, Fork(5, 1, New([1]), Fork(2, 2, Reuse(), Fork(3, 1, New([1]), Reuse()))))))
-
-// TODO: Make Up and down work with offsets correctly and andThenOffset, reverseOffset
-bamBeEqual(Up(Offset(0, 2), Down(Offset(0, 2))), Down(Offset(0, 2, 2)));
+shouldBeEqual(Up(Offset(0, 2), Down(Offset(0, 2))), Down(Offset(0, 2, 2)));
 
 shouldBeEqual(stringOf(Up(Offset(2), Down(1))), "Up(Offset(2), Down(1))");
 
 shouldBeEqual(apply(Reuse({ a: New(1) }), {a: 2}), {a: 1});
 
-bamBeEqual(Keep(3, Reuse()), Reuse());
-bamBeEqual(Keep(3, Keep(5, New("1"))), Keep(8, New("1")));
-bamBeEqual(Keep(3, Keep(5, New([1]))), Keep(8, New([1])));
+shouldBeEqual(Keep(3, Reuse()), Reuse());
+shouldBeEqual(Keep(3, Keep(5, New("1"))), Keep(8, New("1")));
+shouldBeEqual(Keep(3, Keep(5, New([1]))), Keep(8, New([1])));
 
-bamBeEqual(Up("a", "b", Reuse()), Up("a", Up("b")));
-bamBeEqual(Down("a", "b", Reuse()), Down("a", Down("b")));
-bamBeEqual(Up("a", Down("a", Reuse())), Reuse());
-bamBeEqual(Down("a", Up("a", Reuse())), Reuse());
+shouldBeEqual(Up("a", "b", Reuse()), Up("a", Up("b")));
+shouldBeEqual(Down("a", "b", Reuse()), Down("a", Down("b")));
+shouldBeEqual(Up("a", Down("a", Reuse())), Reuse());
+shouldBeEqual(Down("a", Up("a", Reuse())), Reuse());
 
-bamBeEqual(Down(Offset(2, 9), Down(Offset(3, 4, 9))),
+shouldBeEqual(Down(Offset(2, 9), Down(Offset(3, 4, 9))),
               Down(Offset(5, 4)));
 
-bamBeEqual(Up(Offset(3, 4, 9), Up(Offset(2, 9))),
+shouldBeEqual(Up(Offset(3, 4, 9), Up(Offset(2, 9))),
               Up(Offset(5, 4)));
 
-bamBeEqual(Up(Offset(3), Down(Offset(3))), Reuse());
-bamBeEqual(Up(Offset(3, 5, 7), Down(Offset(2, 4, 7))), Up(Offset(1, 5, 4)));
-bamBeEqual(Up(Offset(3, 5, 7), Down(Offset(3, 4, 7))), Down(Offset(0, 4, 5)));
-bamBeEqual(Up(Offset(3, 5, 7), Down(Offset(4, 4, 7))), Down(Offset(1, 4, 5)));
+shouldBeEqual(Up(Offset(3), Down(Offset(3))), Reuse());
+shouldBeEqual(Up(Offset(3, 5, 7), Down(Offset(2, 4, 7))), Up(Offset(1, 5, 4)));
+shouldBeEqual(Up(Offset(3, 5, 7), Down(Offset(3, 4, 7))), Down(Offset(0, 4, 5)));
+shouldBeEqual(Up(Offset(3, 5, 7), Down(Offset(4, 4, 7))), Down(Offset(1, 4, 5)));
 
-bamBeEqual(Down(Offset(3), Up(Offset(3))), Reuse());
-bamBeEqual(Down(Offset(3, 5, 7), Up(Offset(2, 5, 6))), Down(Offset(1, 6, 7)));
-bamBeEqual(Down(Offset(3, 5, 7), Up(Offset(3, 5, 6))), Down(Offset(0, 6, 7)));
-bamBeEqual(Down(Offset(3, 5, 7), Up(Offset(4, 5, 6))), Up(Offset(1, 7, 6)));
+shouldBeEqual(Down(Offset(3), Up(Offset(3))), Reuse());
+shouldBeEqual(Down(Offset(3, 5, 7), Up(Offset(2, 5, 6))), Down(Offset(1, 6, 7)));
+shouldBeEqual(Down(Offset(3, 5, 7), Up(Offset(3, 5, 6))), Down(Offset(0, 6, 7)));
+shouldBeEqual(Down(Offset(3, 5, 7), Up(Offset(4, 5, 6))), Up(Offset(1, 7, 6)));
 
 
-bamBeEqual(Down(Offset(4), Up(Offset(3), Reuse())), Down(Offset(1)));
-bamBeEqual(Up(Offset(3), Down(Offset(4), Reuse())), Down(Offset(1)));
-bamBeEqual(Down(Offset(4), Up(Offset(5), Reuse())), Up(Offset(1)));
-bamBeEqual(Up(Offset(5), Down(Offset(4), Reuse())), Up(Offset(1)));
+shouldBeEqual(Down(Offset(4), Up(Offset(3), Reuse())), Down(Offset(1)));
+shouldBeEqual(Up(Offset(3), Down(Offset(4), Reuse())), Down(Offset(1)));
+shouldBeEqual(Down(Offset(4), Up(Offset(5), Reuse())), Up(Offset(1)));
+shouldBeEqual(Up(Offset(5), Down(Offset(4), Reuse())), Up(Offset(1)));
 
 shouldBeEqual(apply(Down(Offset(2, 3)), "abcdefgh"), "cde");
 
 shouldBeEqual(apply(Down(Offset(2, 5), Insert(5, New("hello"), Up(Offset(2, 5, 2)))), "abcdefghijk"), "helloab");
 
-/// bam.apply basic tests.
-shouldBeEqual(apply(Reuse({ a: Up("a", "b", Down("c", Reuse())) }), {a: 2},
-  __AddContext("b", {b: {a: 2}, c: 3})
-), {a: 3});
 shouldBeEqual(apply(Keep(3, Reuse({1: New(0)})), [0, 1, 2, 3, 4, 5]), [0, 1, 2, 3, 0, 5])
 shouldBeEqual(apply(Keep(3, New("def")), "abcghi"), "abcdef");
 
@@ -198,43 +186,43 @@ testSplitAt(4, Fork(3, 3, Reuse({0: Up(0, Down(4)), 1: Up(1, Down(2)), 2: Up(2, 
   [0, 1, 2, 3, 4, 5, 6, 7])
 */
 
-bamBeEqual(
+shouldBeEqual(
   andThen(Down(Offset(2)),
           Reuse({1: New(1), 3: Up(3, Down(0)), 4: Up(4, Down(3))})),
   Down(Offset(2), Reuse({1: Up(1, Offset(2), Down(0)), 2: Up(2, Offset(2), Down(3))})));
 
-bamBeEqual(
+shouldBeEqual(
   andThen(Down(Offset(2, 2)),
           Reuse({1: New(1), 3: Up(3, Down(0)), 4: Up(4, Down(3))})),
   Down(Offset(2, 2), Reuse({1: Up(1, Offset(2, 2), Down(0))})));
 
-bamBeEqual(
+shouldBeEqual(
   andThen(Down(Offset(1, 2)),
           Reuse({1: Up(1, Down(0)), 3: Up(3, Down(0)), 4: Up(4, Down(3))})),
   Down(Offset(1, 2), Reuse({0: Up(0, Offset(1, 2), Down(0))})));
 
-bamBeEqual(andThen(Down(1), Reuse({1: Up(1, Down(0))})),
+shouldBeEqual(andThen(Down(1), Reuse({1: Up(1, Down(0))})),
   Down(0));
 
-bamBeEqual(andThen(Fork(2, 2, Reuse(), Up(Offset(2))), Reuse({1: New(1), 3: Up(3, Down(0)), 4: Up(4, Down(3))})),
+shouldBeEqual(andThen(Fork(2, 2, Reuse(), Up(Offset(2))), Reuse({1: New(1), 3: Up(3, Down(0)), 4: Up(4, Down(3))})),
   Fork(2, 2, Reuse({1: New(1)}), Up(Offset(2), Reuse({1: New(1), 3: Up(3, Down(0)), 4: Up(4, Down(3))})))
   )
 
-bamBeEqual(andThen(Reuse({x: Reuse({y: Up("y", "x", Down("c"))})}), Reuse({c: Up("c", Down("x", "y", "z", Reuse()))})),
+shouldBeEqual(andThen(Reuse({x: Reuse({y: Up("y", "x", Down("c"))})}), Reuse({c: Up("c", Down("x", "y", "z", Reuse()))})),
               Reuse({x: Reuse({y: Down("z", Reuse())}),
                      c: Up("c", Down("x", "y", "z", Reuse()))
               }))
 
-bamBeEqual(andThen(Reuse({a: Down("c")}), Reuse({a: Up("a", Down("b"))})), Reuse({a: Up("a", Down("b", Down("c")))}));
+shouldBeEqual(andThen(Reuse({a: Down("c")}), Reuse({a: Up("a", Down("b"))})), Reuse({a: Up("a", Down("b", Down("c")))}));
 
-bamBeEqual(andThen(Reuse({a: Reuse({c: Up("c", Up("a", Reuse({a: Reuse({d: New(1)})})))})}),
+shouldBeEqual(andThen(Reuse({a: Reuse({c: Up("c", Up("a", Reuse({a: Reuse({d: New(1)})})))})}),
         Reuse({a: Up("a", Reuse())})),
 Reuse({a: Up("a", Reuse({c: Up("c", Reuse({a: Up("a", Reuse({d: New(1)}))}))}))}))
 
 //{a: X, b: {c: {d: 1}}, e: 2}
 //==>{a: {c: {d: 1}}, b: {c: {d: 1}}, e: 2}
 //==>{a: {d: 2}, b: {c: {d: 1}}, e: 2}
-bamBeEqual(andThen(
+shouldBeEqual(andThen(
   Reuse({
     a: Down("c", Reuse({
       d: Up("d", Up("c", Up("a", Down("e"))))}))}),
@@ -247,7 +235,7 @@ bamBeEqual(andThen(
 // Verify that applying firstAction and secondAction to the input is the same as applying the andthen on the input.
 function testAndThen(secondAction, firstAction, input, debugIntermediate) {
   let total = andThen(secondAction, firstAction);
-  if(bam.__debug || debugIntermediate) {
+  if(editActions.__debug || debugIntermediate) {
     console.log("composition:\n",stringOf(total));
   }
   let expected = apply(secondAction, apply(firstAction, input));
@@ -271,22 +259,22 @@ testAndThen(
 shouldBeEqual(
   apply(Sequence(Reuse({b: Up("b", Down("c"))}), Reuse({a: Up("a", Down("b"))})), {a: 1, b: 2, c: 3}), {a: 3, b: 3, c: 3});
 
-bamBeEqual(
+shouldBeEqual(
   andThen(
     Reuse({c: Up("c", Down("a"))}),
-    Reuse({a: Sequence(Up("a", Down("b")),Reuse({d: New(1)}), {hd: {keyOrOffset: "a", action: Reuse(), relativePath: Reuse()}, tl: undefined})})
+    Reuse({a: Sequence(Up("a", Down("b")),Reuse({d: New(1)}), {hd: {keyOrOffset: "a", prog: Reuse()}, tl: undefined})})
   ),
   Reuse({
   c: Up("c", Down("a", Sequence(
     Up("a", Down("b")),
     Reuse({
       d: New(1)}), List.fromArray([
-    ActionContextElem("a",Reuse(), Reuse())])))),
+    __ContextElem("a",Reuse(), Reuse())])))),
   a: Sequence(
     Up("a", Down("b")),
     Reuse({
       d: New(1)}), List.fromArray([
-    ActionContextElem("a",Reuse(), Reuse())]))})
+    __ContextElem("a",Reuse(), Reuse())]))})
 )
   // [A,B,C,D,E,F,G,H]
   // [[D],B, 1, 2, 3]
@@ -302,7 +290,7 @@ apply(Down(Offset(2), Reuse({0: up(2 or 0?})), r, ctx)
 = apply(Reuse({0, up(2 or 0)}), r[2,...[, (Offset(2), r)::ctx)
 = apply(up(2), r[2], (2, r)::ctx)
 */
-bamBeEqual(andThen(
+shouldBeEqual(andThen(
   Reuse({0: Up(0, Down(2)), 2: Up(2, Down(0))}),
   Fork(2, 2, Reuse(
     {0: Up(0, Offset(0, 2), Down(3)),
@@ -406,7 +394,7 @@ testAndThen(
     })),
 */
 
-bamBeEqual(
+shouldBeEqual(
   andThen(
     Reuse({a: Concat(1, Down(Offset(0, 1)), Concat(2, New([8, 9]), Down(Offset(1))))}),
     Reuse({a: Concat(0, Up("a", Down("b")), New([1, 2]))})),
@@ -415,14 +403,13 @@ bamBeEqual(
 );
 
 /* // Todo: make it work.
-bamBeEqual(
+shouldBeEqual(
   merge(
     Reuse({a: Up("a", Down("b", Create({x: Reuse(), c: Up("b", Down("a"))})))}),
     Reuse({a: Reuse({d: New(1)})})),
   Reuse({a: Up("a", Down("b", Create({x: Reuse(), c: Up("b", Down("a", Reuse({d: New(1)})))})))})
 )*/
-
-bamBeEqual(
+shouldBeEqual(
   merge(
     Reuse({a: New({b: Up("a", Down("c")), d: Reuse()})}),
     Reuse({a: New(3)})
@@ -430,7 +417,7 @@ bamBeEqual(
   Reuse({a: New({b: Up("a", Down("c")), d: New(3)})})
 );
 
-bamBeEqual(
+shouldBeEqual(
   merge(
     New({
       a: Reuse({
@@ -447,7 +434,7 @@ bamBeEqual(
         d: Up("b", Down("c"))})})})
 );
 
-bamBeEqual(
+shouldBeEqual(
   merge(
     Reuse({a: New(1), c: Reuse({d: New(3)})}),
     Reuse({b: New(2), c: Reuse({e: New(4)})})
@@ -455,7 +442,7 @@ bamBeEqual(
   Reuse({a: New(1), c: Reuse({d: New(3), e: New(4)}), b: New(2)})
 );
 
-bamBeEqual(
+shouldBeEqual(
   merge(
     Down(Offset(2, 5), Reuse({4: New(1)})),
     Down(Offset(3), Reuse({2: New(2), 5: New(3)})),
@@ -463,7 +450,7 @@ bamBeEqual(
   Down(Offset(3, 4), Reuse({2: New(2), 3: New(1)}))
 );
 
-bamBeEqual(
+shouldBeEqual(
   merge(
     Reuse({0: Up(0, Down(3))}),
     Keep(2, Delete(2))
@@ -471,7 +458,7 @@ bamBeEqual(
   Fork(2, 2, Reuse({0: Up(0, Offset(0, 2), Down(3))}), Delete(2))
 );
 
-bamBeEqual(
+shouldBeEqual(
   merge(
     Keep(2, Delete(2)),
     Reuse({0: Up(0, Down(3))})
@@ -479,7 +466,7 @@ bamBeEqual(
   Fork(2, 2, Reuse({0: Up(0, Offset(0, 2), Down(3))}), Delete(2))
 );
 
-bamBeEqual(
+shouldBeEqual(
   merge(
     Keep(5, Delete(1)),
     Delete(2)
@@ -487,7 +474,7 @@ bamBeEqual(
   Delete(2, Keep(3, Delete(1)))
 );
 
-bamBeEqual(
+shouldBeEqual(
   merge(
     Delete(2),
     Keep(5, Delete(1))
@@ -495,7 +482,7 @@ bamBeEqual(
   Delete(2, Keep(3, Delete(1)))
 );
 
-bamBeEqual(
+shouldBeEqual(
   merge(
     Reuse({c: Reuse({d: New(1)})}),
     Down("c")
@@ -503,7 +490,7 @@ bamBeEqual(
   Down("c", Reuse({d: New(1)}))
 );
 
-bamBeEqual(
+shouldBeEqual(
   merge(
     Down("c"),
     Reuse({c: Reuse({d: New(1)})})
@@ -511,7 +498,7 @@ bamBeEqual(
   Down("c", Reuse({d: New(1)}))
 );
 
-bamBeEqual(
+shouldBeEqual(
   merge(
     Fork(1, 2, New([1, Down(0)]), Reuse({2: Reuse({d: New(1)})})),
     Down(3)
@@ -520,7 +507,7 @@ bamBeEqual(
     d: New(1)}))
 );
 
-bamBeEqual(
+shouldBeEqual(
   merge(
     Down(3),
     Fork(1, 2, New([1, Down(0)]), Reuse({2: Reuse({d: New(1)})}))
@@ -529,7 +516,7 @@ bamBeEqual(
     d: New(1)})) // Until it can be simplified.
 );
 
-bamBeEqual(
+shouldBeEqual(
   merge(
     Fork(3, 2, New([1, Down(0)]), Reuse({0: New(1), 1: New(3)})),
     Down(Offset(1, 3))
@@ -537,7 +524,7 @@ bamBeEqual(
   Fork(3, 2, New([1, Down(0)]), Down(Offset(0, 1), Reuse({0: New(1)})))
 );
 
-bamBeEqual(
+shouldBeEqual(
   merge(
     Fork(3, 2, New([1, Down(0)]), Reuse({0: New(1), 1: New(3)})),
     Down(Offset(3, 1))
@@ -545,7 +532,7 @@ bamBeEqual(
   Down(Offset(3, 1), Reuse({0: New(1)}))
 );
 
-bamBeEqual(
+shouldBeEqual(
   merge(
     Fork(1, 2, New([1, 2]), Reuse({1: Reuse({b: New(5)})})),
     Fork(3, 3, Reuse({2: Reuse({c: New(6)})}), New([2]))
@@ -553,7 +540,7 @@ bamBeEqual(
   Fork(1, 2, New([1, 2]), Fork(2, 2, Reuse({1: Reuse({b: New(5), c: New(6)})}),  New([2])))
 );
 
-bamBeEqual(
+shouldBeEqual(
   merge(
     Fork(3, 3, Reuse({2: Reuse({c: New(6)})}), New([2])),
     Fork(1, 2, New([1, 2]), Reuse({1: Reuse({b: New(5)})}))
@@ -561,7 +548,7 @@ bamBeEqual(
   Fork(1, 2, New([1, 2]), Fork(2, 2, Reuse({1: Reuse({c: New(6), b: New(5)})}),  New([2])))
 );
 
-bamBeEqual(
+shouldBeEqual(
   merge(
     Insert(2, "ab"),
     Delete(3)
@@ -569,7 +556,7 @@ bamBeEqual(
   Insert(2, "ab", Delete(3))
 );
 
-bamBeEqual(
+shouldBeEqual(
   merge(
     Keep(2, Delete(2)),
     Keep(4, Reuse({
@@ -583,7 +570,7 @@ bamBeEqual(
 );
 
 function testBackPropagate(e, u, res, name) {
-  bamBeEqual(backPropagate(e, u), res, name);
+  shouldBeEqual(backPropagate(e, u), res, name);
 }
 
 testBackPropagate(
@@ -779,7 +766,7 @@ ea = Reuse({a: Custom(Up("a", New([Down("x"), Down("y")])),
   apply: ([x, y]) => x + y,
   update: (newEdit, oldInput, oldOutput) => {
     if(isIdentity(newEdit)) return newEdit;
-    if(newEdit.ctor == bam.Type.New) {
+    if(newEdit.ctor == editActions.Type.New) {
       return Reuse({0: newEdit.model - oldInput[1]});
     }
   }
@@ -848,37 +835,37 @@ step = Keep(5,  // "Hello"
 shouldBeEqual(apply(step, "Hello world! ?"), "Hello big world, nice world! ??")
 
 e();
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Reuse(Slice(5, 9)),
   Reuse(Slice(0, 2)),
   Reuse(Slice(5,7)),
   "slice back-propagation 2"
 );
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Reuse(Slice(5, 9)),
   Reuse(Remove(2)),
   Reuse(Remove(7,9)),
   "slice back-propagation 2"
 );
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Reuse({a: Reuse(up("a"), "b", Slice(5))}),
   Reuse({a: Reuse(Slice(0, 2))}),
   Reuse({b: Reuse(Slice(5, 7))}),
   "Slice backprop with up down"
 );
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Reuse({a: Reuse(Slice(5))}),
   Reuse({b: Reuse(up("b"), "a", Slice(0, 2))}),
   Reuse({b: Reuse(up("b"), "a", Slice(5, 7))}),
   "Slice backprop with up down"
 );
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Reuse("b", Slice(2, 7)),
   Reuse(Slice(3, 5)),
   Reuse({b: Reuse(Slice(5,7))}),
   "Slice backprop with one down"
 );
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Reuse("b", Slice(2, 7)),
   Reuse(Remove(0, 3, 5)),
   Reuse({b: Reuse(Remove(2, 5))}),
@@ -887,7 +874,7 @@ testBackPropagateNormalAndNd(
 
 // In this case, we modify the array on-place, so we back-propagate the modification.
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Reuse({a: Concat(5,
     Reuse(up("a"), "b", Slice(2, 7)),
     Reuse(Slice(4, 6)))}),
@@ -896,7 +883,7 @@ testBackPropagateNormalAndNd(
          a: Reuse(Remove(5,6))}),
   "Case Concat Reuse Slice 1"
 );
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Reuse({a: Concat(5,
     Reuse(up("a"), "b", Slice(2, 7)),
     Reuse(Slice(4, 6)))}),
@@ -905,20 +892,20 @@ testBackPropagateNormalAndNd(
          a: Reuse(Slice(4,5))}),
   "Case Concat Reuse Slice 1 strict"
 );
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Reuse({a: Reuse(up("a"), "b", Remove(0, 2, 7))}),
   Reuse({c: Reuse(up("c"), "a", Slice(3, 5))}),
   Reuse({c: Reuse(up("c"), "b", Slice(5, 7))}),
   "Case Concat Reuse Slice 2 premise"
 );
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Reuse({a: Reuse(Remove(0, 4, 6))}),
   Reuse({c: Reuse(up("c"), "a", Slice(0, 1))}),
   Reuse({c: Reuse(up("c"), "a", Slice(4, 5))}),
   "Case Concat Reuse Slice 2 premise 2"
 );
 // In this case, we import another array, so we just need to find how to import the same array in the program.
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Reuse({a: Concat(5,
     Reuse(up("a"), "b", Remove(0, 2, 7)),
     Reuse(Remove(0, 4, 6)))}),
@@ -950,27 +937,27 @@ testBackPropagateNormalAndNd(
 // How to ensure it works with Remove?
 //
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Concat(4, Reuse(Slice(0, 4)),
          Reuse(Slice(5))),
   Reuse(Remove(2)),
   Reuse(Remove(2,4,5)), "Reinject the omitted element"
 );
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Concat(4, Reuse(Slice(0, 4)),
          Reuse(Slice(5))),
   Reuse(Slice(6,8)),
   Reuse(Slice(7,9)), "Shifted slice"
 );
 s();
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Concat(4, Reuse(Slice(0, 4)),
          Reuse(Slice(5))),
   Reuse(Slice(2,8)),
   Reuse(Slice(2,4,5,9)), "Spanning slice"
 );
 e();
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Reuse({a: Concat(4, Reuse(up("a"), "b", Slice(0, 4)),
     Reuse(Slice(5)))}),
   Reuse({a: Reuse(Slice(6,8))}),
@@ -980,7 +967,7 @@ testBackPropagateNormalAndNd(
   "Shifted slice on separate branches"
 );
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Reuse({a: Concat(4, Concat(2, Reuse(up("a"), "b", Slice(1, 3)), Reuse(up("a"), "c", Slice(0, 2))),
     Reuse(Slice(5)))}),
   Reuse({a: Reuse(Slice(6,8))}),
@@ -991,14 +978,14 @@ testBackPropagateNormalAndNd(
   "Shifted slice on separate branches"
 );
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Concat(4, Reuse(Slice(0, 4)),
          1, New("X"),
          Reuse(Slice(4))),
   Reuse(Slice(6,8)),
   Reuse(Slice(5,7)), "Shifted slice again"
 );
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Reuse(Remove(4, 5)),
   Reuse(Remove(1,2,3)),
   Reuse(Remove(1,2,3,4,5)),
@@ -1016,7 +1003,7 @@ We cannot just blindly concatenate these results.
 
 
 */
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Concat(4, Reuse(Slice(0, 4)),
          Reuse(Slice(5))),
   Reuse(Remove(2,6,8)),
@@ -1024,14 +1011,14 @@ testBackPropagateNormalAndNd(
   "back-Propagation of bigger concat"
 );
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Reuse(Slice(5)),
   Reuse(Slice(2)),
   Reuse(Remove(5, 7)),
   "slice back-propagation"
 )
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Reuse(Slice(5, 9)),
   Reuse(Slice(2)),
   Reuse(Remove(5, 7)),
@@ -1039,14 +1026,14 @@ testBackPropagateNormalAndNd(
 )
 
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Concat(4, Reuse(Slice(0, 4)),
             Reuse(Slice(5))),
   Reuse(Slice(0, 6)),
   Reuse(Slice(0, 7)), "Concat to slice");
 
 s();
-testBackPropagateNormal(
+testBackPropagate(
   Reuse(Remove(4, 5)),
   Reuse(Slice(0, 6), {5: New(1)}),
   Reuse(Slice(0, 7), {6: New(1)}), "Concat to slice");
@@ -1054,8 +1041,8 @@ e();
 
 
 
-bam.__debug = true;       
-testBackPropagateNormalAndNd(
+editActions.__debug = true;       
+testBackPropagate(
   Concat(4, Reuse(Slice(0, 4)),
             Reuse(Slice(5))),
   Concat(6, Reuse(Slice(0, 6)),
@@ -1091,13 +1078,13 @@ shouldBeEqual(
 shouldBeEqual(
   Remove.portions.merge([0, 3], [0, 1, 5]), [0, 3, 5],
 "merge remove portions 1");
-bamBeEqual(
+shouldBeEqual(
   Concat(3, New("abc"),New("de")), New("abcde")
 );
 
-bamBeEqual(Concat(4, Reuse(Remove(0, 1, 5)), Reuse(Remove(0, 5,   8))), Reuse(Remove(0, 1, 8)), "optimize Concat")
+shouldBeEqual(Concat(4, Reuse(Remove(0, 1, 5)), Reuse(Remove(0, 5,   8))), Reuse(Remove(0, 1, 8)), "optimize Concat")
 
-bamBeEqual(
+shouldBeEqual(
   Concat(3, New([1, 2, 3]),New([4, 5])), New([1, 2, 3, 4, 5])
 );
 
@@ -1164,17 +1151,17 @@ shouldBeEqual(
   path(Slice(5)),
   "Slice Concat 5"
 )
-bamBeEqual(
-  bam.merge(Reuse(Remove(0,1, 5), {0: New(0), 3: New(2)}), Reuse(Remove(0, 3, 8), {0: New(1), 4: New(3)})),
+shouldBeEqual(
+  merge(Reuse(Remove(0,1, 5), {0: New(0), 3: New(2)}), Reuse(Remove(0, 3, 8), {0: New(1), 4: New(3)})),
   Reuse(Remove(0, 3, 5), {0: New(1), 1: New(2)}), "Merge two slices 1");
-bamBeEqual(
-  bam.merge(Reuse(Remove(0, 3,8), {0: New(1), 4: New(3)}), Reuse(Remove(0, 1, 5), {0: New(0), 3: New(2)})),
+shouldBeEqual(
+  merge(Reuse(Remove(0, 3,8), {0: New(1), 4: New(3)}), Reuse(Remove(0, 1, 5), {0: New(0), 3: New(2)})),
   Reuse(Remove(0, 3, 5), {0: New(1), 1: New(2)}), "Merge two slices 2");
-bamBeEqual(
-  bam.merge(Reuse(Remove(0,1,5), {0: New(0), 3: New(2)}), Reuse(Remove(0, 3), {0: New(1), 4: New(3)})),
+shouldBeEqual(
+  merge(Reuse(Remove(0,1,5), {0: New(0), 3: New(2)}), Reuse(Remove(0, 3), {0: New(1), 4: New(3)})),
   Reuse(Remove(0, 3, 5), {0: New(1), 1: New(2)}), "Merge two slices 3");
-bamBeEqual(
-  bam.merge(Reuse(Remove(0, 3), {0: New(1), 4: New(3)}), Reuse(Remove(0, 1,5), {0: New(0), 3: New(2)})),
+shouldBeEqual(
+  merge(Reuse(Remove(0, 3), {0: New(1), 4: New(3)}), Reuse(Remove(0, 1,5), {0: New(0), 3: New(2)})),
   Reuse(Remove(0, 3, 5), {0: New(1), 1: New(2)}), "Merge two slices 4");
 testMergeAndReverse(
   Reuse(Remove(0, 1,5)), Reuse(Remove(0, 6)),
@@ -1213,19 +1200,19 @@ testMergeAndReverse(
   Reuse(Remove(0, 3)),
   Concat(8, New("inserted"), Reuse(Remove(0, 4))), "merge concat Remove");
 
-bamBeEqual(
-  bam.merge(Concat(10, Reuse(Remove(10)), Reuse(Remove(10))),
+shouldBeEqual(
+  merge(Concat(10, Reuse(Remove(10)), Reuse(Remove(10))),
   Concat(5, Reuse(Remove(5)), 2, New("ab"), Reuse(Remove(0, 5)))),
   Concat(Concat(5, Reuse(Remove(5)), 2, New("ab"), Reuse(Remove(0, 5, 10))), Concat(5, Reuse(Remove(5)), 2, New("ab"), Reuse(Remove(0, 5, 10)))),
   "insert and duplicate"
 );
-bamBeEqual(
-  bam.merge(Concat(New("abc"), Reuse()),
+shouldBeEqual(
+  merge(Concat(New("abc"), Reuse()),
             Concat(Reuse(Slice(3, 5)),Reuse(Slice(0, 3)))),
   Concat(Reuse(Slice(3, 5)), Concat(New("abc"), Reuse(Slice(0, 3)))),
   "Permutation and insertion 1");
-bamBeEqual(
-  bam.merge(Concat(Reuse(Slice(3, 5)),Reuse(Slice(0, 3))),
+shouldBeEqual(
+  merge(Concat(Reuse(Slice(3, 5)),Reuse(Slice(0, 3))),
             Concat(New("abc"), Reuse())),
   Concat(Reuse(Slice(3, 5)), Concat(New("abc"), Reuse(Slice(0, 3)))),
   "Permutation and insertion 2");
@@ -1241,8 +1228,8 @@ testMergeAndReverse(
        9, New("inserted2"),
           Reuse(Slice(4))), "merge concat concat 1");
 e();
-bamBeEqual(
-  bam.merge(Concat(5, Reuse(Slice(0,5)), Reuse(Slice(7))),
+shouldBeEqual(
+  merge(Concat(5, Reuse(Slice(0,5)), Reuse(Slice(7))),
     Concat(2, Reuse(Slice(0,2)), Reuse(Slice(4)))),
   Concat(3, Concat(2, Reuse(Slice(0, 2)),
                     Reuse(Slice(4, 5))),
@@ -1258,8 +1245,8 @@ testMergeAndReverse(
            Reuse(Slice(0, 1))),
   "Permutation and insertion again"
 );
-bamBeEqual(
-  bam.merge(Concat(5, Reuse(Slice(0,5)), Reuse(Slice(8))),
+shouldBeEqual(
+  merge(Concat(5, Reuse(Slice(0,5)), Reuse(Slice(8))),
             Concat(7, Reuse(Slice(0,7)), Concat(3, New("abc"), Reuse(Slice(7))))),
   Concat(5, Reuse(Slice(0,5)), Reuse(Slice(8)))
 );
@@ -1310,12 +1297,6 @@ shouldBeEqual(path(Slice(2, 5), Slice(1, 3), up(Slice(3, 5))), path.identity, "p
 shouldBeEqual(pathChildEditActions([Slice(2, 5), Slice(1, 3), up(Slice(3, 5))]), [path.identity, {}], "path with slices - with edit actions");
 shouldBeEqual(pathChildEditActions([Slice(2, 5), 1]), [path(3), {}], "No field after slices - with edit actions");
 shouldBeEqual(pathChildEditActions([Slice(2, 5), path(1)]), [path(3), {}], "No field after slices - with edit actions");
-
-shouldBeEqual(bam.__composeStackPath(Field("k", undefined), path(up("k"), "c")), Field("c"));
-shouldBeEqual(bam.__composeStackPath(Field("k", Field("d", undefined)), path(up("k"), "c")), Field("c", Field("d", undefined)));
-shouldBeEqual(bam.__composeStackPath(SSlice(Slice(2, 5), undefined), up(Slice(2, 5))), undefined);
-shouldBeEqual(bam.__composeStackPath(SSlice(Slice(2, 5), Field("a", Field("b", undefined))), up("a")), Field("b", undefined));
-shouldBeEqual(bam.__composeStackPath(SSlice(Slice(2, 5), undefined), path(Slice(2, 3))), SSlice(Slice(4,5), undefined));
 
 var exp1 =
   { ctor: "let1",
@@ -1498,18 +1479,14 @@ var expectedExpAfterStep =
             fun: "a",
             arg: "w"}}}}}
 shouldBeEqual(expAfterStep, expectedExpAfterStep);
-/*console.log("exp1", uneval(exp1, ""));
-console.log("expectedExpAfterStep", uneval(expectedExpAfterStep, ""));
-console.log(bam.display(globalStep2));
-console.log(bam.stringOf(globalStep2));*/
 var expAfterGlobalStep2 = apply(globalStep2, exp1);
 shouldBeEqual(expAfterGlobalStep2, expectedExpAfterStep);
-bamBeEqual(
+shouldBeEqual(
  andThen(
    step,
    globalStep1),
   globalStep2);
-bamBeEqual(
+shouldBeEqual(
   andThen(
     Reuse({body: Reuse(up("body"))}),
     New({ body: Reuse("a", "b")})
@@ -1517,7 +1494,7 @@ bamBeEqual(
   New({ body: New({ body: Reuse("a", "b")})})
 );
 
-bamBeEqual(
+shouldBeEqual(
   andThen(
     Reuse({body: Reuse({fun: Reuse(up("fun"), up("body"), "arg")})}),
     New({ 
@@ -1529,7 +1506,7 @@ bamBeEqual(
       body: Reuse({fun: Reuse(up("fun"), "c")})})
 );
 
-bamBeEqual(
+shouldBeEqual(
   andThen(
     Reuse({body: Reuse({fun: Reuse({fun2: Reuse(up("fun2"), up("fun"), up("body"), "arg")})})}),
     New({ 
@@ -1544,7 +1521,7 @@ bamBeEqual(
 );
 
 
-bamBeEqual(
+shouldBeEqual(
   andThen(
     Reuse({body: Reuse({fun: Reuse(up("fun"), up("body"), "arg")})}),
     New({ 
@@ -1556,7 +1533,7 @@ bamBeEqual(
       body: Reuse("a", {fun: Reuse(up("fun"), up("a"), "c")})})
 );
 
-bamBeEqual(
+shouldBeEqual(
   andThen(
     Reuse({body: Reuse({fun: Reuse(up("fun"), up("body"), "arg")})}),
     New({ 
@@ -1568,7 +1545,7 @@ bamBeEqual(
       body: Reuse("a", "b", {fun: Reuse(up("fun"), up("b"), up("a"), "c")})})
 );
 
-bamBeEqual(
+shouldBeEqual(
   andThen(
     Reuse({body: Reuse({fun: Reuse(up("fun"), up("body"), "arg")})}),
     New({ 
@@ -1580,19 +1557,19 @@ bamBeEqual(
       body: Reuse("a", "b", {fun: Reuse(up("fun"), up("b"), up("a"), "c")})})
 );
 
-bamBeEqual(
+shouldBeEqual(
   andThen(
     Reuse({c: Reuse({e: Reuse({f: Reuse(up("f"), up("e"), up("c"), "a")})})}),
     New({a: Reuse("b"), c: Reuse("d")})),
   New({a: Reuse("b"), c: Reuse("d", {e: Reuse({f: Reuse(up("f"), up("e"), up("d"), "b")})})}));
 
-bamBeEqual(
+shouldBeEqual(
   andThen(
     Reuse({c: Reuse({e: Reuse(up("e"), up("c"), "a")})}),
     New({a: Reuse("b"), c: Reuse("d")})),
   New({a: Reuse("b"), c: Reuse("d", {e: Reuse(up("e"), up("d"), "b")})}));
 
-bamBeEqual(
+shouldBeEqual(
   andThen(
     Reuse({body: Reuse({fun: Reuse({fun: Reuse(up("fun"), up("fun"), up("body"), "arg"),
                                     arg: Reuse(up("arg"), up("fun"), up("fun"), "arg")})})}),
@@ -1608,7 +1585,7 @@ bamBeEqual(
                                               arg: Reuse(up("arg"), up("fun"), up("body"), up("fun"), "arg", "arg")})})})
 );
 
-bamBeEqual(
+shouldBeEqual(
   andThen(
     Reuse("fun", "body", {fun: Reuse({fun: Reuse(up("fun"), up("fun"), up("body"), up("fun"), "arg"),
                                       arg: Reuse(up("arg"), up("fun"), up("body"), up("fun"), "arg")})}),
@@ -1618,7 +1595,7 @@ bamBeEqual(
                                     arg: Reuse(up("arg"), up("fun"), up("body"), up("fun"), "arg", "arg")})})
 )
 
-bamBeEqual(
+shouldBeEqual(
   Concat(0, New([]), Reuse()),
   Reuse(),
   "Concat simplify 1"
@@ -1660,33 +1637,33 @@ shouldBeEqual(
   "Concat multiple"
 )
 
-bamBeEqual(
+shouldBeEqual(
   andThen(Concat(1, New([1]), Reuse()), Reuse(Slice(1))),
   Concat(1, New([1]), Reuse(Slice(1))),
   "Non-reversible Concat"
 )
 
-bamBeEqual(
+shouldBeEqual(
   andThen(Reuse(Slice(1)), Concat(1, New([1]), Reuse())),
   Reuse(),
   "Reversible Concat"
 )
 
-bamBeEqual(
+shouldBeEqual(
   andThen(Concat(3, Reuse(Slice(2, 5)), Reuse(Slice(0, 2))),
           Concat(2, Reuse(Slice(3, 5)), Reuse(Slice(0, 3)))),
   Reuse(Slice(0, 5)),
   "Simplification of two anti-permutations"
 )
-bamBeEqual(
+shouldBeEqual(
   andThen(Concat(3, Reuse(Slice(2, 5)), Reuse(Slice(0, 2))),
           Concat(3, Reuse(Slice(2, 5)), Reuse(Slice(0, 2)))),
   Concat(1, Reuse(Slice(4, 5)), Reuse(Slice(0, 4))),
   "Simplification of permutations"
 )
 
-bam.__debug = true;       
-testBackPropagateNormalAndNd(
+editActions.__debug = true;       
+testBackPropagate(
   Concat(4, Reuse(Slice(0, 4)),
          2, Reuse(Slice(5, 7)),
             Reuse(Slice(9))),
@@ -1698,15 +1675,7 @@ testBackPropagateNormalAndNd(
          Reuse(Slice(21)))
 , "Concat Multiple");
 finishTests(true);
-shouldBeEqual(
-  bam.overApproximateConcatPath(
-    bam.ConcatPath(1, {hd: Slice(0, 1)}, {hd: Slice(3, 10)})
-  ),
-  Slice(0, 10)
-)
 
-
-finishTests(true);
 step = Reuse({1: Reuse({2: Concat(4, Reuse(Slice(0, 4)),
                                   2, Reuse(Slice(5, 7)),
                                      Reuse(Slice(9)))})});
@@ -1726,8 +1695,8 @@ user = Reuse({1: Reuse({2: Concat(17, Reuse(Slice(0, 17)),
                                   1, New("\""),
                                   3, Reuse(Slice(182, 185)),
                                   1, New("\""), Reuse(Slice(186)))})});
-bam.__debug = true;
-testBackPropagateNormalAndNd(step, user,
+editActions.__debug = true;
+testBackPropagate(step, user,
         Reuse({1: Reuse({2: Concat(20, Reuse(Slice(0, 20)),
                                    
                                    1, New("\""),
@@ -1748,7 +1717,7 @@ testBackPropagateNormalAndNd(step, user,
 finishTests(true);
 
 /*
-bamBeEqual(
+shouldBeEqual(
   andThen(
   Reuse({array: ReuseArray(1, Reuse(), 2, New([]), Reuse())}),
   Reuse({array:
@@ -1765,21 +1734,21 @@ var editStep = ReuseArray(5, Custom(Reuse(),
      update: outEdit => ReuseArray(2, outEdit, Reuse())}), Reuse());
 var applied = apply(editStep, [1, 2, 3, 4, 5, 6, 7]);
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
   editStep,
   ReuseArray(1, New([]), Reuse()),
   ReuseArray(1, New([]), Reuse()),
   "Do not slit custom"
 )
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
   editStep,
   ReuseArray(3, New([]), Reuse()),
   ReuseArray(2, New([]), ReuseArray(3, Reuse(), ReuseArray(1, New([]), Reuse()))), "Do not split custom 2")
 
 //finishTests(true);
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Custom(New([Reuse("a"), Reuse("b", "c")]),
   { name: "max",
     apply: x => x[0] > x[1] ? x[0] : x[1],
@@ -1789,15 +1758,15 @@ testBackPropagateNormalAndNd(
   Reuse({b: Reuse({c: New(2)})})
 );
 
-bamBeEqual(New({a: {b: 1}}), New({a: New({b: New(1)})}), "Wrap bare New");
-bamBeEqual(nd.New({a: {b: 1}}), nd.New({a: nd.New({b: nd.New(1)})}), "Wrap bare New nd");
+shouldBeEqual(New({a: {b: 1}}), New({a: New({b: New(1)})}), "Wrap bare New");
+shouldBeEqual(nd.New({a: {b: 1}}), nd.New({a: nd.New({b: nd.New(1)})}), "Wrap bare New nd");
 
-bamBeEqual(Reuse({a: 1}), Reuse({a: New(1)}), "Wrap New");
-bamBeEqual(nd.Reuse({a: 1}), nd.Reuse({a: nd.New(1)}), "Wrap New nd");
-bamBeEqual(Reuse({a: {b: 1}}), Reuse({a: New({b: New(1)})}), "Wrap New object")
-bamBeEqual(nd.Reuse({a: {b: 1}}), nd.Reuse({a: nd.New({b: nd.New(1)})}), "Wrap New object nd");
-bamBeEqual(Reuse({a: {b: Reuse("x")}}), Reuse({a: New({b: Reuse("x")})}), "Wrap New nested object");
-bamBeEqual(nd.Reuse({a: {b: nd.Reuse("x")}}), nd.Reuse({a: nd.New({b: nd.Reuse("x")})}), "Wrap New nested object nd");
+shouldBeEqual(Reuse({a: 1}), Reuse({a: New(1)}), "Wrap New");
+shouldBeEqual(nd.Reuse({a: 1}), nd.Reuse({a: nd.New(1)}), "Wrap New nd");
+shouldBeEqual(Reuse({a: {b: 1}}), Reuse({a: New({b: New(1)})}), "Wrap New object")
+shouldBeEqual(nd.Reuse({a: {b: 1}}), nd.Reuse({a: nd.New({b: nd.New(1)})}), "Wrap New object nd");
+shouldBeEqual(Reuse({a: {b: Reuse("x")}}), Reuse({a: New({b: Reuse("x")})}), "Wrap New nested object");
+shouldBeEqual(nd.Reuse({a: {b: nd.Reuse("x")}}), nd.Reuse({a: nd.New({b: nd.Reuse("x")})}), "Wrap New nested object nd");
 
                  
 step = Reuse({1: Reuse({2: ReuseArray(4, Reuse(),
@@ -1822,7 +1791,7 @@ user = Reuse({1: Reuse({2: ReuseArray(17, Reuse(),
                                        3, Reuse(),
                                        1, New("\""),
                                        Reuse())})});
-testBackPropagateNormalAndNd(step, user,
+testBackPropagate(step, user,
         Reuse({1: Reuse({2: ReuseArray(9, Reuse(),
                                        11, Reuse(),
                                        1, New("\""),
@@ -1842,7 +1811,7 @@ testBackPropagateNormalAndNd(step, user,
                                        1, New("\""),
                                        Reuse())})}), "editActionOutLength == 0");
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
   Reuse({2: Reuse({1: ReuseArray(1, Reuse(),
                                   0, New("\n"),
                                      Reuse())})}),
@@ -1860,9 +1829,9 @@ testBackPropagateNormalAndNd(
                        2: Reuse(1),
                        3: Reuse(2)}, []),
                  Reuse()), "independend changes")
-bamBeEqual(bam.diff(1, undefined), New(undefined));
-bamBeEqual(bam.diff(undefined, 1), New(1));
-bamBeEqual(bam.diff(undefined, [undefined], {maxCloneDown: 1}), New([Reuse()]))
+shouldBeEqual(editActions.diff(1, undefined), New(undefined));
+shouldBeEqual(editActions.diff(undefined, 1), New(1));
+shouldBeEqual(editActions.diff(undefined, [undefined], {maxCloneDown: 1}), New([Reuse()]))
 
 var step =
   ReuseArray(2, New({ 0: Reuse(0),
@@ -1873,33 +1842,33 @@ var edit =
   Reuse({0: New(42),
          1: New(54)});
 
-testBackPropagateNormalAndNd(step, edit, ReuseArray(2, Reuse({0: New(42), 1: New(54)}), Reuse()));
+testBackPropagate(step, edit, ReuseArray(2, Reuse({0: New(42), 1: New(54)}), Reuse()));
 
-bamBeEqual(bam.merge(
+shouldBeEqual(merge(
              ReuseArray(0, New([1, 2]), Reuse()),
              ReuseArray(0, New([3, 4]), Reuse())),
            ReuseArray(0, New([1, 2]), 0, New([3, 4]), Reuse()), "merge ReuseArray 1");
-bamBeEqual(bam.merge(
+shouldBeEqual(merge(
              ReuseArray(1, New([]), Reuse()),
              ReuseArray(0, New([3, 4]), Reuse())),
            ReuseArray(0, New([3, 4]), 1, New([]), Reuse()), "merge ReuseArray 2");
-bamBeEqual(bam.merge(
+shouldBeEqual(merge(
              ReuseArray(0, New([1, 2]), Reuse()),
              ReuseArray(1, New([]), Reuse())),
            ReuseArray(0, New([1, 2]), 1, New([]), Reuse()), "merge ReuseArray 3");
-bamBeEqual(bam.merge(
+shouldBeEqual(merge(
              ReuseArray(2, Reuse(), New([1])),
              ReuseArray(1, New([]), Reuse())),
            ReuseArray(1, New([]), 1, Reuse(), New([1])));
-bamBeEqual(bam.merge(
+shouldBeEqual(merge(
              ReuseArray(1, New([]), Reuse()),
              ReuseArray(2, Reuse(), New([1]))),
            ReuseArray(1, New([]), 1, Reuse(), New([1])));
-bamBeEqual(bam.merge(
+shouldBeEqual(merge(
              ReuseArray(3, Reuse({1: New(2)}), Reuse()),
              ReuseArray(2, Reuse({0: New(1)}), Reuse())),
            ReuseArray(2, Reuse({0: New(1), 1: New(2)}), ReuseArray(1, Reuse(), Reuse())));
-bamBeEqual(bam.merge(
+shouldBeEqual(merge(
              ReuseArray(2, Reuse({0: New(1)}), Reuse()),
              ReuseArray(3, Reuse({1: New(2)}), Reuse())),
            ReuseArray(2, Reuse({0: New(1), 1: New(2)}), ReuseArray(1, Reuse(), Reuse())));
@@ -1932,7 +1901,7 @@ var b =
   ReuseArray(1, Reuse(),
              1, New("0"),
              Reuse());
-bamBeEqual(bam.andThen(b, a),
+shouldBeEqual(andThen(b, a),
   ReuseArray(2, ReuseArray(1, Reuse(), New("0")), Reuse()));
 
 var d = ReuseArray(14, New({ 0: Reuse(0)  ,
@@ -1952,7 +1921,7 @@ var d = ReuseArray(14, New({ 0: Reuse(0)  ,
 var s = Reuse({13: Reuse({1: ReuseArray(1, Reuse(),
                                         0, New("\n"),
                                         Reuse())})})
-bamBeEqual(bam.backPropagate(s, d), d);
+shouldBeEqual(backPropagate(s, d), d);
 
 var m1 = ReuseArray(47, New("A"), Reuse())
 var m2 = ReuseArray(1, Reuse(),
@@ -1967,14 +1936,14 @@ var m4 = ReuseArray(3, Reuse(),
 var m5 = ReuseArray(2, Reuse(),
            1, New("G"),
               Reuse());
-var m45 = bam.andThen(m5, m4);
-bamBeEqual(m45, ReuseArray(3, ReuseArray(2, Reuse(), New("G")), 0, New("r"), Reuse()), "m45");
-var m345 = bam.andThen(m45, m3);
-bamBeEqual(m345, ReuseArray(1, Reuse(), 1, New(" G"), 0, New("r"), Reuse()), "m345");
-var m2345 = bam.andThen(m345, m2);
-bamBeEqual(m2345, ReuseArray(1, Reuse(), 0, New(" G"), 0, New("r"), Reuse()), "m2345");
-var m12345 = bam.andThen(m2345, m1);
-bamBeEqual(m12345, ReuseArray(47, New("A"), 0, New(" G"), 0, New("r"), Reuse()), "m12345");
+var m45 = andThen(m5, m4);
+shouldBeEqual(m45, ReuseArray(3, ReuseArray(2, Reuse(), New("G")), 0, New("r"), Reuse()), "m45");
+var m345 = andThen(m45, m3);
+shouldBeEqual(m345, ReuseArray(1, Reuse(), 1, New(" G"), 0, New("r"), Reuse()), "m345");
+var m2345 = andThen(m345, m2);
+shouldBeEqual(m2345, ReuseArray(1, Reuse(), 0, New(" G"), 0, New("r"), Reuse()), "m2345");
+var m12345 = andThen(m2345, m1);
+shouldBeEqual(m12345, ReuseArray(47, New("A"), 0, New(" G"), 0, New("r"), Reuse()), "m12345");
 
 var m5b = ReuseArray(4, Reuse(),
            0, New(" "),
@@ -1988,19 +1957,19 @@ var m7b = ReuseArray(6, Reuse(),
 var m8b = ReuseArray(2, Reuse(),
            1, New("G"),
               Reuse());
-var m7b8b = bam.andThen(m8b, m7b);
-bamBeEqual(m7b8b, ReuseArray(6, ReuseArray(2, Reuse(),
+var m7b8b = andThen(m8b, m7b);
+shouldBeEqual(m7b8b, ReuseArray(6, ReuseArray(2, Reuse(),
                          1, New("G"),
                             Reuse()), 0, New("o"), Reuse()), "m7b8b");
-var m6b7b8b = bam.andThen(m7b8b, m6b);
-bamBeEqual(m6b7b8b, ReuseArray(4, ReuseArray(2, Reuse(),
+var m6b7b8b = andThen(m7b8b, m6b);
+shouldBeEqual(m6b7b8b, ReuseArray(4, ReuseArray(2, Reuse(),
                          1, New("G"),
                             Reuse()),
            1, New(" w"),
            0, New("o"), Reuse()), "m6b7b8b");
 
-bamBeEqual(
-  bam.andThen(
+shouldBeEqual(
+  andThen(
     ReuseArray(2, Reuse(), 1, New("G"), Reuse()),
     ReuseArray(47, New("A"),
            0, New(" g"),
@@ -2011,51 +1980,51 @@ bamBeEqual(
                0, New("r"), Reuse()));
 
 
-bamBeEqual(
-  bam.andThen(ReuseArray(1, Reuse(), 1, New("B"), Reuse()), ReuseArray(0, New(" b"), Reuse())),
+shouldBeEqual(
+  andThen(ReuseArray(1, Reuse(), 1, New("B"), Reuse()), ReuseArray(0, New(" b"), Reuse())),
   ReuseArray(0, New(" B"), Reuse()));
 
 // Insertion followed by deletion of the same element.
-//bam.__debug = true;
+//s()
 //finishTests(true);
 var p1 = "Hello world", p2 = "Hallo world", p3 = "Hallo wrld", p4 = "Hello wrld";
-shouldBeEqual(bam.apply(bam.backPropagate(bam.diff(p1, p2), bam.diff(p2, p3)), p1), p4, "Modification then deletion");
+shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Modification then deletion");
 var p1 = "Hello world", p2 = "Hllo world", p3 = "Hllo wrld";
-shouldBeEqual(bam.apply(bam.backPropagate(bam.diff(p1, p2), bam.diff(p2, p3)), p1), p4, "Deletion then deletion");
+shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Deletion then deletion");
 var p1 = "Hello world", p2 = "Heillo world", p3 = "Heillo wrld";
-shouldBeEqual(bam.apply(bam.backPropagate(bam.diff(p1, p2), bam.diff(p2, p3)), p1), p4, "Insertion then deletion");
+shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Insertion then deletion");
 
 var p1 = "Hello world", p2 = "Hallo world", p3 = "Hallo wourld", p4 = "Hello wourld";
-shouldBeEqual(bam.apply(bam.backPropagate(bam.diff(p1, p2), bam.diff(p2, p3)), p1), p4, "Modification then insertion");
+shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Modification then insertion");
 var p1 = "Hello world", p2 = "Hllo world", p3 = "Hllo wourld";
-shouldBeEqual(bam.apply(bam.backPropagate(bam.diff(p1, p2), bam.diff(p2, p3)), p1), p4, "Deletion then insertion");
+shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Deletion then insertion");
 var p1 = "Hello world", p2 = "Heillo world", p3 = "Heillo wourld";
-shouldBeEqual(bam.apply(bam.backPropagate(bam.diff(p1, p2), bam.diff(p2, p3)), p1), p4, "Insertion then insertion");
+shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Insertion then insertion");
 
 var p1 = "Hello world", p2 = "Hallo world", p3 = "Hallo warld", p4 = "Hello warld";
-shouldBeEqual(bam.apply(bam.backPropagate(bam.diff(p1, p2), bam.diff(p2, p3)), p1), p4, "Modification then modification");
+shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Modification then modification");
 var p1 = "Hello world", p2 = "Hllo world", p3 = "Hllo warld";
-shouldBeEqual(bam.apply(bam.backPropagate(bam.diff(p1, p2), bam.diff(p2, p3)), p1), p4, "Deletion then modification");
+shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Deletion then modification");
 var p1 = "Hello world", p2 = "Heillo world", p3 = "Heillo warld";
-shouldBeEqual(bam.apply(bam.backPropagate(bam.diff(p1, p2), bam.diff(p2, p3)), p1), p4, "Insertion then modification");
+shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Insertion then modification");
 
-addHTMLCapabilities(bam)
+addHTMLCapabilities(editActions)
 
 findNextSimilar = debugFun(function findNextSimilar(inArray, toElement, fromIndex) {
   var unevaledToElement = uneval(toElement);
-  var isElement = bam.isElement(toElement);
+  var isElement = editActions.isElement(toElement);
   var i = fromIndex;
   while(i < inArray.length) {
     var currentElement = inArray[i];
     if(unevaledToElement == uneval(currentElement)) return i;
-    if(isElement && bam.isElement(currentElement)) {
-      let currentTag = bam.getTag(currentElement);
-      let currentId = bam.getId(currentElement);
-      let currentClasses = bam.getClasses(currentElement);
-      let toTag = bam.getTag(toElement);
-      let toId = bam.getId(toElement);
-      let toClasses = bam.getClasses(toElement);
-      if(bam.uniqueTags[currentTag] && currentTag == toTag) {
+    if(isElement && editActions.isElement(currentElement)) {
+      let currentTag = editActions.getTag(currentElement);
+      let currentId = editActions.getId(currentElement);
+      let currentClasses = editActions.getClasses(currentElement);
+      let toTag = editActions.getTag(toElement);
+      let toId = editActions.getId(toElement);
+      let toClasses = editActions.getClasses(toElement);
+      if(editActions.uniqueTags[currentTag] && currentTag == toTag) {
         return i;
       }
       if(currentId === toId && typeof currentId === "string") {
@@ -2072,24 +2041,24 @@ findNextSimilar = debugFun(function findNextSimilar(inArray, toElement, fromInde
 });
 
 var defaultDiffOptions = {findNextSimilar, onlyReuse: true,
-   isCompatibleForReuseArray: (oldValue, newValue) => !bam.isNode(oldValue) && !bam.isNode(newValue)};
+   isCompatibleForReuseArray: (oldValue, newValue) => !editActions.isNode(oldValue) && !editActions.isNode(newValue)};
 /*
-bam.debug(
-  bam.backPropagate(
+editActions.debug(
+  backPropagate(
     Reuse("tl", {tl: Reuse({tl: Reuse(up("tl"), up("tl"), up("tl"), {tl: Reuse("tl", "tl", "tl")})})}),
     Reuse({tl: Reuse({tl: New({hd: "Inserted", tl: Reuse()})})})
   ));
 finishTests(true);
 */
-testBackPropagateNormalAndNd(
+testBackPropagate(
   ReuseArray(3, New({0: Reuse(1), 1: Reuse(2), 2: Reuse(0)}, []), Reuse()),
   ReuseArray(2, Reuse(), 0, New(["Inserted"]), Reuse()),
   ReuseArray(0, New(["Inserted"]), Reuse()),
   "Insert in array after reordering");
 
 /*
-bamBeEqual(
-  bam.diff(
+shouldBeEqual(
+  diff(
     [["section", [["class", "sec"]], [["TEXT", "abc"]]], ["section", [["class", "sec"]], [["TEXT", "def"]]]],
     [["script", [], []], ["section", [["class", "sec"], ["id", "test"]], [["TEXT", "abc"]]], ["section", [["class", "sec"]], [["TEXT", "def"]]]], defaultDiffOptions
   ),
@@ -2098,8 +2067,8 @@ bamBeEqual(
 );
 finishTests(true);
 
-bamBeEqual(
-  bam.diff(
+shouldBeEqual(
+  diff(
     [["div", [["class", "g-static"]], [["TEXT", "Hello"]]]],
     [["script", [], [["TEXT", "var"]]], ["div", [["class", "g-static"]], [["TEXT", "Hello"], ["br", [], []]]]],
     defaultDiffOptions
@@ -2110,8 +2079,8 @@ bamBeEqual(
 );
 process.exit(0);
 
-bamBeEqual(
-bam.diff(
+shouldBeEqual(
+diff(
   [["head", [], [["TEXT", "\n"]]], ["body", [], []]],
   [["head", [], [["TEXT", "\n"],["script", [], []]]], ["TEXT", "\n"], ["body", [], [["script", [], []]]]],
   defaultDiffOptions
@@ -2122,41 +2091,28 @@ ReuseArray(1, Reuse({0: Reuse({2: ReuseArray(1, Reuse(), New.nested([["script", 
               New([])));*/
 
 function testMergeAndReverse(edit1, edit2, expectedResult, name) {
-  bamBeEqual(
-    bam.merge(
+  shouldBeEqual(
+    merge(
       edit1, edit2
     ), expectedResult, name + " [normal]"
   );
-  bamBeEqual(
-    bam.merge(
+  shouldBeEqual(
+    merge(
       edit2, edit1
     ), expectedResult, name + " [reverse]"
   );
 }
 
-function testBackPropagateNormal(editStep, userStep, expectedUserStep, name) {
+function testBackPropagate(editStep, userStep, expectedUserStep, name) {
   incompleteLines.push(currentTestLine());
-  bamBeEqual(
-    bam.backPropagate(
+  shouldBeEqual(
+    backPropagate(
       editStep, userStep
     ), expectedUserStep, name + " [single]"
   );
 };
 
-function testBackPropagateNormalAndNd(editStep, userStep, expectedUserStep, name) {
-  bamBeEqual(
-    bam.backPropagate(
-      editStep, userStep
-    ), expectedUserStep, name + " [single]"
-  );
-  bamBeEqual(
-    bam.nd.backPropagate(
-      editStep, nd.ensure(userStep)
-    ), nd.ensure(expectedUserStep), name + " [multiple]"
-  );
-};
-
-testBackPropagateNormalAndNd(
+testBackPropagate(
     Reuse({heap: Reuse({1: Reuse({values: ReuseArray(0, Reuse(),
                                                      1, Reuse({0: Reuse(up("0"), up, up, up, up, "stack", "hd", "value")}),
                                                         Reuse())})}),
@@ -2174,7 +2130,7 @@ testBackPropagateNormalAndNd(
                                                         Reuse())})})})
 , "heap update")
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
     Reuse("heap", 1, "values", {0: Reuse("value"),
                                 1: Reuse("value")}),
     ReuseArray(1, Reuse(),
@@ -2188,7 +2144,7 @@ testBackPropagateNormalAndNd(
     "heap update X"
     );
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
     Reuse({0: Reuse("value")}),
     ReuseArray(0, New([2]), Reuse())
    ,ReuseArray(0, New([2]), Reuse()), "ReuseArray through Reuse");
@@ -2196,49 +2152,47 @@ testBackPropagateNormalAndNd(
 
 // Same tests without nd.
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
     ReuseArray(2, Reuse({1: Reuse(up("1"), up, 3)}), Reuse({1: Reuse(up("1"), up, 4)})),
     ReuseArray(2, Reuse({1: New(3)}), Reuse({1: New(4)}))
    ,Reuse({3: New(3), 4: New(4)}), "ReuseReuse");
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
      ReuseArray(0, New([1]), Reuse()),
      ReuseArray(1, Reuse(), ReuseArray(0, New([2]), Reuse()))
    , ReuseArray(0, New([2]), Reuse()), "Insertion Step");
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
      ReuseArray(1, New([]), Reuse()),
      ReuseArray(0, New([2]), Reuse())
   , ReuseArray(1, Reuse(), 0, New([2]), Reuse()), "Insertion after deletion");
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
      ReuseArray(2, Reuse(), Reuse({0: Reuse(up("0"), up, 5)})),
      ReuseArray(3, Reuse({2: New(3)}), Reuse())
   , Reuse({5: New(3)}), "Split right backPropagateReuseArray");
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
      ReuseArray(2, Reuse(), New([Reuse(up, 5)])),
      ReuseArray(3, Reuse({2: New(3)}), Reuse())
   , Reuse({5: New(3)}), "Split right backPropagateReuseArray");
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
      ReuseArray(2, Reuse({1: Reuse(up("1"), up, 5)}), Reuse()),
      ReuseArray(1, Reuse(), Reuse({0: New(3)}))
   , Reuse({5: New(3)}), "Split left backPropagateReuseArray");
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
     Reuse("a"),
     ReuseArray(2, New([4]), Reuse())
   ,Reuse({a: ReuseArray(2, New([4]), Reuse())}), "ReuseArray after reuse");
 
-//bam.__debug = true;
-testBackPropagateNormalAndNd(
+testBackPropagate(
     ReuseArray(2, New([]), Reuse()),
     Reuse({3: Reuse({1: Reuse({3: Reuse({1: New("style")})})})})
   ,ReuseArray(2, Reuse(), Reuse({3: Reuse({1: Reuse({3: Reuse({1: New("style")})})})})), "Reuse after ReuseArray");
-//finishTests(true);
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
     ReuseArray(0, New([1, 2]), Reuse()),
     Reuse({5: Reuse({1: Reuse({3: Reuse({1: New("style")})})})})
   ,Reuse({3: Reuse({1: Reuse({3: Reuse({1: New("style")})})})}), "Reuse after ReuseArray 2");
@@ -2246,7 +2200,7 @@ testBackPropagateNormalAndNd(
 
 
 
-bamBeEqual(andThen(
+shouldBeEqual(andThen(
      ReuseArray(2, Reuse(), 1, New([]), Reuse()),
      ReuseArray(2, Reuse(), 0, New([1]), Reuse())
  ),  Reuse(), "insertion followed by deletion");
@@ -2272,127 +2226,125 @@ var array2 = [
 , ["script", [], []]
 , ["TEXT", "\n"]
 ]
-var array1to2 = bam.diff(array1, array2);
-shouldBeEqual(bam.apply(array1to2, array1), array2);
-bamBeEqual(
-  bam.diff(array1, array2),
+var array1to2 = diff(array1, array2);
+shouldBeEqual(apply(array1to2, array1), array2);
+shouldBeEqual(
+  diff(array1, array2),
   ReuseArray(2, Reuse(),
              0, New.nested([["h2", [], [["TEXT", "Hello world"]]]]), Reuse()))
   
 
 // andThen with ReuseArray
 
-bamBeEqual(andThen(
+shouldBeEqual(andThen(
   Reuse({values: Reuse({0: Reuse(up("0"), up, "toReplace")})}),
   New({values: Reuse(), toReplace: Reuse(5)})),
   New({values: Reuse({0: Reuse(up("0"), 5)}), toReplace: Reuse(5)}), "andThen_ReuseArray1");
 
 // First cut before second cut, no overlap, only reuse
-bamBeEqual(andThen(
+shouldBeEqual(andThen(
      ReuseArray(10, Reuse(), Reuse({1: New(3)})),
      ReuseArray(6, Reuse({1: New(2)}), Reuse())
   ), ReuseArray(6, Reuse({1: New(2)}), ReuseArray(4, Reuse(), Reuse({1: New(3)}))), "andThen_ReuseArray2");
 
 
 // First cut after second cut, no overlap, only reuse
-bamBeEqual(andThen(
+shouldBeEqual(andThen(
      ReuseArray(6, Reuse({1: New(3)}), Reuse()),
      ReuseArray(10, Reuse(), Reuse({1: New(2)}))
   ), ReuseArray(10, ReuseArray(6, Reuse({1: New(3)}), Reuse()), Reuse({1: New(2)})), "andThen_ReuseArray3");
 
 // First cut before second cut, small overlap, only reuse
-bamBeEqual(andThen(
+shouldBeEqual(andThen(
      ReuseArray(10, Reuse({9: New(3)}), Reuse()),
      ReuseArray(6, Reuse(), Reuse({1: New(2)}))
   ), ReuseArray(6, Reuse(), ReuseArray(4, Reuse({1: New(2), 3: New(3)}), Reuse())), "andThen_ReuseArray4");
 
 // First cut after second cut, small overlap, only reuse
-bamBeEqual(andThen(
+shouldBeEqual(andThen(
      ReuseArray(6, Reuse(), Reuse({1: New(2)})),
      ReuseArray(10, Reuse({9: New(3)}), Reuse())
   ), ReuseArray(10, ReuseArray(6, Reuse(), Reuse({1: New(2), 3: New(3)})), Reuse()), "andThen_ReuseArray5");
 
 // First cut before second cut, full overlap, only reuse
-bamBeEqual(andThen(
+shouldBeEqual(andThen(
      ReuseArray(10, Reuse({7: Reuse({b: Reuse(up("b"), "a")})}), Reuse()),
      ReuseArray(6, Reuse(), Reuse({1: New({a: New(2), b: New(3)})}))
   ), ReuseArray(6, Reuse(), ReuseArray(4, Reuse({1: New({a: New(2), b: New(2)})}), Reuse())), "andThen_ReuseArray6");
 
 // First cut after second cut, full overlap, only reuse
-bamBeEqual(andThen(
+shouldBeEqual(andThen(
      ReuseArray(6, Reuse(), Reuse({1: Reuse({b: Reuse(up("b"), "a")})})),
      ReuseArray(10, Reuse({7: New({a: New(2), b: New(3)})}), Reuse())
   ), ReuseArray(10, ReuseArray(6, Reuse(), Reuse({1: New({ a: 2, b: 2})})), Reuse()), "andThen_ReuseArray7");
 
 // Reaching outside of ReuseArray after deletion
-bamBeEqual(andThen(
+shouldBeEqual(andThen(
      Reuse({values: ReuseArray(2, Reuse(), ReuseArray(1, New([]), New([Reuse(up, up, "toReplace")])))}),
      New({values: Reuse(), toReplace: Reuse(5)})
   ), New({values: ReuseArray(2, Reuse(), ReuseArray(1, New([]), New([Reuse(up, 5)]))),
      toReplace: Reuse(5)
   }), "andThen_ReuseArray8");
 
-bamBeEqual(andThen(
+shouldBeEqual(andThen(
      ReuseArray(1, New([]), Reuse()), // 2. Delete first element
      ReuseArray(1, New([]), Reuse())  // 1. Delete first element
   ), ReuseArray(1, New([]), 1, New([]), Reuse()), "andThen_ReuseArrayDelete1"); // Delete first two elements
 
-bamBeEqual(andThen(
+shouldBeEqual(andThen(
      ReuseArray(1, New([]), Reuse()), // 2. Delete first element
      ReuseArray(2, Reuse(), New([]))  // 1. Delete everything but first two elements
   ), ReuseArray(2, ReuseArray(1, New([]), Reuse()), New([])), "andThen_ReuseArrayDelete2"); // Delete everything but second element.
 
-bamBeEqual(andThen(
+shouldBeEqual(andThen(
      ReuseArray(5, Reuse(), ReuseArray(1, New([]), Reuse())), // 2. Keep first 5 els, delete 6th
      ReuseArray(1, New([]), Reuse())                          // 1. Delete first element
   ), ReuseArray(1, New([]), ReuseArray(5, Reuse(), ReuseArray(1, New([]), Reuse()))), "andThen_ReuseArrayDelete3");
 
-bamBeEqual(andThen(
+shouldBeEqual(andThen(
      ReuseArray(5, Reuse(), ReuseArray(1, New([]), Reuse())), // 2. Keep first 5 els, delete 6th
      ReuseArray(1, Reuse({0: New(1)}), Reuse())               // 1. Replace first element
   ), ReuseArray(1, Reuse({0: New(1)}), ReuseArray(4, Reuse(), ReuseArray(1, New([]), Reuse()))), "andThen_ReuseArrayDelete4");
 
 // If first action is a New, then result should be the computation of applying the edit action
-bamBeEqual(andThen(
+shouldBeEqual(andThen(
      ReuseArray(3, Reuse(), ReuseArray(1, New([]), ReuseArray(0, New([11]), Reuse({1: New(4)})))),
      New([0,0,0,1, 2, 3])
   ), New([0,0,0,11, 2, 4]));
 
 // If second action is a New, then result should be a New as well
-bamBeEqual(andThen(
+shouldBeEqual(andThen(
      New([Reuse(3)]),
      ReuseArray(3, Reuse(), ReuseArray(1, Reuse({0: Reuse(up("0"), 1)}), Reuse()))
   ), New([Reuse(1)]));
 //--------------------
 
-bamBeEqual(
-  bam.andThen(
+shouldBeEqual(
+  andThen(
     New({x: Reuse("a")}),
     Reuse({a: Reuse(up("a"), "b")})),
   New({x: Reuse("b")})
 );
 
-//bam.__debug = true;
-
-bamBeEqual(
-  bam.diff([["b", [], [["TEXT", "hello"]]]], [["TEXT", "hello"]], {maxCloneDown: 3}),
+shouldBeEqual(
+  diff([["b", [], [["TEXT", "hello"]]]], [["TEXT", "hello"]], {maxCloneDown: 3}),
   Reuse({0: ReuseArray(3, New([]),
                           New([Reuse(up, 2, 0, 0),
                                Reuse(up, 2, 0, 1)]))})
 )
 //process.exit(0)
 
-bamBeEqual(
-  bam.nd.diff(["p", 1, 1], [1, "p"]),
-  nd.or(
+shouldBeEqual(
+  diff(["p", 1, 1], [1, "p"]),
+  Choose(
     nd.ReuseArray(0, nd.New([nd.or(nd.Reuse(up, 1), nd.Reuse(up, 2), nd.New(1))]), 1, nd.Reuse(), nd.New([])),
     nd.ReuseArray(1, nd.New([]), 1, nd.Reuse(), nd.New([nd.or(nd.Reuse(up, 0), nd.New("p"))])),
     nd.ReuseArray(2, nd.New([]), 1, nd.Reuse(), nd.New([nd.or(nd.Reuse(up, 0), nd.New("p"))])),
     nd.New([nd.Reuse(1).concat(nd.Reuse(2)), nd.Reuse(0)])
   )
 );
-bamBeEqual(
-  bam.nd.diff(["p", 1, 1], [1, "p"], {onlyReuse: true}),
+shouldBeEqual(
+  nd.diff(["p", 1, 1], [1, "p"], {onlyReuse: true}),
   nd.or(
     nd.ReuseArray(0, nd.New([nd.or(nd.Reuse(up, 1), nd.Reuse(up, 2))]), 1, nd.Reuse(), nd.New([])),
     nd.ReuseArray(1, nd.New([]), 1, nd.Reuse(), nd.New([nd.Reuse(up, 0)])),
@@ -2400,30 +2352,30 @@ bamBeEqual(
   )
 );
 
-bamBeEqual(
-  bam.nd.diff(["link", "meta"], ["script", "script", "link", "meta"], {maxDepth: 0, onlyReuse: true}),
+shouldBeEqual(
+  nd.diff(["link", "meta"], ["script", "script", "link", "meta"], {maxDepth: 0, onlyReuse: true}),
   nd.ReuseArray(0, nd.New(["script", "script"]), nd.Reuse())
 );
 
-bamBeEqual(
-  bam.andThen(Reuse({a: Reuse(up("a"), "b")}), Reuse({b: Reuse(up("b"), "c"), a: New(1) })),
+shouldBeEqual(
+  andThen(Reuse({a: Reuse(up("a"), "b")}), Reuse({b: Reuse(up("b"), "c"), a: New(1) })),
   Reuse({a: Reuse(up("a"), "c"), b: Reuse(up("b"), "c")}));
 
 shouldBeEqual(
-  bam.path({hd: "x", tl: {hd: "y", tl: undefined}}), bam.path("x", "y")
+  path({hd: "x", tl: {hd: "y", tl: undefined}}), path("x", "y")
 );
 
 /*
-bamBeEqual(
-  bam.backPropagate(
+shouldBeEqual(
+  backPropagate(
     ReuseArray(1, Reuse(),
                1, Reuse({0: Reuse(up("0"), up, up, up, up, "stack", "hd", "value")}),
                Reuse())
   )
 
 );*/
-bamBeEqual(
-  bam.backPropagate(
+shouldBeEqual(
+  backPropagate(
     ReuseArray("heap",
            1, Reuse({0: Reuse("value")}),
            1, Reuse({0: Reuse("value")}),
@@ -2439,16 +2391,16 @@ bamBeEqual(
     )})
 );
 
-bamBeEqual(
-  bam.apply(ReuseArray(5, Reuse(), New("big")), "Hello"),
+shouldBeEqual(
+  apply(ReuseArray(5, Reuse(), New("big")), "Hello"),
   "Hellobig"
 );
 
-bamBeEqual(
-  bam.nd.concatMap(nd.Reuse({value: nd.New(1)}).concat(nd.New({b: 2})), ea => {
-    if(ea.ctor == bam.Type.Reuse) {
-      return bam.nd.concatMap(ea.childEditActions.value, value => {
-        if(value.ctor == bam.Type.New) {
+shouldBeEqual(
+  nd.concatMap(nd.Reuse({value: nd.New(1)}).concat(nd.New({b: 2})), ea => {
+    if(ea.ctor == Type.Reuse) {
+      return nd.concatMap(ea.childEditActions.value, value => {
+        if(value.ctor == Type.New) {
           return nd.Reuse({value: nd.New(value.model).concat(nd.New(value.model+1)) });
         }
       });
@@ -2459,11 +2411,11 @@ bamBeEqual(
   nd.Reuse({value: nd.New(1).concat(nd.New(2))}).concat(nd.New({c: nd.New(3)}))
 );
 
-bamBeEqual(
-  bam.nd.first(nd.New([])), New([])
+shouldBeEqual(
+  nd.first(nd.New([])), New([])
 )
-bamBeEqual(
-  bam.nd.first(
+shouldBeEqual(
+  nd.first(
     nd.Reuse("abc", {
       value: nd.ReuseArray(1, nd.New([]).concat(nd.New([1])), nd.Reuse()),
     }).concat(nd.New(1))
@@ -2471,17 +2423,17 @@ bamBeEqual(
   Reuse("abc", {value: ReuseArray(1, New([]), Reuse())})
 )
 
-bamBeEqual(
-  bam.nd.ensure(New([])), nd.New([])
+shouldBeEqual(
+  nd.ensure(New([])), nd.New([])
 );
-bamBeEqual(
-  bam.nd.ensure(Reuse("abc", {value: ReuseArray(1, New([]), Reuse())})),
+shouldBeEqual(
+  nd.ensure(Reuse("abc", {value: ReuseArray(1, New([]), Reuse())})),
     nd.Reuse("abc", {
       value: nd.ReuseArray(1, nd.New([]), nd.Reuse()),
     })
   );
 
-bamBeEqual(
+shouldBeEqual(
   andThen(Reuse("f", {a: Reuse(up("a"), "b")}), Reuse("g", {f: New({a: New(1), b: New(2)})})),
   New({a: New(2), b: New(2)}));
 
@@ -2507,7 +2459,7 @@ testBackPropagate(step,
   Reuse({stack: Reuse({hd: Reuse({value: Reuse({value: New(4)})})})}),
   Reuse({stack: Reuse({hd: Reuse({argsEvaled: Reuse({ 0: Reuse({ value: New(2)})})})})}));
 
-bamBeEqual(
+shouldBeEqual(
   andThen(Reuse({a: Reuse({c: New(1)}), b: Reuse(up("b"), "a")}), New({a: Reuse()})),
   New({a: Reuse({c: New(1)}), b: Reuse()})
 )
@@ -2567,15 +2519,15 @@ shouldBeEqual(path(path("body", 0), path("expression")), path("body", 0, "expres
 
 //Composition
 
-bamBeEqual(andThen(Reuse(), Reuse()), Reuse());
-bamBeEqual(andThen(Reuse(), New(1)), New(1));
-bamBeEqual(andThen(New(1), Reuse()), New(1));
-bamBeEqual(andThen(New(1), New(2)), New(1));
-bamBeEqual(andThen(Reuse({a: Reuse("..", "b")}), New({a: New(1), b: New(2)})),
+shouldBeEqual(andThen(Reuse(), Reuse()), Reuse());
+shouldBeEqual(andThen(Reuse(), New(1)), New(1));
+shouldBeEqual(andThen(New(1), Reuse()), New(1));
+shouldBeEqual(andThen(New(1), New(2)), New(1));
+shouldBeEqual(andThen(Reuse({a: Reuse("..", "b")}), New({a: New(1), b: New(2)})),
             New({a: New(2), b: New(2)}));
             
-bamBeEqual(andThen(Reuse("a"), Reuse()), Reuse("a"))
-bamBeEqual(andThen(Reuse(), Reuse("a")), Reuse("a"))
+shouldBeEqual(andThen(Reuse("a"), Reuse()), Reuse("a"))
+shouldBeEqual(andThen(Reuse(), Reuse("a")), Reuse("a"))
 
 s0 = New({ stack: New({ hd: New({ ctor: "ComputationNode",
                                   node: Reuse()}),
@@ -2591,81 +2543,81 @@ s10 = New({ stack: New({ hd: New({ ctor: "Statements",
                              statements: New({ hd: Reuse("body", 0),
                                                tl: undefined})}),
                          tl: undefined})}, {env:1, heap: 1});
-//bamBeEqual(andThen(s1, s0), s10);
+//shouldBeEqual(andThen(s1, s0), s10);
 s20 = New({ stack: New({ hd: New({ ctor: "ComputationNode", node: Reuse("body", 0)}),
   tl: New({ ctor: "Statements",
                              statements: New(undefined)})
 })}, {env: 1, heap: 1});
-//bamBeEqual(andThen(s2, s10), s20);
+//shouldBeEqual(andThen(s2, s10), s20);
 s30 = New({ stack: New({ hd: New({ ctor: "ComputationNode",
                              node: Reuse("body", 0, "expression")}),
                    tl: New({ ctor: "Statements",
                              statements: undefined})})}, {env:1, heap: 1})
-bamBeEqual(andThen(s3, s20), s30);
+shouldBeEqual(andThen(s3, s20), s30);
 
 // Back-propagation
 
-bamBeEqual(nd.backPropagate(
+shouldBeEqual(nd.backPropagate(
    Reuse("b"),
     nd.New(3)),
   nd.Reuse({b: nd.New(3)}), "Clone new");
 
-bamBeEqual(bam.nd.backPropagate(
+shouldBeEqual(nd.backPropagate(
    Reuse({d: Reuse(up("d"), "c")}, "b"),
     nd.Reuse({d: nd.New(3)})),
   nd.Reuse({b: nd.Reuse({c: nd.New(3)})}));
 
-bamBeEqual(bam.nd.backPropagate(
+shouldBeEqual(nd.backPropagate(
    Reuse({d: Reuse(up("d"), "c"), e: Reuse(up("e"), "c")}),
     nd.Reuse({d: nd.New(3), e: nd.New(5)})),
   nd.Reuse({c: nd.New(3).concat(nd.New(5))}));
 
-bamBeEqual(bam.backPropagate(
+shouldBeEqual(backPropagate(
    Reuse({a: Reuse(up("a"), "b")}),
     Reuse("a")),
   Reuse("b"));
 
-bamBeEqual(bam.nd.backPropagate(
+shouldBeEqual(nd.backPropagate(
    Reuse({a: Reuse(up("a"), "b")}),
     nd.Reuse("a")),
   nd.Reuse("b"));
 
-bamBeEqual(bam.backPropagate(
+shouldBeEqual(backPropagate(
    New({a: Reuse("b"), b: Reuse("b")}),
     Reuse("a")),
   Reuse("b"));
 
-bamBeEqual(bam.nd.backPropagate(
+shouldBeEqual(nd.backPropagate(
    New({a: Reuse("b"), b: Reuse("b")}),
     nd.Reuse("a")),
   nd.Reuse("b"));
 
-bamBeEqual(bam.nd.backPropagate(
+shouldBeEqual(nd.backPropagate(
    Reuse({a: Reuse(up("a"), "b")}),
     nd.Reuse("b")),
   nd.Reuse("b"));
 
-bamBeEqual(bam.nd.backPropagate(
+shouldBeEqual(nd.backPropagate(
    Reuse({a: Reuse(up("a"), "b"), b: Reuse(up("b"), "a")}),
     nd.Reuse("b")),
   nd.Reuse("a"));
 
-bamBeEqual(bam.nd.backPropagate(
+shouldBeEqual(nd.backPropagate(
    Reuse({a: Reuse(up("a"), "b")}),
     nd.Reuse({a: nd.New(3)})),
   nd.Reuse({b: nd.New(3)}));
 
-bamBeEqual(bam.nd.backPropagate(
+shouldBeEqual(nd.backPropagate(
    New({d: Reuse("a"), c: Reuse("a"), b: Reuse("b")}),
     nd.Reuse({d: nd.New(3), c: nd.New(5)})),
   nd.Reuse({a: nd.New(3).concat(nd.New(5))}));
 
-bamBeEqual(bam.nd.backPropagate(
-   New({a: bam.Identity, b: bam.Identity}),
+shouldBeEqual(nd.backPropagate(
+   New({a: Identity, b: Identity}),
     nd.Reuse({a: nd.New(2)})),
   nd.New(2));
 
-bamBeEqual(bam.nd.backPropagate(
+shouldBeEqual(nd.backPropagate(
    Reuse("a", {
      b: Reuse(up("b"), up, "c")
    }),
@@ -2676,7 +2628,7 @@ bamBeEqual(bam.nd.backPropagate(
     c: nd.New(3)
   }));
 
-bamBeEqual(bam.nd.backPropagate(
+shouldBeEqual(nd.backPropagate(
    Reuse("app", "body", {
       body: Reuse({
         app: Reuse({
@@ -2703,7 +2655,7 @@ bamBeEqual(bam.nd.backPropagate(
   )
   );
 
-bamBeEqual(bam.backPropagate(
+shouldBeEqual(backPropagate(
   New({a: New({b: Reuse("c", {d: Reuse(up("d"), up, "f")}) })}),
   Reuse({a: Reuse({b: Reuse({d: Reuse(up("d"), "e", {p: Reuse(up("p"), up, "d")}), e: Reuse(up("e"), "d")})})})),
   Reuse(
@@ -2711,12 +2663,12 @@ bamBeEqual(bam.backPropagate(
      c: Reuse({e: Reuse(up("e"), up, "f")})
     }));
 
-bamBeEqual(bam.backPropagate(
+shouldBeEqual(backPropagate(
   Reuse({a: New({k: Reuse(up("k"), "b", "c"), p: Reuse(up("p"), "b", "d")}), b: Reuse(up("b"), "a", "m")}),
-  Reuse({b: New({u: bam.Identity, o: Reuse(up("o"), "a", "k"), t: Reuse(up("t"), "a", "p")})})),
- Reuse({a: Reuse({m: New({u: bam.Identity, o: Reuse(up("o"), up, "b", "c"), t: Reuse(up("t"), up, "b", "d")})})}));
+  Reuse({b: New({u: Identity, o: Reuse(up("o"), "a", "k"), t: Reuse(up("t"), "a", "p")})})),
+ Reuse({a: Reuse({m: New({u: Identity, o: Reuse(up("o"), up, "b", "c"), t: Reuse(up("t"), up, "b", "d")})})}));
 
-bamBeEqual(bam.nd.backPropagate(
+shouldBeEqual(nd.backPropagate(
   New({a: New({b: Reuse("c", {d: Reuse(up("d"), up, "f")}) })}),
   nd.Reuse({a: nd.Reuse({b: nd.Reuse({d: nd.Reuse(up("d"), "e", {p: nd.Reuse(up("p"), up, "d")}), e: nd.Reuse(up("e"), "d")})})})),
   nd.Reuse(
@@ -2724,24 +2676,24 @@ bamBeEqual(bam.nd.backPropagate(
      c: nd.Reuse({e: nd.Reuse(up("e"), up, "f")})
     }));
 
-bamBeEqual(bam.nd.backPropagate(
+shouldBeEqual(nd.backPropagate(
   Reuse({a: New({k: Reuse(up("k"), "b", "c"), p: Reuse(up("p"), "b", "d")}), b: Reuse(up("b"), "a", "m")}),
   nd.Reuse({b: nd.New({u: nd.Identity, o: nd.Reuse(up("o"), "a", "k"), t: nd.Reuse(up("t"), "a", "p")})})),
  nd.Reuse({a: nd.Reuse({m: nd.New({u: nd.Identity, o: nd.Reuse(up("o"), up, "b", "c"), t: nd.Reuse(up("t"), up, "b", "d")})})}));
 
-bamBeEqual(bam.nd.backPropagate(
+shouldBeEqual(nd.backPropagate(
   Reuse(["app", "body"], {arg: Reuse(up("arg"), up, up, "arg")}),
   nd.Reuse({arg: nd.Reuse(up("arg"), "app")})),
   nd.Reuse({arg: nd.Reuse(up("arg"), "app", "body", "app")})
 )
 
-bamBeEqual(bam.nd.backPropagate(
+shouldBeEqual(nd.backPropagate(
   Reuse(["app", "body"], {arg: Reuse(up("arg"), up, up, "arg")}),
   nd.New({app: nd.Reuse("app"), arg: nd.Reuse("app")})),
   nd.Reuse({app: nd.Reuse({body: nd.New({app: nd.Reuse("app"), arg: nd.Reuse("app")})})})
 )
 
-bamBeEqual(bam.nd.backPropagate(
+shouldBeEqual(nd.backPropagate(
     New({b: Reuse("a"), c: Reuse("a")}),
     nd.Reuse({b: nd.New(2), c: nd.New({d: nd.Identity})})),
     nd.Reuse({a: nd.New({d: nd.New(2)})})
@@ -2815,7 +2767,7 @@ pStep = Reuse({heap: ReuseArray(
        0, Reuse())});
 uStep = Reuse({heap: Reuse({1: Reuse({value: New(22)})})});
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
   pStep, uStep,
   Reuse({stack: Reuse({hd: Reuse({value: New(22)})})}), "pStep_uStep1");
 
@@ -2828,7 +2780,7 @@ pStep = Reuse({heap: ReuseArray(
        1, Reuse())});
 uStep = Reuse({heap: Reuse({5: Reuse({value: New(22)})})});
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
   pStep, uStep,
   Reuse({heap: ReuseArray(4, Reuse(), 1, Reuse({0: Reuse({value: New(22)})}), Reuse())}), "pStep_uStep2");
 
@@ -2837,7 +2789,7 @@ pStep = Reuse({heap: ReuseArray(
        3, New([Reuse(up, 2)]))});
 uStep = Reuse({heap: Reuse({0: Reuse({value: New(22)})})});
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
   pStep, uStep,
   Reuse({heap: Reuse({2: Reuse({value: New(22)})})}), "pStep_uStep3");
 
@@ -2846,16 +2798,16 @@ pStep = Reuse({heap: ReuseArray(
        3, New([Reuse(2)]))});
 uStep = Reuse({heap: Reuse({2: Reuse({value: New(22)})})});
 
-testBackPropagateNormalAndNd(
+testBackPropagate(
   pStep, uStep,
   Reuse({heap: ReuseArray(1, Reuse(), 3, Reuse({2: Reuse({value: New(22)})}), Reuse())}), "pStep_uStep4");
 
 // Custom
 var plusEditAction =
-  Custom(bam.Reuse("args"),
+  Custom(Reuse("args"),
            ({left, right}) => left + right,
            function(outputDiff, {left, right}, outputOld) {
-             if(outputDiff.ctor === bam.Type.New) {
+             if(outputDiff.ctor === Type.New) {
                let diff = outputDiff.model - outputOld;
                return nd.Reuse({left: nd.New(left + diff)}).concat(nd.Reuse({right: nd.New(right + diff)}));
              } else {
@@ -2869,7 +2821,7 @@ shouldBeEqual(
   4
 )
 
-bamBeEqual(
+shouldBeEqual(
   nd.backPropagate(plusEditAction, nd.New(5)),
   nd.Reuse({args: nd.Reuse({left: nd.New(2)})}).concat(
     nd.Reuse({args: nd.Reuse({right: nd.New(4)})})
@@ -2935,26 +2887,9 @@ function uneval(x, indent) {
   return "" + x;
 }
 
-
-function bamBeEqual(x1, x2, name) {
-  tests++;
-  var s1 = stringOf(x1);
-  var s2 = stringOf(x2);
-  let line = currentTestLine();
-  if(s1 == s2) {
-    testsPassed++;
-  } else {
-    if(s1 === "[[object Object]]" || s1 === "[object Object]") {
-      s1 = bam.uneval(x1).slice(0, 100) + "...";
-    }
-    linesFailed.push(line);
-    console.log((name ? name + " (line "+line+"): " : "Line " + line + ":") + "Expected\n" + s2 + "\n, got \n" + s1);
-  }
-  if(testToStopAt !== undefined && tests >= testToStopAt) e(line);
-}
 function currentTestLine() {
   let trace = Error().stack;
-  let line = trace.match(/bam-test\.js:(\d+)(?![\s\S]*bam-test)/)[1];
+  let line = trace.match(/edit-actions-test\.js:(\d+)(?![\s\S]*edit-actions-test)/)[1];
   return line;
 }
 function shouldBeEqual(x1, x2, name) {
@@ -2967,6 +2902,9 @@ function shouldBeEqual(x1, x2, name) {
   } else {
     linesFailed.push(line);
     console.log((name ? name + " (line "+line+"): " : "Line " + line + ":") + "Expected\n" + s2 + "\n, got \n" + s1);
+    if(failAtFirst) {
+      e();
+    }
   }
   if(testToStopAt !== undefined && tests >= testToStopAt) e(line);
 }
@@ -2996,36 +2934,36 @@ function debugFun(fun) {
   }
 }
 
-function addHTMLCapabilities(bam) {
-  bam.isElement = x => Array.isArray(x) && x.length == 3 && typeof x[0] === "string" && Array.isArray(x[1]) && Array.isArray(x[2]);
-  bam.isTextNode = x => Array.isArray(x) && x.length == 2 && x[0] === "TEXT" && typeof x[1] === "string"
-  bam.isCommentNode = x => Array.isArray(x) && x.length == 2 && x[0] === "COMMENT" && typeof x[1] === "string"
-  bam.isNode = x => bam.isElement(x) || bam.isTextNode(x) || bam.isCommentNode(x);
-  bam.getAttr = attr => x => {
-    if(!bam.isElement(x)) return undefined;
+function addHTMLCapabilities(editActions) {
+  editActions.isElement = x => Array.isArray(x) && x.length == 3 && typeof x[0] === "string" && Array.isArray(x[1]) && Array.isArray(x[2]);
+  editActions.isTextNode = x => Array.isArray(x) && x.length == 2 && x[0] === "TEXT" && typeof x[1] === "string"
+  editActions.isCommentNode = x => Array.isArray(x) && x.length == 2 && x[0] === "COMMENT" && typeof x[1] === "string"
+  editActions.isNode = x => editActions.isElement(x) || editActions.isTextNode(x) || editActions.isCommentNode(x);
+  editActions.getAttr = attr => x => {
+    if(!editActions.isElement(x)) return undefined;
     for(var i = 0; i < x[1].length; i++) {
       if(x[1][i][0] == attr) {
         return x[1][i][1];
       }
     }
   }
-  bam.getAttrs = x => {
-    if(!bam.isElement(x)) return undefined;
+  editActions.getAttrs = x => {
+    if(!editActions.isElement(x)) return undefined;
     let res = {};
     for(var i = 0; i < x[1].length; i++) {
       res[x[1][i][0]] = x[1][i][1];
     }
     return res;
   }
-  bam.getId = bam.getAttr("id");
-  bam.getClasses = bam.getAttr("class");
-  bam.getTag = x => bam.isElement(x) ? x[0] : undefined;
+  editActions.getId = editActions.getAttr("id");
+  editActions.getClasses = editActions.getAttr("class");
+  editActions.getTag = x => editActions.isElement(x) ? x[0] : undefined;
 
-  bam.uniqueTags = {head: true, body: true, html: true};
+  editActions.uniqueTags = {head: true, body: true, html: true};
 }
 // Starts debugging
 function s() {
-  bam.__debug = true;
+  editActions.__debug = true;
 }
 // Stops testing
 function e(lastLine) {

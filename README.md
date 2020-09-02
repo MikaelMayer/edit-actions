@@ -1,6 +1,6 @@
-# edit-actions.js
+# edit-actions
 
-*edit-actions.js.js* is a JavaScript implementation of Edit Actions.
+*edit-actions* is a JavaScript implementation of Edit Actions.  
 Edit actions are a powerful minimalistic language to model tree-to-tree transformations, including
 * Tree insertion and tree deletion
 * Tree wrapping and tree unwrapping
