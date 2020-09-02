@@ -1,0 +1,36 @@
+{
+  "name": "edit-actions",
+  "version": "1.0",
+  "description": "Library for building reversible interpreters by rewriting them to use Edit Actions",
+  "main": "edit-actions.js",
+  "scripts": {
+    "test": "node edit-actions-test.js"
+  },
+  "keywords": [
+    "bidirectional",
+    "abstract",
+    "interpreter",
+    "evaluator",
+    "ast",
+    "rewriting",
+    "reversible",
+    "back-propagation",
+    "tree",
+    "transformation",
+    "edit",
+    "diff"
+  ],
+  "homepage": "https://github.com/MikaelMayer/edit-actions",
+  "bugs": "https://github.com/MikaelMayer/edit-actions/issues",
+  "author": "Mikael Mayer <mikael.mayer_npm@polytechnique.org>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MikaelMayer/edit-actions.git"
+  },
+  "dependencies": {},
+  "files": [
+    "edit-actions.js",
+    "README.md"
+  ]
+}
