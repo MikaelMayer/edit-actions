@@ -7,11 +7,6 @@
 var editActions = {};
 
 (function(editActions) {
-  var displayVar = 1
-  var NAME = Symbol("name");
-  var TRANSFORM = Symbol("transform");
-  var PARENT = Symbol("parent");
-  
   editActions.__absolute = false;
   editActions.__syntacticSugar = true;
   editActions.__syntacticSugarFork = true;
@@ -1539,19 +1534,6 @@ Assuming ?1 = apply(E0, r, rCtx)
     return [newAction, AddContext(keyOrOffset, E1, ECtx)];
   }
   
-  // Concatenates two paths.
-  function concatenatePaths(path1, path2) {
-    if(isIdentity(path1)) return path2;
-    if(isIdentity(path2)) return path1;
-    if(path1.ctor == Type.Up) {
-      return Up(path1.keyOrOffset, concatenatePaths(path1.subAction, path2));
-    }
-    if(path1.ctor == Type.Down) {
-      return Down(path1.keyOrOffset, concatenatePaths(path1.subAction, path2));
-    }
-    throw "Cannot concatenate " + stringOf(path1) + " and " + stringOf(path2);
-  }
-  
   // apply(downAt(f, E1), r, rCtx)
   // = apply(E1, r, rCtx)[f]
   function downAt(key, editAction) {
@@ -1656,7 +1638,6 @@ Assuming ?1 = apply(E0, r, rCtx)
     = applyZ(andThenZ(E, (E1, E1Ctx)), rrCtx)
     QED
   */
-  
   
   // applyCtxZ(ECtx, (r, rCtx)) = apply(ECtx, r, rCtx);
   function applyCtxZ(actionContext, recordZip) {
@@ -2046,6 +2027,7 @@ Assuming ?1 = apply(E0, r, rCtx)
   }
   editActions.isFinal = isFinal;
   
+  // Computes the intersection of two offsets.
   function intersectOffsets(offset1, offset2) {
     let newCount = Math.max(offset1.count, offset2.count);
     let end1 = PlusUndefined(offset1.count, offset1.newLength);
@@ -2155,6 +2137,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     }
   }
   
+  // Merge function, but with logs of outputs
   function addLogMerge(fun) {
     return function(E1, E2, multiple = false) {
       let res = fun(E1, E2, multiple);
@@ -4165,12 +4148,12 @@ Assuming ?1 = apply(E0, r, rCtx)
   strDiff.DELETE = DIFF_DELETE;
   strDiff.EQUAL = DIFF_EQUAL;
   
-  function ndStrDiff(text1, text2) {
+  function eaStrDiff(text1, text2) {
     let linear_diff = strDiff(text1, text2);
     // Conversion of List [DIFF_INSERT | DIFF_DELETE | DIFF_EQUAL, String] to ndStrDiff.
     function aux(linear_diff) {
       var index = linear_diff.length - 1;
-      var acc = nd.Reuse();
+      var acc = Reuse();
       while(index >= 0) {
         let s = linear_diff[index];
         switch(s[0]) {
@@ -4178,21 +4161,21 @@ Assuming ?1 = apply(E0, r, rCtx)
             if(index > 0) {
               let f = linear_diff[index - 1];
               if(f[0] == DIFF_DELETE) {
-                acc = nd.Fork(f[1].length, nd.New(s[1]), acc);
+                acc = Fork(f[1].length, s[1].length, New(s[1]), acc);
                 index -= 2;
                 break;
               }
             }
-            acc = nd.Fork(0, nd.New(s[1]), acc);
+            acc = Insert(s[1].length, New(s[1]), acc);
             index -= 1;
             break;
           case DIFF_DELETE: // We were already at the deletion position
-            acc = nd.Fork(s[1].length, nd.New(""), acc);
+            acc = Delete(s[1].length, acc);
             index -= 1;
             break;
           case DIFF_EQUAL: 
           default:
-            acc = nd.Fork(s[1].length, nd.Reuse(), acc);
+            acc = Keep(s[1].length, acc);
             index -= 1;
             break;
         }
@@ -4201,7 +4184,9 @@ Assuming ?1 = apply(E0, r, rCtx)
     }
     return aux(linear_diff);
   }
-  //editActions.nd.strDiff = ndStrDiff;  
+  editActions.diff = eaStrDiff;
+  
+  /** Various helper functions */
   
   function arrayFlatMap(array, fun) {
     let result = [];
@@ -4214,131 +4199,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     }
     return result;
   }
-  // A transform record is a regular record, plus
-  // [NAME] if it was assigned a name
-  // [TRANSFORM] if it is transformed to something else.
-  //   Transform ::= {ctor: "name", name: String}
-  //                 {ctor: "record", fields: Transform}
-  //                 {ctor: "value", value: Any}
-  // [PARENT]: the parent of the record.
-  function walkRecord(p, targetRecord) {
-    while(!isIdPath(p)) {
-      //console.log("walkRecord", pathInfoToString(p));
-      if(p.up) {
-        let {hd, tl} = p.up;
-        p = path(hd, p);
-        if(!targetRecord[PARENT]) {
-          let newRecord = {[hd]: targetRecord};
-          targetRecord[PARENT] = newRecord;
-          targetRecord = newRecord;
-        } else {
-          targetRecord = targetRecord[PARENT];
-        }
-      } else {
-        let {hd, tl} = p.down;
-        if(!targetRecord[hd]) {
-          targetRecord[hd] = {};
-          targetRecord[hd][PARENT] = targetRecord;
-        }
-        p = path(up(hd), p);
-        //console.log("New path", hd, pathInfoToString(p));
-        if(!targetRecord[hd][PARENT]) targetRecord[hd][PARENT] = targetRecord;
-        targetRecord = targetRecord[hd];
-      }
-    }
-    //console.log("finished")
-    return targetRecord;
-  }
-  function buildTransformRecord(editAction, record) {
-//    console.log("buildTransformRecord", editAction.toString(), record);
-    if(editAction.ctor == Type.Reuse) {
-      if(isIdPath(editAction.path)) {
-        for(var k in editAction.childEditActions) {
-          if(!record[k]) {
-            record[k] = {};
-            record[k][PARENT] = record;
-          }
-          buildTransformRecord(editAction.childEditActions[k], record[k]);
-        }
-      } else {
-        // We should traverse the record and assign a name there.
-        let targetRecord = walkRecord(editAction.path, record);
-        if(!targetRecord[NAME]) {
-//          console.log("name assign before", editAction.toString(), targetRecord);
-          targetRecord[NAME] = "A" + displayVar++;
-//          console.trace("name assign", editAction.toString(), targetRecord);
-        }
-        record[TRANSFORM] = record[TRANSFORM] || {ctor: "name", name: targetRecord[NAME]};
-        buildTransformRecord({...editAction, path: path.identity}, targetRecord);
-      }
-    } else if(editAction.ctor == Type.New) {
-      function buildModel(editAction) {
-        if(editAction.ctor == Type.Reuse) {
-          let targetRecord =
-                walkRecord(editAction.path, record,);
-          if(!targetRecord[NAME]) {
-//            console.log("name assign before", editAction.toString(), targetRecord);
-            targetRecord[NAME] = "A" + displayVar++;
-//            console.trace("name assign", editAction.toString(), targetRecord);
-          }
-          return {ctor: "name", name: targetRecord[NAME]};
-        } else if(editAction.ctor == Type.New) {
-          if(typeof editAction.model == "string" ||typeof editAction.model == "number" ||
-             typeof editAction.model == "boolean") {
-            return {ctor: "value", value: editAction.model}; 
-          } else {
-            let model = {};
-            for(var k in editAction.childEditActions) {
-              model[k] = buildModel(editAction.childEditActions[k]);
-            }
-            return {ctor: "record", fields: model};
-          }
-        } else return {ctor: "name", name: editAction.ctor};
-      }
-      record[TRANSFORM] = record[TRANSFORM] || buildModel(editAction);
-      //console.trace("record's transform:", editAction.toString(), record, record[TRANSFORM]);
-      for(var k in editAction.childEditActions) {
-        buildTransformRecord(editAction.childEditActions[k], record);
-      } 
-    } else {
-      record.__display = editAction.ctor;
-    }
-  }
   
-  editActions.display = function display(editAction) {
-    displayVar = 1;
-    let record = {};
-    let s = Symbol("START");
-    record[s] = true;
-    buildTransformRecord(editAction, record, undefined);
-    let initRecord = record;
-    while(record[PARENT]) record = record[PARENT]; // The top-level parent.
-    function recDisplay(record) {
-      function recDisplayTransform(transform) {
-        if(transform.ctor == "name") return transform.name;
-        if(transform.ctor == "value") return JSON.stringify(transform.value);
-        let str = "{";
-        for(let k in transform.fields) {
-          str += (str == "{" ? "": ", ") + k + ": " + recDisplayTransform(transform.fields[k]);
-        }
-        str += "}";
-        return str;
-      }
-      let str = (record[s] ? "[START]" : "") +  (record[NAME] ? record[NAME] + "=" : "") + "{" +
-        (record[TRANSFORM] ? "==>"+recDisplayTransform(record[TRANSFORM]): "");
-      let notFirst = 0;
-      for(let k in record) {
-        //console.log("going down", k);
-        str += (notFirst++ ? "," : "") + "\n  " + k + ": " + recDisplay(record[k]).replace(/\n/g, "\n  ");
-      }
-      str += "}";
-      return str;
-    }
-    return recDisplay(record);
-  }
-
-
-  // Creates a deep copy of the given object;
   function deepCopy(object) {
     if(typeof object == "object") {
       let t = treeOpsOf(object);
@@ -4509,7 +4370,6 @@ Assuming ?1 = apply(E0, r, rCtx)
     }
     return str;
   }
-  
   
   // Given a pair (prog, ctx), walks the context down by the provided key or offset and returns a [new prog, new ctx]
   function walkDownCtx(downKeyOrOffset, prog, ctx) {
@@ -4741,7 +4601,6 @@ Assuming ?1 = apply(E0, r, rCtx)
     }
   }
   editActions.stringOf = stringOf;
-  
   
   /**Proof of specification:
       apply(Reuse({k, Ek}), r@{...k: x...}, rCtx)
