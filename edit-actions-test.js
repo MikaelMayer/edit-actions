@@ -598,6 +598,12 @@ function testBackPropagate(e, u, res, name) {
 }
 
 testBackPropagate(
+  Down("a", "b"),
+  Choose(New(1), New(2)),
+  Choose(Reuse({a: Reuse({b: New(1)})}),
+         Reuse({a: Reuse({b: New(2)})})));
+
+testBackPropagate(
   Reuse(), Reuse({b: New(1)}),
   Reuse({b: New(1)})
 )

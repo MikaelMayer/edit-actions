@@ -2909,9 +2909,29 @@ Assuming ?1 = apply(E0, r, rCtx)
     if(E.ctor == Type.Up) {
       return backPropagate(E.subAction, U, Down(E.keyOrOffset, ECtx))
     }
+    if(U.ctor == Type.Choose && (E.ctor != Type.Custom || !E.lens.single)) {
+      return Choose(...Collection.map(U.subActions, childU => backPropagate(E, childU, ECtx)));
+    }
     if(E.ctor == Type.Custom) {
-      let newU = E.lens.update(U, E.lens.cachedInput, E.lens.cachedOutput);
-      return backPropagate(E.subAction, newU, ECtx);
+      // If E.lens.single is false, then U can be a Choose so that it can handle and merge similar alternatives
+      /**
+      update : function(edit, oldInput, oldOutput) {
+        return X(edit, oldInput, oldOutput);
+      }
+      in a lens is the same as
+      backPropagate: function(bp, edit, oldInput, oldOutput, E, Ctx) {
+        return bp(E, X(edit, oldInput, oldOutput), Ctx)
+      }
+      */
+      if("update" in E.lens) {
+        let newU = E.lens.update(U, E.lens.cachedInput, E.lens.cachedOutput);
+        return backPropagate(E.subAction, newU, ECtx);
+      } else {
+        return E.lens.backPropagate(backPropagate, U, E.lens.cachedInput, E.lens.cachedOutput, E.subAction, ECtx);
+      }
+    }
+    if(U.ctor == Type.Choose) {
+      return Choose(...Collection.map(U.subActions, childU => backPropagate(E, childU, ECtx)));
     }
     if(U.ctor == Type.Reuse) {
       let result = Reuse();
