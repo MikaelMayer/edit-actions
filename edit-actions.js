@@ -172,12 +172,18 @@ var editActions = {};
         }
       }
     },
+    // Forgiving flatMap
     flatMap: function(c, callback) {
       return {
         *[Symbol.iterator]() {
           for(let arg of c) {
-            for(let x of callback(arg)) {
-              yield x;
+            let c2 = callback(arg);
+            if(Collection.is(c2)) {
+              for(let x of c2) {
+                yield x;
+              }
+            } else {
+              yield c2;
             }
           }
         }
@@ -422,7 +428,7 @@ var editActions = {};
   // apply(Choose(E1, E2), x, xCtx) = {[choose]: [apply(E1, x, xCtx), apply(E2, x, xCtx)]};
   function Choose() {
     if(arguments.length > 1) {
-      return {ctor: Type.Choose, subActions: arguments};
+      return {ctor: Type.Choose, subActions: Collection.flatMap(arguments, x => isEditAction(x) && x.ctor == Type.Choose ? x.subActions : x)};
     } else if(arguments.length == 1) {
       return arguments[0];
     }
@@ -905,8 +911,11 @@ var editActions = {};
     */
     if(isIdentity(secondAction)) return firstAction;
       
-    // The base case
-    if(secondAction.ctor == Type.Up) {
+    if(secondAction.ctor == Type.Choose) {
+      return Choose(...Collection.map(secondAction.subActions, subAction => andThen(subAction, firstAction, firstActionContext)));
+    } else if(firstAction.ctor == Type.Choose) {
+      return Choose(...Collection.map(firstAction.subActions, subAction => andThen(secondAction, subAction, firstActionContext)));
+    } else if(secondAction.ctor == Type.Up) {
       if(firstActionContext === undefined) {
         console.trace("Error empty context for Up in andThen", firstAction, ";", secondAction);
       }
@@ -2186,6 +2195,12 @@ Assuming ?1 = apply(E0, r, rCtx)
       console.log("merge");
       editActions.debug(E1);
       editActions.debug(E2);
+    }
+    if(E1.ctor == Type.Choose) {
+      return Choose(...Collection.map(E1.subActions, x => merge(x, E2, multiple)));
+    }
+    if(E2.ctor == Type.Choose) {
+      return Choose(...Collection.map(E2.subActions, x => merge(E1, x, multiple)));
     }
     let result = [];
     merge_cases: {

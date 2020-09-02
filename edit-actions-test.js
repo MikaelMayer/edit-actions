@@ -6,6 +6,30 @@ var bs = "\\\\";
 var failAtFirst = true;
 
 shouldBeEqual(
+  Choose(New(1), Choose(New(2), New(3))),
+  Choose(New(1), New(2), New(3))
+);
+
+shouldBeEqual(
+  andThen(
+    Choose(Reuse({x: Reuse({d: New(1)})}), Reuse({y: Reuse({d: New(2)})})),
+    New({x: Down("z"), y: Down("w")})
+  ),
+  Choose(
+    New({x: Down("z", Reuse({d: New(1)})), y: Down("w")}),
+    New({x: Down("z"), y: Down("w", Reuse({d: New(2)}))}),
+  )
+);
+
+shouldBeEqual(
+  andThen(
+    Reuse({x: Up("x", Down("b"))}),
+    Choose(New({x: Down("z"), b: Down("d")}), Down("a", Reuse({x: Up("x", "a", Down("z"))})))
+  ),
+  Choose(New({x: Down("d"),  b: Down("d")}), Down("a", Reuse({x: Up("x", Down("b"))})))
+);
+
+shouldBeEqual(
   stringOf(Choose(New(1), New(2))),
   "Choose(\n  New(1),\n  New(2))"
 );
@@ -2102,15 +2126,6 @@ function testMergeAndReverse(edit1, edit2, expectedResult, name) {
     ), expectedResult, name + " [reverse]"
   );
 }
-
-function testBackPropagate(editStep, userStep, expectedUserStep, name) {
-  incompleteLines.push(currentTestLine());
-  shouldBeEqual(
-    backPropagate(
-      editStep, userStep
-    ), expectedUserStep, name + " [single]"
-  );
-};
 
 testBackPropagate(
     Reuse({heap: Reuse({1: Reuse({values: ReuseArray(0, Reuse(),
