@@ -2041,7 +2041,7 @@ Assuming ?1 = apply(E0, r, rCtx)
   // New edit actions not wrapped are not considered final.
   function isFinal(editAction) {
     return isEditAction(editAction) && (
-      editAction.ctor == Type.New && Object.keys(editAction.childEditActions).findIndex(k => !isFinal(k)) == -1 ||
+      editAction.ctor == Type.New && Object.keys(editAction.childEditActions).findIndex(k => !isFinal(editAction.childEditActions[k])) == -1 ||
       editAction.ctor == Type.Concat && isFinal(editAction.first) && isFinal(editAction.second) ||
     editAction.ctor == Type.Custom && isFinal(editAction.subAction) ||
     editAction.ctor == Type.Up && isFinal(editAction.subAction) ||
@@ -3135,29 +3135,43 @@ Assuming ?1 = apply(E0, r, rCtx)
   editActions.uneval = uneval;
  
   function isSimpleChildClone(editAction) {
-    return editAction.ctor == Type.Down && isIdentity(editAction.subAction);
+    return editAction.ctor == Type.Down && isIdentity(editAction.subAction) && !isOffset(editAction.keyOrOffset);
   }
   // Find all paths from complexVal to simpleVal if complexVal contains simpleVal, up to given depth
+  /** Invariant: if x in allClonePaths_(complexVal, simpleVal, _)
+       then for any ctx, apply(x, complexVal, ctx) = simpleVal
+  */
   function allClonePaths_(complexVal, simpleVal, maxDepth) {
       //console.log("allClonePaths_", editActions.uneval({complexVal, simpleVal}));
-      if (editActions.uneval(simpleVal) === editActions.uneval(complexVal))
-          return [Reuse()];
+      let complexValStr = uneval(complexVal);
+      let simpleValStr = uneval(simpleVal);
+      if(complexValStr.indexOf(simpleValStr) == -1) return [];
+      if (complexValStr === simpleValStr) {
+        /** Proof: apply(Reuse(), complexVal, ctx) = complexVal = simpleVal, QED. */
+        return [Reuse()];
+      }
       if(typeof maxDepth == "undefined" || maxDepth <= 0) return [];
       if (typeof complexVal == "object") {
-          var paths = [];
-          var _loop_3 = function (k) {
-              paths.push.apply(paths,
-                allClonePaths_(complexVal[k], simpleVal, maxDepth - 1)
+          var results = [];
+          let a = Array.isArray(complexVal);
+          for (var k in complexVal) {
+            k = a ? Number(k) : k;
+            /** Proof: if x is in results, x is of the form Down(k, x')
+                       where x' is in allClonePaths_(complexVal[k], simpleVal, _)
+               Hence, for any ctx:
+                 apply(x, complexVal, ctx)                      --> map effect
+               = apply(Down(k, x'), complexVal, ctx)            --> APPLY-DOWN
+               = apply(x', complexVal[k], (k, complexVal)::ctx) --> Induction
+               = simpleVal
+               QED;
+            */
+            results.push(...allClonePaths_(complexVal[k], simpleVal, maxDepth - 1)
                 .map(function (p) {
                   return Down(k, p);
               }));
-          };
-          let a = Array.isArray(complexVal);
-          for (var k in complexVal) {
-              _loop_3(a ? Number(k) : k);
           }
           //if(paths.length > 0) console.log("found one:", paths);
-          return paths;
+          return results;
       }
       return [];
   }
@@ -3174,6 +3188,8 @@ Assuming ?1 = apply(E0, r, rCtx)
   
   // options: { onlyReuse: If set to true, if it finds the element somewhere else, it will not provide the edit action to create element from scratch }
 
+  // invariant if defined.
+  // apply(diff(oldVal, newVal, oldValCtx), oldVal, oldValCtx) = newVal
   editActions.diff = function editDiff(oldVal, newVal, options, oldValCtx) {
     // TODO: include the context while computing diffs to recover sibling clones.
     if(editActions.__debug) console.log("editDiff\n  "+uneval(oldVal, "  ")+"\n- "+uneval(newVal, "  ") + "\n-| " + uneval(oldValCtx));
@@ -3184,52 +3200,95 @@ Assuming ?1 = apply(E0, r, rCtx)
       console.log("/!\\ Warning, trying to diff functions. Returning Reuse()", oldVal, newVal);
       return Reuse(); // Cannot diff functions
     }
+    
     // Considers the newVal as a thing to completely replace the old val.
-    function addNewObjectDiffs(diffs) {
-      printDebug("addNewObjectDiffs");
-      if(diffs.length && options.onlyReuse) {
-        return Choose(diffs);
-      }
+    // Specification: apply(newObjectDiffs(), oldVal, oldValCtx) = newVal
+    function newObjectDiffs() {
       let childDiffs = {};
-      let model = Array.isArray(newVal) ? Array(newVal.length) : {};
+      let isArray = Array.isArray(newVal);
+      let model = isArray ? [] : {};
       let lastClosestOffset = 0;
       for(var key in newVal) {
         if(typeof oldVal == "object" && lastClosestOffset == 0 &&
            editActions.uneval(oldVal[key]) == editActions.uneval(newVal[key])) {
           // Same key, we try not to find fancy diffs with it.
-          childDiffs[key] = Reuse(key);
+          childDiffs[key] = Down(numIfPossible(key));
         } else {
           // Diff the old value against the child of newValue at index key.
           let cd = editDiff(oldVal, newVal[key], options, oldValCtx);
-          if(cd.length >= 1 && isSimpleChildClone(cd[0])) {
-            // Here we should remove everything else which is not a clone, as we are just moving children around the object.
-            cd = cd.filter(isSimpleChildClone);
-            if(Array.isArray(newVal)) {
-              // The most likely clones are those whose key is close to the original one.
-              let nKey = Number(key);
-              cd.sort(function(d1, d2) {
-                return Math.abs(Number(d1.path.down.hd) - nKey - lastClosestOffset) -
-                       Math.abs(Number(d2.path.down.hd) - nKey - lastClosestOffset);
-              });
-              lastClosestOffset = Number(cd[0].path.down.hd) - nKey;
-            };
-            //cd.length = 1;
+          // Here we can assumbe by induction that
+          // apply(cd, oldVal, oldValCtx) = newVal[key]
+          if(cd.ctor == Type.Choose) { // Only filter and sorting here.
+            let onlySimpleChildClones = Collection.map(cd.subActions,
+              subAction => isSimpleChildClone(subAction)
+            );
+            if(!Collection.isEmpty(onlySimpleChildClones)) {
+              // Here we should remove everything else which is not a clone, as we are just moving children around the object.
+              if(isArray) {
+                // Furthermore, for an array, we sort the clones according to which key is the closest.
+                onlySimpleChildClones = [...onlySimpleChildClones];
+                let nKey = Number(key);
+                onlySimpleChildClones.sort(function(d1, d2) {
+                  return Math.abs(Number(d1.keyOrOffset) - nKey - lastClosestOffset) -
+                         Math.abs(Number(d2.keyOrOffset) - nKey - lastClosestOffset);
+                });
+                lastClosestOffset = Number(onlySimpleChildClones[0].keyOrOffset) - nKey;
+              }
+              cd = Choose(onlySimpleChildClones);
+            }
           }
           childDiffs[key] = cd;
         }
       }
-      diffs.push(New(childDiffs, model));
+      /** Proof:
+          apply(New({f: key_f }^(f in Keys(newVal)), model), oldVal, oldValCtx)  
+        = {f: apply(key_f, oldVal, oldValCtx)}^(f in Keys(newVal))    --> induction
+        = {f: newVal[f]}^(f in Keys(newVal))
+        = newVal;
+        
+        if(key_f is Down(f)), then we get oldVal[f], which by path condition is also newVal[f].
+        QED;
+      */
+      return New(childDiffs, model)
+    }
+    
+    /** Assumes that for every x in diffs, apply(x, oldVal, oldValCtx) == newVal.
+        Returns one x such that apply(x, oldVal, oldValCtx) == newVal
+        If options are not set to only Reuse whenever possible, will add the newObjectDiffs();
+        */
+    function addNewObjectDiffs(diffs) {
+      printDebug("addNewObjectDiffs");
+      if(diffs.length && options.onlyReuse) {
+        return Choose(diffs);
+      }
+      diffs.push(newObjectDiffs());
       return Choose(diffs);
     }
     // Get all possibles contextual clones that could have produced newVal.
+    /** Invariant: if x in ctxClone(_, oldVal, oldValCtx), then
+        apply(x, oldVal, oldValCtx) = newVal
+    */
     function ctxClones(maxDepth, oldVal, oldValCtx) {
       let clonePaths = allClonePaths_(oldVal, newVal, options.maxCloneDown);
       if(clonePaths.length > 0) {
+        /** Proof: If x is in clonePaths, then apply(x, oldVal, oldValCtx) == newVal
+            by the definition of allClonePaths_ */
         return clonePaths;
       }
       if(oldValCtx && maxDepth > 0) {
+        /** Proof:
+            Assume oldValCtx = (k, o2)::ctx'
+            
+            If x is in result, then x is of the form Up(k, x')
+            and x' is in ctxClones(o2, ctx');
+            Thus, by induction,
+            apply(x, oldVal, oldValCtx)                --> Definition of program
+            = apply(Up(k, x'), oldVal, (k, o2)::ctx')  --> APPLY-UP
+            = apply(x', o2, ctx')                      --> induction
+            = newVal
+            QED;*/
         return ctxClones(maxDepth-1, oldValCtx.hd.prog, oldValCtx.tl).map(
-           x => Up(oldValCtx.hd.keyOrOffset)
+           x => Up(oldValCtx.hd.keyOrOffset, x)
         );
       }
       return [];
@@ -3239,20 +3298,36 @@ Assuming ?1 = apply(E0, r, rCtx)
     if(o == "number" || o == "boolean" || o == "string" || o == "undefined") {
       if(n == "number" || n == "boolean" || n == "string" || n == "undefined") {
         if(oldVal === newVal) {
+          /** Proof:
+            apply(Reuse(), oldVal, oldValCtx) = oldVal = newVal.
+            QED;
+          */
           diffs.push(Reuse());
         } else {
+          /** Proof:
+            apply(ctxClones(options.maxCloneUp, oldVal, oldValCtx), oldVal, oldValCtx) = oldVal = newVal.
+            QED;
+          */
           diffs = diffs.concat(ctxClones(options.maxCloneUp, oldVal, oldValCtx));
           if(diffs.length == 0 || !options.onlyReuse) {
             if(n == "string" && o == "string") {
+              /** Proof: 
+                 apply(eaStrDiff(oldVal, newVal), oldVal, oldValCtx) = newVal
+                 QED;
+               */
               diffs.push(eaStrDiff(oldVal, newVal));
             } else {
+              /** Proof: 
+                 apply(New(newVal), oldVal, oldValCtx) = newVal  -- New definition
+                 QED;
+               */
               diffs.push(New(newVal));
             }
           }
         }
         return Choose(...diffs);
       } else if(n == "object" ) { // maybe the number was included in the object/array
-        return addNewObjectDiffs([]);
+        return addNewObjectDiffs(diffs);
       }
       throw "Unsupported newVal: " + uneval(newVal);
     } else if(o == "object") {
@@ -3295,9 +3370,9 @@ Assuming ?1 = apply(E0, r, rCtx)
           let sep = "#"; // A very small string not found in oldVal or newVal
           let newValStr, oldValStr, newValStrElems, oldValStrElems;
           while(true) {
-            newValStr = newVal.map(uneval).join(sep);
+            newValStr = newVal.map(x => uneval(x)).join(sep);
             newValStrElems = newValStr.split(sep);
-            oldValStr = oldVal.map(uneval).join(sep);
+            oldValStr = oldVal.map(x => uneval(x)).join(sep);
             oldValStrElems = oldValStr.split(sep);
             if(oldValStrElems.length != oldVal.length || newValStrElems.length != newVal.length) {
               sep = makeNotFoundIn(sep, newValStr);
@@ -3308,6 +3383,25 @@ Assuming ?1 = apply(E0, r, rCtx)
             }
           }
           if(newValStr == oldValStr) return Reuse();
+          let newValStrUneval = "[ " + newValStrElems.join(", ") + "]";
+          let oldValStrUneval = "[ " + oldValStrElems.join(", ") + "]";
+          printDebug("oldValStrUneval", oldValStrUneval);
+          printDebug("newValStrUneval", newValStrUneval);
+          if(newValStrUneval.indexOf(oldValStrUneval) >= 0) {
+            printDebug("Pure wrapping");
+            // Oh, a pure wrapping!
+            diffs.push(newObjectDiffs());
+            if(diffs.length > 0 && options.onlyReuse) {
+              return Choose(diffs);
+            }
+          } else if(oldValStrUneval.indexOf(newValStrUneval) >= 0) {
+            printDebug("Pure unwrapping");
+            // Oh a pure unwrapping!
+            diffs.push(...allClonePaths_(oldVal, newVal, options.maxCloneDown));
+            if(diffs.length > 0 && options.onlyReuse) {
+              return Choose(diffs);
+            }
+          }
           
           // Ok, so now we have the two strings. Let's diff them and see where the forks are.
           let strEdit = strDiff(oldValStr, newValStr);
@@ -3333,10 +3427,14 @@ Assuming ?1 = apply(E0, r, rCtx)
           let index = 0;
           let newIsSep = false;
           let oldIsSep = false;
-          let oldActions = oldValStrElems.map(x => ({deleted: 0, kept: 0, str: x, isDeleted: false}));
-          let newActions = newValStrElems.map(x => ({inserted: 0, kept: 0, str: x, isInserted: false}));
-          let oldSeps = oldValStrElems.slice(1).map(x => ({deleted: 0, kept: 0, str: sep, isDeleted: false}))
-          let newSeps = newValStrElems.slice(1).map(x => ({inserted: 0, kept: 0, str: sep, isInserted: false}));
+          let oldActions = oldValStrElems.map(x =>
+            ({deleted: 0, kept: 0, str: x, isDeleted: false}));
+          let newActions = newValStrElems.map(x =>
+            ({inserted: 0, kept: 0, str: x, isInserted: false}));
+          let oldSeps = oldValStrElems.slice(1).map(x => 
+            ({deleted: 0, kept: 0, str: sep, isDeleted: false}))
+          let newSeps = newValStrElems.slice(1).map(x => 
+            ({inserted: 0, kept: 0, str: sep, isInserted: false}));
           function unlabelledLength(entry, count) {
             return Math.min(entry.str.length - ("inserted" in entry ? entry.inserted : 0) - ("deleted" in entry ? entry.deleted : 0) - entry.kept, count);
           }
@@ -3363,15 +3461,7 @@ Assuming ?1 = apply(E0, r, rCtx)
             }
             return [newIsSep, indexNew];
           }
-          console.log(oldValStr);
-          console.log(newValStr);
-          console.log(strEdit);
           while(0 <= index && index < strEdit.length) {
-            console.log("str edit:", strEdit[index]);
-            console.log("old", oldActions);
-            console.log(oldIsSep, indexOld);
-            console.log("new", newActions);
-            console.log(newIsSep, indexNew);
             let s = strEdit[index];
             switch(s[0]) {
               case DIFF_INSERT:// We were already at the end, we can just say "New"
@@ -3390,11 +3480,17 @@ Assuming ?1 = apply(E0, r, rCtx)
                 break;
             }
           }
+          let aSepWasDeletedOrInserted = false;
+          printDebug("oldActions", oldActions);
+          printDebug("newActions", newActions);
+          printDebug("oldSeps", oldSeps);
+          printDebug("newSeps", newSeps);
           // Ok, now, the classification.
           for(let k in oldSeps) {
             let sep = oldSeps[k];
             if(sep.deleted > sep.kept) { // sep has an odd length, there cannot be equality
               sep.isDeleted = true;
+              aSepWasDeletedOrInserted = true;
               // We find the element nearby which is the most likely to be deleted.
               let left = oldActions[k];
               let right = oldActions[Number(k) + 1];
@@ -3403,20 +3499,26 @@ Assuming ?1 = apply(E0, r, rCtx)
               } else if(right.isDeleted) {
                 left.isDeleted = true;
               } else {
-                let leftRatio = left.deleted / (left.deleted + left.kept + 1);
-                let rightRatio = right.deleted / (right.deleted + right.kept + 1 );
-                if(leftRatio > rightRatio) {
+                if((k + 1 in oldSeps) && oldSeps[k+1].deleted > oldSeps[k+1].kept) {
                   left.isDeleted = true;
                 } else {
-                  right.isDeleted = true;
+                  let leftRatio = left.deleted / (left.deleted + left.kept + 1);
+                  let rightRatio = right.deleted / (right.deleted + right.kept + 1 );
+                  if(leftRatio > rightRatio) {
+                    left.isDeleted = true;
+                  } else {
+                    right.isDeleted = true;
+                  }
                 }
               }
             }
           }
           for(let k in newSeps) {
+            k = Number(k);
             let sep = newSeps[k];
             if(sep.inserted > sep.kept) {
               sep.isInserted = true;
+              aSepWasDeletedOrInserted = true;
               // We find the element nearby which is the most likely to be deleted.
               let left = newActions[k];
               let right = newActions[Number(k) + 1];
@@ -3424,63 +3526,138 @@ Assuming ?1 = apply(E0, r, rCtx)
                 right.isInserted = true;
               } else if(right.isInserted) {
                 left.isInserted = true;
-              } else {
-                let leftRatio = left.inserted / (left.inserted + left.kept + 1);
-                let rightRatio = right.inserted / (right.inserted + right.kept + 1 );
-                if(leftRatio > rightRatio) {
+              } else { // If the next separator is also inserted, that means that the data inside is inserted anyway.
+                if((k + 1 in newSeps) && newSeps[k+1].inserted > newSeps[k+1].kept) {
                   left.isInserted = true;
                 } else {
-                  right.isInserted = true;
+                  let leftRatio = left.inserted / (left.inserted + left.kept + 1);
+                  let rightRatio = right.inserted / (right.inserted + right.kept + 1 );
+                  if(leftRatio > rightRatio) {
+                    left.isInserted = true;
+                  } else {
+                    right.isInserted = true;
+                  }
                 }
               }
             }
           }
-          // Ok, now newActions.isInserted and oldActions.isDeleted contains a consistent view of elements which were aligned or not.
-          // We can now create the correct Keep, Delete, Insert and recursively adapt values.
-          indexNew = newActions.length - 1;
-          indexOld = oldActions.length - 1;
-          let acc = Reuse();
-          console.log("started");
-          while(indexNew >= 0 || indexOld >= 0) {
-            console.log("#1")
-            if(indexNew >= 0 && newActions[indexNew].isInserted) {
-              acc = Insert(1, editDiff(oldVal, newVal[indexNew], options, oldValCtx), acc);
-              indexNew--;
-              continue;
-            }
-            if(indexOld >= 0 && oldActions[indexOld].isDeleted) {
-              acc = Delete(1, acc);
-              indexOld--;
-              continue;
-            }
-            if(indexNew >= 0 && indexOld >= 0 && !newActions[indexNew].isInserted && !oldActions[indexOld].isDeleted) {
-              // Might be a Reuse(), but there might be more diffs.
-              if(newValStrElems[indexNew] == oldValStrElems[indexOld]) {
-                acc = Keep(1, acc);
-              } else {
-                acc = Fork(1, 1, Reuse({0: editDiff(oldVal[indexOld], newVal[indexNew], options, AddContext(0, oldVal.slice(indexOld, indexOld+1), AddContext(Offset(indexOld, 1), oldVal, oldValCtx)))}), acc);
+          if(!aSepWasDeletedOrInserted && newActions.length == oldActions.length) { // Alignment decided that elements are the same.
+            let o = {};
+            for(let index = 0; index < newActions.length; index++) {
+              if(newValStrElems[index] != oldValStrElems[index]) {
+                o[index] = editDiff(oldVal[index], newVal[index], options, AddContext(index, oldVal, oldValCtx))
               }
-              indexNew--;
-              indexOld--;
-              continue;
             }
-            // Either indexNew >= 0 && !newActions[indexNew].isInserted &&  indexOld < 0
-            // A || B
-            // !A || !C
-            // !B || !D
-            // !A || !B || C || D
-            // If A, then C is false, thus !B || D. Hence !B is true and B is false.
-            console.log(indexNew, newActions, indexOld, oldActions);
-            throw "Impossible case - Not an insertion but not possibly kept, or not a deletion but not possibly kept"
+            /** Proof:
+                apply(Reuse({index: editDiff(oldVal[index], newVal[index], (index, oldVal)::oldValCtx)}^(index in Keys(newVal))),
+                      oldVal, oldValCtx)
+              = {index: 
+                  apply(editDiff(oldVal[index], newVal[index], (index, oldVal)::oldValCtx),
+                    oldVal[index], (index, oldVal)::oldValCtx)
+                }^(index in Keys(newVal))  -- editDiff specification
+              = {index: newVal[index]}^(index in Keys(newVal))
+              = newVal
+              QED;
+            */
+            diffs.push(Reuse(o));
+          } else {
+            // Ok, now newActions.isInserted and oldActions.isDeleted contains a consistent view of elements which were aligned or not.
+            // For sub-edits we need to make sure contexts are up to date.
+            // First pass: group edits into buckets; for each context, adapt the context.
+            indexNew = 0;
+            indexOld = 0;
+            let acc = tail => tail;
+            let tmpVal = oldVal;
+            let tmpValStrElems = oldValStrElems;
+            let tmpValCtx = oldValCtx;
+            printDebug("oldActions", oldActions);
+            printDebug("newActions", newActions);
+            while(indexNew < newActions.length || indexOld < oldActions.length) {
+              printDebug("tmpVal", tmpVal);
+              printDebug("tmpValStrElems", tmpValStrElems);
+              // Deletions
+              let countDeleted = 0;
+              while(indexOld < oldActions.length && oldActions[indexOld].isDeleted) {
+                indexOld++;
+                countDeleted++;
+              }
+              /**
+                   acc1 = tail => tail
+                   Delete(1, .)
+                   acc2 = tail => Delete(1, tail)
+                        = tail => acc1(Delete(1, tail))
+                   Delete(3, .)
+                   acc3 = tail => Delete(1, Delete(3, tail))
+                        = tail => acc2(Delete(3, tail))
+              */
+              if(countDeleted > 0) {
+                printDebug("Detected deletion of " + countDeleted);
+                acc = ((acc, countDeleted) => tail => acc(Delete(countDeleted, tail)))(acc, countDeleted);
+                tmpValCtx = AddContext(Offset(countDeleted), tmpVal, tmpValCtx);
+                tmpVal = tmpVal.slice(countDeleted);
+                tmpValStrElems = tmpValStrElems.slice(countDeleted);
+                printDebug("tmpVal", tmpVal);
+              }
+              let countInserted = 0;
+              // Insertions
+              while(indexNew < newActions.length && newActions[indexNew].isInserted) {
+                indexNew++;
+                countInserted++;
+              }
+              if(countInserted > 0) {
+                printDebug("Detected insertion of " + countInserted);
+                let o = [];
+                for(let i = 0; i < countInserted; i++) {
+                  let newEdit = editDiff(tmpVal, newVal[indexNew - countInserted + i], options, tmpValCtx);
+                  o[i] = newEdit;
+                }
+                let n = New(o);
+                acc = ((acc, countInserted, n) => tail => acc(Insert(countInserted, n, tail)))(acc, countInserted, n);
+              }
+              let countKept = 0;
+              // Keeps
+              while(indexNew < newActions.length && indexOld < oldActions.length && !newActions[indexNew].isInserted && !oldActions[indexOld].isDeleted) {
+                indexNew++;
+                indexOld++;
+                countKept++;
+              }
+              if(countKept > 0) {
+                printDebug("Detected equal of " + countKept);
+                printDebug("tmpVal", tmpVal);
+                
+                let o = {};
+                let tmpVal1 = tmpVal.slice(0, countKept);
+                let allIdentity = true;
+                for(let i = 0; i < countKept; i++) {
+                  if(tmpValStrElems[i] === newValStrElems[indexNew - countKept + i]) continue;
+                  let tmpValCtx1 = AddContext(i, tmpVal1, AddContext(Offset(0, countKept), tmpVal, tmpValCtx));
+                  o[i] = editDiff(tmpVal[i], newVal[indexNew - countKept + i], options, tmpValCtx1);
+                  allIdentity = allIdentity && isIdentity(o[i]);
+                }
+                let n = Reuse(o);
+                printDebug(n);
+                acc = ((acc, n, countKept, allIdentity) => tail =>
+                 acc(allIdentity ? isIdentity(tail) ? Reuse() : Keep(countKept, tail) :
+                  Fork(countKept, countKept, n, tail)))(acc, n, countKept, allIdentity);
+                tmpValCtx = AddContext(Offset(countKept), tmpVal, tmpValCtx);
+                tmpVal = tmpVal.slice(countKept);
+                tmpValStrElems = tmpValStrElems.slice(countKept);
+                printDebug("tmpVal", tmpVal);
+              }
+            }
+            printDebug("finished");
+            diffs.push(acc(Reuse()));
           }
-          diffs.push(acc);
-          console.log("finished");
         }
-        
         // Now check if the new value was unwrapped
         let unwrappingPaths = allClonePaths_(oldVal, newVal, options.maxCloneDown);
         for(let c in unwrappingPaths) {
-          diffs.push(Reuse(unwrappingPaths[c]));
+          /** Proof 
+            We know that if c is allClonePaths_(oldVal, newVal, _)
+            then for any ctx, and expecially oldValCtx, apply(c, oldVal, ctx) = newVal
+            QED;
+          */
+          diffs.push(unwrappingPaths[c]);
         }
         // Now let's create a new object or array and obtain the children from the original.
         // Values might be wrapped that way.
@@ -4264,6 +4441,7 @@ Assuming ?1 = apply(E0, r, rCtx)
   strDiff.DELETE = DIFF_DELETE;
   strDiff.EQUAL = DIFF_EQUAL;
   
+  /** Let's assume: apply(eaStrDiff(text1, text2), text1, ctx) = text2 */
   function eaStrDiff(text1, text2) {
     let linear_diff = strDiff(text1, text2);
     // Conversion of List [DIFF_INSERT | DIFF_DELETE | DIFF_EQUAL, String] to ndStrDiff.
@@ -4276,7 +4454,7 @@ Assuming ?1 = apply(E0, r, rCtx)
           if(index > 0) {
             let f = linear_diff[index - 1];
             if(f[0] == DIFF_DELETE) {
-              acc = Fork(f[1].length, s[1].length, New(s[1]), acc);
+              acc = Delete(f[1].length, Insert(s[1].length, New(s[1]), acc));
               index -= 2;
               break;
             }
@@ -4431,7 +4609,12 @@ Assuming ?1 = apply(E0, r, rCtx)
   editActions.isIdentity = isIdentity;
   
   function printDebug() {
-    if(editActions.__debug) console.log(...arguments);
+    if(editActions.__debug) {
+      for(let arg of arguments) {
+        if(typeof arg === "string") console.log(arg);
+        else console.log(uneval(arg));
+      }
+    }
   }
   
   // Plus with support for a or b to be undefined (infinity);

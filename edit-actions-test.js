@@ -1,20 +1,47 @@
 var editActions = require("./edit-actions.js");
-var {List,Reuse,New,Concat,Keep,Insert,Delete,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Fork, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, up, ReuseArray, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first} = editActions;
+var {List,Reuse,New,Concat,Keep,Insert,Delete,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Fork, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, up, ReuseArray, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, isFinal} = editActions;
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
-var failAtFirst = true;
+var failAtFirst = false;
+
+shouldBeEqual(
+  isFinal(New(1)), true);
+shouldBeEqual(
+  isFinal(New([])), true);
+shouldBeEqual(
+  isFinal(New([New(1)])), true);
+shouldBeEqual(isFinal([1]), false);
+shouldBeEqual(
+  stringOf(Up(Offset(0, 0), New([New(1)]))), "New([1])"
+);
+shouldBeEqual(
+  diff(["a", "b", "c", "d"], ["a", "k", "c", "d"]),
+  Choose(Reuse({1: Delete(1, Insert(1, "k"))}),
+    New([Down(0), "k", Down(2), Down(3)]))
+);
+
+shouldBeEqual(
+  first(diff(["a", "b", "c", "d"], ["a", "d", "c", "b"])),
+  Reuse({1: Up(1, Down(3)), 3: Up(3, Down(1))})
+);
+
+shouldBeEqual(
+  first(diff(["a", "b",  "c", "d"], ["a", "b", "k", "m", "c", "d"])),
+  Keep(2, Insert(2, [New("k"), New("m")]))
+);
 
 n();
 shouldBeEqual(
-  first(diff([["p", "test"], "d", "blih", "mk"], [["x", ["p", "tast"]], ["i", "hello"], "d", "blah"])),
+  first(diff([["p", "test"], "d", "blih", "mk"],
+             [["x", ["p", "test"]], ["i", "hello"], "d", "blah"])),
   Fork(1, 1,
-    New(["x", Down(0)]),
-      Insert(1, [["i", "hello"]],
-        Keep(1,
-          Fork(1, 1, 
-            Reuse({0: Keep(3, Delete(1, Insert(1, "a")))}),
-            Delete(1)))))
+    Reuse({0: New(["x", Reuse()])}),
+    Insert(1, [["i", "hello"]],
+      Fork(2, 2, 
+          Reuse({1:
+            Keep(3, Delete(1, Insert(1, "a")))}),
+            Delete(1))))
 );
 e();
 
