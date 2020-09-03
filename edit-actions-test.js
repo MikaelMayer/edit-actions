@@ -1,9 +1,23 @@
 var editActions = require("./edit-actions.js");
-var {List,Reuse,New,Concat,Keep,Insert,Delete,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Fork, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, up, ReuseArray, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff} = editActions;
+var {List,Reuse,New,Concat,Keep,Insert,Delete,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Fork, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, up, ReuseArray, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first} = editActions;
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
+
+n();
+shouldBeEqual(
+  first(diff([["p", "test"], "d", "blih", "mk"], [["x", ["p", "tast"]], ["i", "hello"], "d", "blah"])),
+  Fork(1, 1,
+    New(["x", Down(0)]),
+      Insert(1, [["i", "hello"]],
+        Keep(1,
+          Fork(1, 1, 
+            Reuse({0: Keep(3, Delete(1, Insert(1, "a")))}),
+            Delete(1)))))
+);
+e();
+
 
 shouldBeEqual(
   Choose(New(1), Choose(New(2), New(3))),
