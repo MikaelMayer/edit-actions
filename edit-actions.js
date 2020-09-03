@@ -4848,8 +4848,14 @@ Assuming ?1 = apply(E0, r, rCtx)
             let [nInsert, inserted, second] =argumentsIfForkIsInsert(inCount, outCount, left, right);
             if(second !== undefined && editActions.__syntacticSugar) {
               str += "Insert(" + nInsert + ", ";
-              str += addPadding(childIsSimple(inserted) ? uneval(inserted.model) : stringOf(inserted), "  ");
-              str += isIdentity(second) ? "" : ", " + addPadding(stringOf(second), "  ");
+              let childStr = addPadding(childIsSimple(inserted) ? uneval(inserted.model) : stringOf(inserted), "  ");
+              str += childStr;
+              let extraSpace = childStr.indexOf("\n") >= 0 ? "\n " : "";
+              if(!isIdentity(second)) {
+                let secondStr = addPadding(stringOf(second), "  ");
+                extraSpace = extraSpace == "" && secondStr.indexOf("\n") >= 0 ? "\n " : extraSpace;
+                str += ","+extraSpace+" " + addPadding(stringOf(second), "  ");
+              }
               str += ")"
             } else {
               str = "Fork(" + inCount + ", " + outCount + ",\n  ";
