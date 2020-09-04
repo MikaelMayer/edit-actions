@@ -529,6 +529,8 @@ var editActions = {};
          However, Up(Offset(0, n)) does not have any effect since Reuse has length n.
         */
         return [editAction.count, editAction.count, editAction.first, Up(editAction.count, editAction.second)]
+      } else if(isFinal(editAction.first) && secondOffset.count == 0) {
+        return [0, editAction.count, editAction.first, editAction.second];
       }
       return [];
     }
@@ -2408,6 +2410,9 @@ Assuming ?1 = apply(E0, r, rCtx)
             let newLeftCount = MinUndefined(outCount2, outLength(leftPart));
             result.push(Concat(newLeftCount, leftPart, rightPart));
           }
+        } else {
+          result.push(E1);
+          result.push(E2);
         }
         // (E1, E2)  is  F x C  U  C x F  U  C x C
         
@@ -3608,7 +3613,7 @@ Assuming ?1 = apply(E0, r, rCtx)
                 printDebug("Detected insertion of " + countInserted);
                 let o = [];
                 for(let i = 0; i < countInserted; i++) {
-                  let newEdit = editDiff(tmpVal, newVal[indexNew - countInserted + i], options, tmpValCtx);
+                  let newEdit = editDiff(tmpVal, newVal[indexNew - countInserted + i], {...options, isCompatibleForFork: () => false}, tmpValCtx);
                   o[i] = newEdit;
                 }
                 let n = New(o);
@@ -3638,7 +3643,7 @@ Assuming ?1 = apply(E0, r, rCtx)
                 printDebug(n);
                 acc = ((acc, n, countKept, allIdentity) => tail =>
                  acc(allIdentity ? isIdentity(tail) ? Reuse() : Keep(countKept, tail) :
-                  Fork(countKept, countKept, n, tail)))(acc, n, countKept, allIdentity);
+                  isIdentity(tail) ? n : Fork(countKept, countKept, n, tail)))(acc, n, countKept, allIdentity);
                 tmpValCtx = AddContext(Offset(countKept), tmpVal, tmpValCtx);
                 tmpVal = tmpVal.slice(countKept);
                 tmpValStrElems = tmpValStrElems.slice(countKept);

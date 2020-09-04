@@ -31,7 +31,6 @@ shouldBeEqual(
   Keep(2, Insert(2, [New("k"), New("m")]))
 );
 
-n();
 shouldBeEqual(
   first(diff([["p", "test"], "d", "blih", "mk"],
              [["x", ["p", "test"]], ["i", "hello"], "d", "blah"])),
@@ -40,11 +39,9 @@ shouldBeEqual(
     Insert(1, [["i", "hello"]],
       Fork(2, 2, 
           Reuse({1:
-            Keep(3, Delete(1, Insert(1, "a")))}),
+            Keep(2, Delete(1, Insert(1, "a")))}),
             Delete(1))))
 );
-e();
-
 
 shouldBeEqual(
   Choose(New(1), Choose(New(2), New(3))),
@@ -164,7 +161,7 @@ shouldBeEqual(apply(Reuse({ a: New(1) }), {a: 2}), {a: 1});
 
 shouldBeEqual(Keep(3, Reuse()), Reuse());
 shouldBeEqual(Keep(3, Keep(5, New("1"))), Keep(8, New("1")));
-shouldBeEqual(Keep(3, Keep(5, New([1]))), Keep(8, New([1])));
+shouldBeEqual(Keep(3, Keep(5, Reuse())), Keep(8, Reuse()));
 
 shouldBeEqual(Up("a", "b", Reuse()), Up("a", Up("b")));
 shouldBeEqual(Down("a", "b", Reuse()), Down("a", Down("b")));
@@ -599,10 +596,16 @@ shouldBeEqual(
 
 shouldBeEqual(
   merge(
-    Fork(1, 2, New([1, 2]), Reuse({1: Reuse({b: New(5)})})),
-    Fork(3, 3, Reuse({2: Reuse({c: New(6)})}), New([2]))
+    Delete(1, Insert(2, New([1, 2]), Reuse({1: Reuse({b: New(5)})}))),
+    Fork(3, 3, Reuse({2: Reuse({c: New(6)})}), Insert(1, New([2]), Down(Offset(0, 0))))
   ),
-  Fork(1, 2, New([1, 2]), Fork(2, 2, Reuse({1: Reuse({b: New(5), c: New(6)})}),  New([2])))
+  Delete(1, Insert(2, New([1, 2]),
+    Fork(2, 2,
+      Reuse({
+        1: Reuse({
+          b: New(5),
+          c: New(6)})}),
+      Down(Offset(0, 0)))))
 );
 
 shouldBeEqual(
