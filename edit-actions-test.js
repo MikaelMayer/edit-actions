@@ -611,9 +611,9 @@ shouldBeEqual(
 shouldBeEqual(
   merge(
     Fork(3, 3, Reuse({2: Reuse({c: New(6)})}), New([2])),
-    Fork(1, 2, New([1, 2]), Reuse({1: Reuse({b: New(5)})}))
+    Delete(1, Insert(2, New([1, 2]), Reuse({1: Reuse({b: New(5)})})))
   ),
-  Fork(1, 2, New([1, 2]), Fork(2, 2, Reuse({1: Reuse({c: New(6), b: New(5)})}),  New([2])))
+  Delete(1, Insert(2, New([1, 2]), Fork(2, 2, Reuse({1: Reuse({c: New(6), b: New(5)})}),  New([2]))))
 );
 
 shouldBeEqual(

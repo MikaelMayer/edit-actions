@@ -502,6 +502,7 @@ var editActions = {};
   function argumentsIfFork(editAction) {
     // - If not a concat, return.
     if(editAction.ctor !== Type.Concat) return [];
+    let [firstOffset, firstSubAction] = argumentsIfDownOffset(editAction.first, undefined);
     let [secondOffset, secondSubAction] = argumentsIfDownOffset(editAction.second, undefined);
     // If right cannot have offsets (e.g. neither Down or New), return
     if(secondSubAction === undefined) {
@@ -515,9 +516,16 @@ var editActions = {};
         */
         return [0, editAction.count, Up(Offset(0, 0), editAction.first), editAction.second];
       }
-      return [];
+      if(isFork(editAction.second)) {
+        secondOffset = Offset(0);
+        secondSubAction = editAction.second;
+      } else if(firstOffset !== undefined && firstOffset.newLength !== undefined && isFinal(editAction.second)) {
+        secondOfDiff1 = Offset(0);
+        secondSubAction = editAction.second;
+      } else {
+        return [];
+      }
     }
-    let [firstOffset, firstSubAction] = argumentsIfDownOffset(editAction.first, undefined);
     // If left cannot have offsets (e.g. neither Down or New), return
     if(firstSubAction === undefined) {
       if(editAction.first.ctor == Type.Reuse) {
@@ -534,6 +542,7 @@ var editActions = {};
       }
       return [];
     }
+    
     // - If both left and right are New, i.e. no implicit offset, return.
     if(firstOffset !== undefined && firstOffset.newLength === undefined) return [];
  
@@ -845,7 +854,7 @@ var editActions = {};
         console.log("/!\\ Warning, checkpoint failed. The edit action\n"+stringOf(editAction)+"\n applied to \n" +uneval(prog)+ "\n returned on the first sub edit action " + uneval(o1) + "\n of length " + o1.length + ", but the edit action expected " + editAction.count);
       }
       let o2 = apply(editAction.second, prog, ctx, resultCtx);
-      return monoid.add(o1, o2);      
+      return monoid.add(o1, o2);
     }
     if(editAction.ctor == Type.Choose) {
       return Collection.map(editAction.subActions, subAction =>
