@@ -242,7 +242,7 @@ var editActions = {};
   }
   editActions.isOffset = isOffset;
   function isOffsetIdentity(offset) {
-    return offset.count == 0 && offset.oldLength === undefined && offset.newLength === undefined;
+    return offset.count == 0 && offset.oldLength === offset.newLength;
   }
   
   function Up(keyOrOffset, subAction) {
@@ -356,11 +356,20 @@ var editActions = {};
   editActions.Down = Down;
 
   // apply(Concat(1, New([Down(5)]), Reuse()), [0, 1, 2, 3, 4, x]) = [x] ++ [0, 1, 2, 3, 4, x]
-  function Concat(count, first, second) {
+  function Concat(count, first, second, forkAt) {
     if(!isEditAction(first)) first = New(first);
     if(!isEditAction(second)) second = New(second);
-    let result = {ctor: Type.Concat, count: count, first: first, second: second};
-    let [inCount, outCount, left, right]= argumentsIfFork(result);
+    if(first.ctor == Type.New &&
+       typeof first.model == "string" && second.ctor == Type.New &&
+       typeof second.model == "string") {
+      return New(first.model + second.model);   
+    }
+    /*if(editActions.__debug && forkAt === undefined && first.ctor == Type.Down && keyOrOffsetToString(first.keyOrOffset) == "Offset(0, 2)" && second.ctor == Type.Down && keyOrOffsetToString(second.keyOrOffset) == "Offset(2)") {
+      console.trace("Weird, a contact without a Fork! Who is the traitor?")
+      throw "error";
+    }*/
+    let result = {ctor: Type.Concat, count: count, first: first, second: second, forkAt: forkAt};
+    let [inCount, outCount, left, right] = argumentsIfFork(result);
     if(right !== undefined) {
       let [keepCount, keepSub] = argumentsIfForkIsKeep(inCount, outCount, left, right);
       if(keepSub !== undefined) {
@@ -439,7 +448,7 @@ var editActions = {};
       case Type.Reuse:
         return Reuse(mapChildren(editAction.childEditActions, (k, c) => first(c)));
       case Type.Concat:
-        return Concat(editAction.count, first(editAction.first), first(editAction.second));
+        return Concat(editAction.count, first(editAction.first), first(editAction.second), editAction.forkAt);
       case Type.Up:
         return Up(editAction.keyOrOffset, first(editAction.subAction));
       case Type.Down:
@@ -469,7 +478,7 @@ var editActions = {};
         outCount = inCount;
       }
     }
-    return Concat(outCount, Down(Offset(0, inCount), first), Down(Offset(inCount), second));
+    return Concat(outCount, Down(Offset(0, inCount), first), Down(Offset(inCount), second), inCount);
   }
   editActions.Fork = Fork;
   
@@ -493,99 +502,14 @@ var editActions = {};
   
   // Return true if an edit action can be viewed as a fork
   function isFork(editAction) {
-    let [inCount, outCount, first, second] = argumentsIfFork(editAction);
-    return second !== undefined;
+    return isEditAction(editAction) && editAction.ctor == Type.Concat && editAction.forkAt !== undefined;
   }
   
   // Returns the [inCount, outCount, first, second] if the element is a Fork, such that:
   // applyZ(Concat(outCount, Down(Offset(0, inCount), first), Down(Offset(inCount), second)), rrCtx) = applyZ(editAction, rrCtx);
   function argumentsIfFork(editAction) {
-    // - If not a concat, return.
-    if(editAction.ctor !== Type.Concat) return [];
-    let [firstOffset, firstSubAction] = argumentsIfDownOffset(editAction.first, undefined);
-    let [secondOffset, secondSubAction] = argumentsIfDownOffset(editAction.second, undefined);
-    // If right cannot have offsets (e.g. neither Down or New), return
-    if(secondSubAction === undefined) {
-      if(editAction.second.ctor == Type.Reuse || isFork(editAction.second)) {
-        // We can treat it Concat(n, X, Reuse(...)) as a Fork/Insert.
-        /**Proof
-           applyZ(Concat(n, X, Reuse(R)), rrCtx)
-         = applyZ(Concat(n, Down(Offset(0, 0), Up(Offset(0, 0), X)), Down(Offset(0), Reuse(R))), rrCtx)
-         
-         and the Down(Offset(0), ) can be removed.
-        */
-        return [0, editAction.count, Up(Offset(0, 0), editAction.first), editAction.second];
-      }
-      if(isFork(editAction.second)) {
-        secondOffset = Offset(0);
-        secondSubAction = editAction.second;
-      } else if(firstOffset !== undefined && firstOffset.newLength !== undefined && isFinal(editAction.second)) {
-        secondOfDiff1 = Offset(0);
-        secondSubAction = editAction.second;
-      } else {
-        return [];
-      }
-    }
-    // If left cannot have offsets (e.g. neither Down or New), return
-    if(firstSubAction === undefined) {
-      if(editAction.first.ctor == Type.Reuse) {
-        // We can treat Concat(n, Reuse(...), x) as a Fork.
-        /** Proof:
-           applyZ(Concat(n, Reuse(R), X), rrCtx)
-         = applyZ(Concat(n, Down(Offset(0, n), Up(Offset(0, n), Reuse(R))), Down(Offset(n), Up(Offset(n), X))), rrCtx)
-         
-         However, Up(Offset(0, n)) does not have any effect since Reuse has length n.
-        */
-        return [editAction.count, editAction.count, editAction.first, Up(editAction.count, editAction.second)]
-      } else if(isFinal(editAction.first) && secondOffset.count == 0) {
-        return [0, editAction.count, editAction.first, editAction.second];
-      }
-      return [];
-    }
-    
-    // - If both left and right are New, i.e. no implicit offset, return.
-    if(firstOffset !== undefined && firstOffset.newLength === undefined) return [];
- 
-    if(firstOffset === undefined) {
-      /** Proof:
-      applyZ(Concat(o, New({...}), Down(Offset(c2, n2), X)), rrCtx);
-      = applyZ(Concat(o, Down(Offset(0, c2), Up(Offset(0, c2), New({...}))), Down(Offset(c2, n2), X)), rrCtx)
-      */
-      return [secondOffset.count, editAction.count, Up(Offset(0, secondOffset.count), firstSubAction), secondSubAction];
-    } else if(secondOffset === undefined) {
-      /** Proof:
-      applyZ(Concat(o, Down(Offset(c1, n1), X), New({...})), rrCtx);
-      = applyZ(Concat(o, Down(Offset(0, c1+n1), Down(Offset(c1, n1, c1+n1), X)), Down(Offset(c1+n1), Up(Offset(c1+n1), New({...})))), Down(Offset(c2, n2), X)), rrCtx)
-      */
-      let c1n1 = firstOffset.count + firstOffset.newLength;
-      secondSubAction = Up(Offset(c1n1), secondSubAction);
-      if(firstOffset.count > 0) {
-        firstSubAction = Down(Offset(firstOffset.count, firstOffset.newLength, c1n1), firstSubAction);
-      }
-      return [c1n1, editAction.count, firstSubAction, secondSubAction];
-    }
-    // - If left and right are offsets that overlap, or the left offset is not to the left of the right offset, return
-    if(firstOffset.count + firstOffset.newLength > secondOffset.count) {
-      return [];
-    }
-    
-    // Ok at this point, we can create a Fork.
-    // Choose a number between C1+n1 (lower bound) and c2
-    // If the first offset starts at 0 and its length is greater than zero, then we ensure that firstSubAction stays the same.
-    // Otherwise, we ensure that secondAction somehow the same.
-    let inCount = firstOffset.count == 0 && firstOffset.newLength > 0 ? firstOffset.count + firstOffset.newLength : secondOffset.count;
-    /** Proof:
-       applyZ(Concat(o, Down(Offset(c1, n1), X), Down(Offset(c2, n2), Y)), rrCtx);
-       = applyZ(Concat(o, Down(Offset(0, ic), Down(Offset(C1, n1, ic), X)),
-         Down(Offset(ic), Down(Offset(c2-ic, n2), Y))), rrCtx)
-    */
-    if(firstOffset.count != 0 || firstOffset.newLength != inCount) {
-      firstSubAction = Down(Offset(firstOffset.count, firstOffset.newLength, inCount), firstSubAction);
-    }
-    if(secondOffset.newLength !== undefined || secondOffset.count > inCount) {
-      secondSubAction = Down(Offset(secondOffset.count - inCount, secondOffset.newLength), secondSubAction);
-    }
-    return [inCount, editAction.count, firstSubAction, secondSubAction];
+    if(!isFork(editAction)) return [];
+    return [editAction.forkAt, editAction.count, Up(Offset(0, editAction.forkAt), editAction.first), Up(Offset(editAction.forkAt), editAction.second)];
   }
   
   // returns [count, subAction] if the argument is a Keep
@@ -597,7 +521,9 @@ var editActions = {};
   // returns [count, subAction] if the fork arguments describe a Keep
   function argumentsIfForkIsKeep(inCount, outCount, first, second) {
     //printDebug("argumentsIfForkIsKeep", inCount, outCount, first, second);
-    if(second === undefined || inCount != outCount || !isIdentity(first)) return [];
+    if(second === undefined || inCount != outCount || !(
+      isIdentity(first) || first.ctor == Type.Down && isIdentity(first.subAction) &&
+        first.keyOrOffset.count == 0 && first.keyOrOffset.newLength == inCount)) return [];
     //printDebug("argumentsIfForkIsKeep success", [inCount, second]);
     return [inCount, second];
   }
@@ -620,7 +546,8 @@ var editActions = {};
   
   // first is the thing to insert (in the current context of the slice), second is the remaining (default is Reuse()).
   function Insert(count, first, second = Reuse()) {
-    return Concat(count, first, second);
+    if(!isEditAction(first)) first = New(first);
+    return Fork(0, count, first, second);
     /*return Fork(0, count, Up(Offset(0, 0, undefined), first), second || Reuse());
     */
   }
@@ -782,7 +709,25 @@ var editActions = {};
   function AddContext(keyOrOffset, prog, ctx) {
     printDebug("AddContext", keyOrOffsetToString(keyOrOffset))
     let kIsOffset = isOffset(keyOrOffset);
-    // Merge two offset contexts if necessary
+    if(kIsOffset) {
+      // We also record the length of the previous offset if there was one.
+      let oldLength = undefined;
+      let tmpCtx = ctx;
+      while(typeof tmpCtx == "object") {
+        if(tmpCtx.ctor == Type.Up || tmpCtx.ctor == Type.Down) {
+          tmpCtx = tmpCtx.subAction;
+        } else {
+          if(isOffset(tmpCtx.hd.keyOrOffset)) {
+            oldLength = tmpCtx.hd.keyOrOffset.newLength;
+          }
+          break;
+        }
+      }
+      if(oldLength !== undefined) {
+        keyOrOffset = Offset(keyOrOffset.count, keyOrOffset.newLength, oldLength);
+      }
+    }
+    
     /*if(typeof ctx == "object" && !(ctx.ctor == Type.Up || ctx.ctor == Type.Down) && kIsOffset && isOffset(ctx.hd.keyOrOffset)) {
       return List.cons(ContextElem(downDownOffset(ctx.hd.keyOrOffset, keyOrOffset), ctx.hd.prog), ctx.tl);
     } else {*/
@@ -793,6 +738,7 @@ var editActions = {};
     return List.cons(newContextElem, ctx);
     //}
   }
+  editActions.__AddContext = AddContext;
   
   // Slices prog along the given offset
   function applyOffset(offset, prog) {
@@ -1079,6 +1025,99 @@ var editActions = {};
       // firstAction is Reuse, New, Custom, Concat, UseResult or Sequence
       // secondAction is Up, Down, Reuse, New, Concat, UseResult or Sequence
     } else if(secondAction.ctor == Type.Concat) {
+      // If we have forks, we try to preserve them as much as possible.
+      if(isFork(secondAction)) {
+        if(isFork(firstAction) || firstAction.ctor == Type.Reuse) {
+          let [fi, fc, lf, rf] = argumentsIfFork(firstAction);
+          if(firstAction.ctor == Type.Reuse) {
+            // let's convert to Fork, so that we can enjoy this syntactic sugar.
+            // Note that a Reuse might increase the length.
+            let [si, sc, ls, rs] = argumentsIfFork(secondAction);
+            fi = si;
+            [fc, lf, rf] = splitIn(si, firstAction); // Always returns for a Reuse
+          }
+          //printDebug("First fork", fi, fc, lf, rf);
+          let [os, ls, rs] = splitIn(fc, secondAction);
+          //printDebug("Second fork", os, ls, rs);
+          if(fc == 0) { // rs == secondAction, we don't want infinite recursion!
+            if(editActions.__debug) {
+              console.log("Pre-pending Concat("+secondAction.count+", | , ..., "+secondAction.forkAt+")");
+            }
+            let newSecondFirst = recurse(secondAction.first, firstAction, firstActionContext);
+            if(editActions.__debug) {
+              console.log("Filling Concat("+secondAction.count+", ... , |, "+secondAction.forkAt+")", secondAction.count);
+            }
+            let newSecondSecond = recurse(secondAction.second, firstAction, firstActionContext);
+            return Concat(secondAction.count, newSecondFirst, newSecondSecond, secondAction.forkAt);
+          } else if(rf !== undefined && rs !== undefined) {
+            // If two forks, we can keep the fork structure.
+            /**
+               Proof. 
+                  apply(andThen(Fork(fc, os, ls, rs), Fork(fi, fc, lf, rf), ECtx), r, rCtx)
+                = apply(Fork(fi, os, andThen(ls, lf, ?1), andThen(ls, lf, ?2)), r, rCtx)
+                = applyZ(Down(Offset(0, fi), andThen(ls, lf, ?1)), rrCtx) ++os
+                  applyZ(Down(Offset(fi), andThen(rs, rf, ?2)), rrCtx)
+                = apply(andThen(ls, lf, ?1), r[0..fi], (Offset(0, fi), r)::rCtx) ++os
+                  apply(andThen(rs, rf, ?2), r[fi..], (Offset(fi), r)::rCtx)     -- IND
+                = apply(ls, apply(lf, r[0..fi], (Offset(0, fi), r)::rCtx), apply(?1, r[0..fi], (Offset(0, fi), r)::rCtx)) ++os
+                  apply(rs, apply(rf, r[fi..], (Offset(fi), r)::rCtx), apply(?2, r[fi..], (Offset(fi), r)::rCtx))
+                
+                // If we suppose ?1 = Up(Offset(0, fi), ?3), and ?2 = Up(Offset(fi), ?4), then
+                = apply(ls, apply(lf, r[0..fi], (Offset(0, fi), r)::rCtx), apply(?3, r, rCtx)) ++os
+                  apply(rs, apply(rf, r[fi..], (Offset(fi), r)::rCtx), apply(?4, r, rCtx))
+                
+                // Solution for ?3 = (Offset(0, fc), Fork(fi, fc, lf, rf))::ECtx
+                                ?4 = (Offset(fc), Fork(fi, fc, lf, rf), r, rCtx)::ECtx
+                // Fork(fi, os, andThen(ls, lf, ?1), andThen(ls, lf, ?2)
+                // Hence: ?1 = Up(Offset(0, fi), (Offset(0, fc), Fork(fi, fc, lf, rf))::ECtx)
+                //        ?2 = Up(Offset(fi), (Offset(fc), Fork(fi, fc, lf, rf))::ECtx)
+                
+                // Here, either we use mapUpHere or we prefix with Up. mapUpHere would be better because in most cases, it wouldn't change anything and yet guarantees correctness.
+                // However, in this case, if we don't go up, we will never care about this Up. Hence this is the best solution.
+                
+                = apply(ls, apply(lf, r[0..fi], (Offset(0, fi), r)::rCtx), apply((Offset(0, fc), Fork(fi, fc, lf, rf))::ECtx, r, rCtx)) ++os
+                  apply(rs, apply(rf, r[fi..], (Offset(fi), r)::rCtx),
+                           apply((Offset(fc), Fork(fi, fc, lf, rf), r, rCtx)::ECtx, r, rCtx))
+                = apply(ls, apply(lf, r[0..fi], (Offset(0, fi), r)::rCtx), (Offset(0, fc), apply(Fork(fi, fc, lf, rf), r, rCtx))::apply(ECtx, r, rCtx)) ++os
+                  apply(rs, apply(rf, r[fi..], (Offset(fi), r)::rCtx),
+                           (Offset(fc), apply(Fork(fi, fc, lf, rf), r, rCtx))::apply(ECtx, r, rCtx))
+                = apply(ls, apply(Down(Offset(0, fi), lf), r, rCtx), (Offset(0, fc), apply(Fork(fi, fc, lf, rf), r, rCtx))::apply(ECtx, r, rCtx)) ++os
+                  apply(rs, apply(Down(Offset(fi), rf), r, rCtx),
+                           (Offset(fc), apply(Fork(fi, fc, lf, rf), r, rCtx))::apply(ECtx, r, rCtx))
+                = apply(ls, apply(Down(Offset(0, fi), lf), r, rCtx), (Offset(0, fc), apply(Down(Offset(0, fi), lf), r, rCtx)
+                      ++fc apply(Down(Offset(fi), rf), r, rCtx))::apply(ECtx, r, rCtx)) ++os
+                  apply(rs, apply(Down(Offset(fi), rf), r, rCtx),
+                           (Offset(fc), apply(Down(Offset(0, fi), lf), r, rCtx)
+                      ++fc apply(Down(Offset(fi), rf), r, rCtx))::apply(ECtx, r, rCtx))
+                = apply(Down(Offset(0, fc), ls),
+                           apply(Down(Offset(0, fi), lf), r, rCtx)
+                      ++fc apply(Down(Offset(fi), rf), r, rCtx), apply(ECtx, r, rCtx)) ++os
+                  apply(Down(Offset(fc), rs),
+                           apply(Down(Offset(0, fi), lf), r, rCtx)
+                      ++fc apply(Down(Offset(fi), rf), r, rCtx), apply(ECtx, r, rCtx))
+                = apply(Fork(fc, os, ls, rs),
+                           apply(Down(Offset(0, fi), lf), r, rCtx)
+                      ++fc apply(Down(Offset(fi), rf), r, rCtx), apply(ECtx, r, rCtx))
+                = apply(Fork(fc, os, ls, rs), apply(Fork(fi, fc, lf, rf), r, rCtx), apply(ECtx, r, rCtx))
+                QED;
+            */
+            let ECtx = firstActionContext;
+            let firstSubContext = Up(Offset(0, fi), AddContext(Offset(0, fc), firstAction, ECtx));
+            let secondSubContext = Up(Offset(fi), AddContext(Offset(fc), firstAction, ECtx));
+            if(editActions.__debug) {
+              console.log("Filling Fork("+fi+", " + os + ", |, ...)");
+            }
+            let newLeft = recurse(ls, lf, firstSubContext);
+            if(editActions.__debug) {
+              console.log("Filling Fork("+fi+", " + os + ", "+stringOf(newLeft)+", |)");
+            }
+            let newRight = recurse(rs, rf, secondSubContext);
+            return Fork(fi, os, newLeft, newRight);
+          }
+        }
+      }
+      
+      
       /**
         Proof:
             apply(andThen(Concat(n, E2f, E2s), E1, ECtx), r, rCtx)
@@ -1411,7 +1450,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         }
         let newSecond = recurse(Reuse(rightChildren), firstAction.second, AddContext(Offset(firstAction.count), firstAction, firstActionContext));
         
-        return Concat(firstAction.count, newFirst, newSecond)
+        return Concat(firstAction.count, newFirst, newSecond, firstAction.forkAt);
       } else {
         // Anything else, we could use Custom.
         /** Proof 
@@ -1474,9 +1513,6 @@ Assuming ?1 = apply(E0, r, rCtx)
   }
   editActions.andThen = andThenWithLog//andThen;
   
-  function actionContextToString(ECtx) {
-    return List.toArray(ECtx).map(elem => "("+ keyOrOffsetToString(elem.keyOrOffset) + ", " + stringOf(elem.action) + ", " + stringOf(elem.relativePath)+ ")").join("\n")
-  }
   // Assumes that the most recent relative path is Reuse()
   // Specification: (proof inline)
   // applyZ(E2, applyZip(walkUpActionCtx(k, EECtx), rrCtx))
@@ -1704,6 +1740,191 @@ Assuming ?1 = apply(E0, r, rCtx)
     return o;
   }
   
+  /** Lemma: apply(E, R, lCtx ++ (Offset(c, a), r[d..d+b])::(Offset(d, b), r)::rCtx)
+          == apply(E, R, lCtx ++ (Offset(c+d, a), r)::rCtx)
+         for any a, b, c, d such that a <= b-c and a <= d
+      Meaning: offsets are "idempotent".
+      
+      Proof: On the size of E.
+      If E is a Reuse(), this is obviously true.
+      If E = Reuse({f: Ef, g: Eg})
+          apply(E, R, lCtx ++ (Offset(c+d, a), r)::rCtx)
+        = R[f => apply(EF, R[f], (f, R)::lCtx ++ (Offset(c+d, a), r)::rCtx),
+            g => apply(EF, R[g], (g, R)::lCtx ++ (Offset(c+d, a), r)::rCtx)]
+        = R[f => apply(EF, R[f], (f, R)::lCtx ++ (Offset(c, a), r[d..d+b])::(Offset(d, b), r)::rCtx),
+            g => apply(EF, R[g], (g, R)::lCtx ++ (Offset(c, a), r[d..d+b])::(Offset(d, b), r)::rCtx)]
+        = apply(E, R, lCtx ++ apply(E, R, lCtx ++ (Offset(c, a), r[d..d+b])::(Offset(d, b), r)::rCtx)
+      ok;
+      A very similar proof can be done for Concat, New and Down (except they don't increase the context).
+      Let's examine the Up case. The only discrepancy can happen if lCtx is empty. Let's assume lCtx is empty.
+      Let's assume E = Up(Offset(x, _, m), E')
+      If x <= c+d and m <= a, then let's examine the branch when x > c or m  > a:
+      
+        apply(Up(Offset(x, _, m), E'), R, (Offset(c+d, a), r)::rCtx)
+      = apply(E', r[c+d-x..c+d-x+m], (Offset(c+d-x, m), r)::rCtx)
+      On one side, and
+        apply(Up(Ofset(x, _, m), E'), R, (Offset(c, a), r[d..d+b])::(Offset(d, b), r)::rCtx)
+      = apply(Up(Offset(x-c, _, m), E'), r[d..d+b], (Offset(d, b), r)::rCtx)
+      = apply(E', r[d-(x-c)..d-(x-c)+m], (Offset(d-(x-c), m), r)::rCtx)
+      On the other side. Looking more closely, the two expressions are equal.
+      When x <= c AND m <= a, we get on the other side:
+        apply(Up(Offset(x, _, m), E'), R, (Offset(c, a), r[d..d+b])::(Offset(d, b), r)::rCtx)
+      = apply(E', r[d+(c-x)..d+(c-x)+m], (Offset(c-x, m), r[d..d+b])::(Offset(d, b), r)::rCtx)
+        by induction
+      = apply(E', r[d+(c-x)..d+(c-x)+m], (Offset(d+c-x, m), r)::rCtx)
+      which is again the same.
+      QED.
+  */
+  
+  // If [outCount, left, right] = splitIn(inCount, editAction)
+  // Then
+  // apply(Fork(inCount, outCount, left, right), r, rCtx) = apply(editAction, r, rCtx)
+  function splitIn(n, editAction) {
+    if(n == 0) {
+      /** Proof:
+            apply(Fork(0, 0, Reuse(), editAction), r, rCtx)
+          = apply(Down(Offset(0, 0)), r, rCtx) ++0 apply(Down(Offset(0), editAction), r, rCtx)
+          = [] ++0 apply(editAction, r, rCtx)
+          = apply(editAction, r, rCtx)
+          QED
+      */
+      return [0, Reuse(), editAction];
+    }
+    let [inCount, outCount, left, right] = argumentsIfFork(editAction);
+    if(right !== undefined) {
+      if(inCount == n) {
+        return [outCount, left, right]
+      } else if(inCount < n) {
+        let [outCount2, right1, right2] = splitIn(n-inCount, right);
+        if(right2 === undefined) return [];
+        /** Proof:
+              apply(editAction, r, rCtx)
+            = apply(Fork(i, o, L, R), r, rCtx)
+            = apply(Down(Offset(0, i), L), r, rCtx) ++o apply(Down(Offset(i), R), r, rCtx)
+            = apply(Down(Offset(0, i), L), r, rCtx) ++o apply(R, r[i...], (Offset(i), r)::rCtx)
+            = apply(Down(Offset(0, i), L), r, rCtx) ++o apply(Fork(n-i, o2, r1, r2), r[i...], (Offset(i), r)::rCtx)
+            = apply(Down(Offset(0, i), L), r, rCtx) ++o (apply(Down(Offset(0, n-i), r1), r[i...], (Offset(i), r)::rCtx) ++o2 apply(Down(Offset(n-i), r2), r[i...], (Offset(i), r)::rCtx))
+            = (apply(Down(Offset(0, i), L), r, rCtx) ++o apply(Down(Offset(0, n-i), r1), r[i...], (Offset(i), r)::rCtx)) ++(o+o2) apply(Down(Offset(n-i), r2), r[i...], (Offset(i), r)::rCtx)
+            = (apply(Down(Offset(0, i), L), r, rCtx) ++o apply(r1, r[i...i+(n-i)], (Offset(0, n-i), r[i...])::(Offset(i), r)::rCtx)) ++(o+o2) apply(Down(Offset(n-i), r2), r[i...], (Offset(i), r)::rCtx)
+            = (apply(Down(Offset(0, i), L), r, rCtx) ++o apply(Down(Offset(i, n-i), r1), r, rCtx))) ++(o+o2) apply(Down(Offset(n), r2), r, rCtx)
+            = (apply(Down(Offset(0, i), L), r[0..n], (Offset(0, n), r)::rCtx) ++o apply(Down(Offset(i), L), r1), r[0..n], (Offset(0, n), r)::rCtx)) ++(o+o2) apply(Down(Offset(n), r2), r, rCtx)
+            = (apply(Fork(i, o, L, r1), r[0..n], (Offset(0, n), r)::rCtx) ++(o+o2) apply(Down(Offset(n), r2), r, rCtx)
+            = (apply(Down(Offset(0, n), Fork(i, o, L, r1)), r, rCtx) ++(o+o2) apply(Down(Offset(n), r2), r, rCtx)
+            = apply(Fork(n, o+o2, Fork(i, o, L, r1), r2)
+            QED;
+        */
+        return [outCount2+outCount, Fork(inCount, outCount, left, right1), right2];
+      } else { // inCount > n
+        let [outCount2, left1, left2] = splitIn(n, left); 
+        if(left2 === undefined) return [];
+        
+        /** Proof:
+              apply(editAction, r, rCtx)
+            = apply(Fork(i, o, L, R), r, rCtx)
+            = apply(Down(Offset(0, i), L), r, rCtx) ++o apply(Down(Offset(i), R), r, rCtx)
+            = apply(L, r[0..i], (Offset(0, i), r)::rCtx) ++o apply(Down(Offset(i), R), r, rCtx)
+            = apply(Fork(n, o2, l1, l2), r[0..i], (Offset(0, i), r)::rCtx) ++o apply(Down(Offset(i), R), r, rCtx)
+            = (apply(Down(Offset(0, n), l1), r[0..i], (Offset(0, i), r)::rCtx) ++o2 
+               apply(Down(Offset(n), l2), r[0..i], (Offset(0, i), r)::rCtx)) ++o
+              apply(Down(Offset(i), R), r, rCtx)
+            = apply(l1, r[0..n], (Offset(0, n), r)::rCtx) ++o2 
+               (apply(l2, r[n..i], (Offset(n, i-n), r)::rCtx) ++(o-o2)
+                apply(R, r[i...], (Offset(i), r)::rCtx))
+                
+            = apply(l1, r[0..n], (Offset(0, n), r)::rCtx) ++o2 
+               (apply(Down(Offset(0, i-n), l2), r[n...], (Offset(n), r)::rCtx) ++(o-o2)
+                apply(Down(Offset(i-n), R), ..., (Offset(n), r)::rCtx))
+            = apply(l1, r[0..n], (Offset(0, n), r)::rCtx) ++o2 
+               (apply(Fork(i-n, o-o2, l2, R), (Offset(n), r)::rCtx))
+            = apply(Fork(n, o2, l1, Fork(i-n, o-o2, l2, R)), r, rCtx)
+            QED;
+        */
+        return [outCount2, left1, Fork(inCount - n, outCount-outCount2, left2, right)];
+      }
+    }
+    if(editAction.ctor == Type.Reuse) {
+      // Let's generate a Fork to mimic the Reuse.
+      /** Proof: Assume editAction = Reuse({f: Ef, g: Eg}) where f < n and g >= n
+           apply(editAction, r, rCtx)
+         = apply(Reuse({f: Ef, g: Eg}), r, rCtx)
+         = r[f => apply(Ef, r[f], (f, r)::rCtx),
+             g => apply(Eg, r[g], (g, r)::rCtx)]
+         = r[0..n][f => apply(Ef, r[f], (f, r)::rCtx)] ++n
+           r[n..][(g-n) => apply(Eg, r[g], (g, r)::rCtx)]
+         = r[0..n][f => apply(mapUpHere(Ef, f, Offset(0, n), Up(f)), r[f], (f, r[0..n])::(Offset(0, n), r)::rCtx)] ++n
+           r[n..][(g-n) => apply(mapUpHere(Eg, g, Offset(n), Up(g)), r[g], (g-n, r[n..])::(Offset(n), r)::rCtx)]
+         = r[0..n][f => apply(mapUpHere(Ef, f, Offset(0, n), Up(f)), r[f], (f, r[0..n])::(Offset(0, n), r)::rCtx)] ++n
+           r[n..][(g-n) => apply(mapUpHere(Eg, g, Offset(n), Up(g)), r[g], (g-n, r[n..])::(Offset(n), r)::rCtx)]
+         = apply(Reuse({f: mapUpHere(Ef, f, Offset(0, n), Up(f))}), r[0..n], (Offset(0, n), r)::rCtx) ++n
+           apply(Reuse({(g-n): mapUpHere(Eg, g, Offset(n), Up(g))}), r[n..], (Offset(n), r)::rCtx)
+         = apply(Down(Offset(0, n), Reuse({f: mapUpHere(Ef, f, Offset(0, n), Up(f))})), r, rCtx) ++n
+           apply(Down(Offset(n), Reuse({(g-n): mapUpHere(Eg, g, Offset(n), Up(g))})), r, rCtx)
+         = apply(Fork(n, n, Reuse({f: mapUpHere(Ef, f, Offset(0, n), Up(f))}), Reuse({(g-n): mapUpHere(Eg, g, Offset(n), Up(g))})), r, rCtx)
+         QED;
+      */
+      let lefto = {};
+      let righto = {};
+      for(let k in editAction.childEditActions) {
+        k = Number(k);
+        if(k < n) {
+          lefto[k] = mapUpHere(editAction.childEditActions[k], k, Offset(0, n), Up(k));
+        } else {
+          righto[k-n] = mapUpHere(editAction.childEditActions[k], k, Offset(n), Up(k));
+        }
+      }
+      return [n, Reuse(lefto), Reuse(righto)];
+    }
+    if(editAction.ctor == Type.Down && isOffset(editAction.keyOrOffset)) {
+      let {count: c, newLength: l, oldLength: o} = editAction.keyOrOffset;
+      if(editAction.keyOrOffset.count >= n) {
+      /** Proof: Assume editAction = Down(Offset(c, l, o), E) where c >= n
+         apply(editAction, r, rCtx)
+       = apply(Down(Offset(c, l, o), E), r, rCtx);
+       = apply(Down(Offset(0, n), Down(Offset(0, 0, n))), r, rCtx) ++0
+         apply(Down(Offset(n), Down(Offset(c-n, l, o-n), E)), r, rCtx);
+       = apply(Fork(n, 0, Down(Offset(0, 0, n)), Down(Offset(c-n, l, o-n), E)), r, rCtx)
+       QED;
+      */
+        return [0, Down(Offset(0, 0, n)), Down(Offset(c - n, l, MinusUndefined(o, n)), editAction.subAction)];
+      } else if(editAction.keyOrOffset.newLength !== undefined &&
+                 editAction.keyOrOffset.count + editAction.keyOrOffset.newLength <= n) {
+        /** Proof:Assume editAction = Down(Offset(c, l, o), E) where c+l <= n
+            apply(editAction, r, rCtx)
+          = apply(Down(Offset(c, l, o), E), r, rCtx)
+          = apply(Down(Offset(0, n), Down(Offset(c, l, n), E)), r, rCtx)
+            ++? apply(Down(Offset(n), Down(Offset(0, 0))), r, rCtx) 
+          = apply(Fork(n, ?, Down(Offset(c, l, n), E), Down(Offset(0, 0))), r, rCtx)
+          QED
+        */
+        let leftLength = outLength(editAction);
+        if(leftLength !== undefined) {
+          return [leftLength, editAction, Down(Offset(0, 0))];
+        }
+      } else { // Hybrid
+        /** Proof:Assume editAction = Down(Offset(c, l, o), E) where c < n and n < c+l
+            let [o1, l1, r1] = splitIn(n - c, E)
+            then apply()
+        
+            apply(editAction, r, rCtx)
+          = apply(Down(Offset(c, l, o), E), r, rCtx)
+          = apply(E, r[c..c+l], (Offset(c, l, o), r)::rCtx)
+          = apply(Fork(n-c, o1, l1, r1), r[c..c+l], (Offset(c, l, o), r)::rCtx)
+          = apply(Concat(o1, Down(Offset(0, n-c, l), l1), Down(Offset(n-c, l-(n-c), l), r1)), r[c..c+l], (Offset(c, l, o), r)::rCtx)
+          = apply(Down(Offset(c, l, o), Concat(o1, Down(Offset(0, n-c, l), l1), Down(Offset(n-c, l-(n-c), l), r1))), r, rCtx)
+          = apply(Concat(o1, Down(Offset(c, l, o), Down(Offset(0, n-c, l), l1)), Down(Offset(c, l, o), Down(Offset(n-c, l-(n-c), l), r1))), r, rCtx)
+          = apply(Concat(o1, Down(Offset(c, n-c, o), l1), Down(Offset(c+n-c, l-(n-c), o), r1)), r, rCtx)
+          = apply(Concat(o1, Down(Offset(c, n-c, o), l1), Down(Offset(n, l-(n-c), o), r1)), r, rCtx)
+          = apply(Concat(o1, Down(Offset(0, n), Down(Offset(c, n-c, o), l1)), Down(Offset(n), Down(Offset(0, l-(n-c), o), r1))), r, rCtx)
+          = apply(Fork(n, o1, Down(Offset(c, n-c, o), l1), Down(Offset(0, l-(n-c), o), r1)), r, rCtx)
+          QED
+        */
+        let [o1, l1, r1] = splitIn(n - c, editAction.subAction);
+        return [o1, Down(Offset(c, n - c, o), l1), Down(Offset(0, l-(n-c), o), r1)];
+      }
+    }
+    return []
+  }
+  
   // if [left, right] = splitAt(count, editAction)
   // Then
   //
@@ -1860,7 +2081,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         let [left1, right1] = splitAt(count, editAction.first);
         return [
           left1,
-          Concat(editAction.count - count, right1, editAction.second)
+          Concat(editAction.count - count, right1, editAction.second) // TODO: forgotten forkAt?
         ];
       } else { // editAction.count < count
         /**
@@ -1880,7 +2101,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         */
         let [left, right] = splitAt(count - editAction.count, editAction.second);
         return [
-          Concat(editAction.count, editAction.first, left),
+          Concat(editAction.count, editAction.first, left, editAction.forkAt),
           right
         ];
       }
@@ -2306,16 +2527,17 @@ Assuming ?1 = apply(E0, r, rCtx)
       // (E1, E2) is [R*, F, C, U, D, UR] x [R*, F, C, U, D, UR] \ R* x R*
       } else if(E1.ctor == Type.Reuse && E2.ctor == Type.Concat) {
         let [inCount, outCount, left, right] = argumentsIfFork(E2);
-        if(!right) { // This concat is an Insert, not a fork, no point merging first. We just merge second.
+        if(!right) { // This concat is not a fork, no point merging first. We just merge second.
           let newSecond = merge(E1, E2.second, multiple);
           result.push(Concat(E2.count, E2.first, newSecond));
         } else { // This is a fork. Hence, we split E1 so that we can merge with each side. Careful: we need to call mapUpHere so that E1's paths are correct.
-          let [left, right] = splitAt(inCount, E1);
+          let [o1, l1, r1] = splitIn(inCount, E1);
+          //let [left, right] = splitAt(inCount, E1);
           // E1 ~= Concat(outCount, left, right)
           // and left and right are supposed to be the same.
-          let newFirst = merge(left, E2.first, multiple);
-          let newSecond = merge(right, E2.second, multiple);
-          result.push(Concat(E2.count, newFirst, newSecond));
+          let newFirst = merge(l1, left, multiple);
+          let newSecond = merge(r1, right, multiple);
+          result.push(Fork(inCount, outCount, newFirst, newSecond));
         }
       // (E1, E2) is [R*, F, C, U, D, UR] x [R*, F, C, U, D, UR] \ R* x [R*, C]
       } else if(E2.ctor == Type.Reuse && E1.ctor == Type.Concat) {
@@ -2324,12 +2546,10 @@ Assuming ?1 = apply(E0, r, rCtx)
           let newSecond = merge(E1.second, E2, multiple);
           result.push(Concat(E1.count, E1.first, newSecond));
         } else { // This is a fork. Hence, we split E1 so that we can merge with each side. Careful: we need to call mapUpHere so that E1's paths are correct.
-          let [left, right] = splitAt(inCount, E2);
-          // E1 ~= Concat(outCount, left, right)
-          // and left and right are supposed to be the same.
-          let newFirst = merge(E1.first, left, multiple);
-          let newSecond = merge(E1.second, right, multiple);
-          result.push(Concat(E1.count, newFirst, newSecond));
+          let [o2, l2, r2] = splitIn(inCount, E2);
+          let newFirst = merge(left, l2, multiple);
+          let newSecond = merge(right, r2, multiple);
+          result.push(Fork(inCount, outCount, newFirst, newSecond));
         }
       // (E1, E2) is [R*, F, C, U, D, UR] x [R*, F, C, U, D, UR] \ R* x [R*, C] \ C x R*
       } else if(E1.ctor == Type.Concat && E2.ctor == Type.Concat) {
@@ -2356,8 +2576,8 @@ Assuming ?1 = apply(E0, r, rCtx)
             )));
           // Ok, two reuse of arrays, we just align them and merge them. We need to adjust where to split
           } else if(inCount1 == inCount2) {
-            newLeft = merge(left1, left2, multiple);
-            newLeftCount = MinUndefined(outLength(newLeft, inCount1), outCount1 +outCount2);
+            let newLeft = merge(left1, left2, multiple);
+            let newLeftCount = MinUndefined(outLength(newLeft, inCount1), outCount1 + outCount2);
             result.push(Fork(inCount1, newLeftCount, newLeft, merge(right1, right2, multiple)));
 
           } else if(inCount1 < inCount2) {
@@ -2365,59 +2585,82 @@ Assuming ?1 = apply(E0, r, rCtx)
           // But usually, the biggest first action indicates a Reuse of it.
             // [ inCount1   ][     .... ]
             // [  inCount2   |   ] [.....]
-            if(editActions.__debug) console.log("inCount1 = ", inCount1);
-            let newE2Left = restrictInput(Offset(0, inCount1), E2);
-            let newE2Right = restrictInput(Offset(inCount1), E2);
-            let leftPart = merge(
-              left1, newE2Left, multiple)
-            let rightPart = merge(
-              right1, newE2Right, multiple)
-            let newLeftCount = MinUndefined(outCount1, outLength(leftPart));
-            result.push(Concat(newLeftCount, Down(Offset(0, inCount1), leftPart), Down(Offset(inCount1), rightPart)));
-            /*
-            let newOutPosition = Math.max(0, adaptInBoundTo(E2, inCount1));
-            if(editActions.__debug) console.log("newOutPosition = ", stringOf(newOutPosition));
-            let [left21, left22] = splitAt(newOutPosition, Down(Offset(0, inCount2), left2));
-            // left2 = Concat(, left21, left22)
-            if(editActions.__debug) console.log("left21 = ", stringOf(left21));
-            if(editActions.__debug) console.log("left22 = ", stringOf(left22)); 
-            
-            let leftPart = merge(
-              Down(Offset(0, inCount1), left1),
-              left21, multiple);
-            
-            let rightPart = merge(
-              Down(Offset(inCount1), right1),
-              Down(Offset(inCount1), Concat(outCount2-newOutPosition,
-                Up(Offset(inCount1), left22),
-                Up(Offset(inCount1), Down(Offset(inCount2), right2)))),
-              multiple);
-            let newLeftCount = MinUndefined(outCount1, outLength(leftPart));
-            result.push(Concat(newLeftCount, leftPart, rightPart));
-            */
+            let [o2, l2, r2] = splitIn(inCount1, E2); // We split the bigger left first if possible.
+            if(r2 !== undefined) {
+              let newLeft = merge(left1, l2, multiple);
+              let newRight = merge(right1, r2, multiple);
+              let newLeftCount = MinUndefined(outLength(newLeft, inCount1), outCount1 + outCount2);
+              result.push(Fork(inCount1, newLeftCount, newLeft, newRight));
+            } else {
+              let [o1, l1, r1] = splitIn(inCount2, E1);
+              if(r1 !== undefined) {
+                let newLeft = merge(l1, left2, multiple);
+                let newRight = merge(r1, right2, multiple);
+                let newLeftCount = MinUndefined(outLength(newLeft, inCount2), outCount1 + outCount2);
+                result.push(Fork(inCount2, newLeftCount, newLeft, newRight));
+              } else {
+                // A generic action, I'm not sure it's working well.
+                if(editActions.__debug) console.log("inCount1 = ", inCount1);
+                let newE2Left = restrictInput(Offset(0, inCount1), E2);
+                let newE2Right = restrictInput(Offset(inCount1), E2);
+                let leftPart = merge(
+                  left1, newE2Left, multiple)
+                let rightPart = merge(
+                  right1, newE2Right, multiple)
+                let newLeftCount = MinUndefined(outCount1, outLength(leftPart));
+                result.push(Concat(newLeftCount, Down(Offset(0, inCount1), leftPart), Down(Offset(inCount1), rightPart)));
+              }
+            }
           } else { // inCount1 > inCount2
             // [  inCount1   |   ] [.....]
             // [  inCount2   ][     .... ]
-            if(editActions.__debug) console.log("inCount2 = ", inCount2);
-            let newOutPosition = Math.max(0, adaptInBoundTo(E1, inCount2));
-            if(editActions.__debug) console.log("newOutPosition = ", stringOf(newOutPosition));
-            let [left11, left12] = splitAt(newOutPosition, Down(Offset(0, inCount1), left1));
-            // left1 = Concat(, left11, left12)
-            if(editActions.__debug) console.log("left11 = ", stringOf(left11));
-            if(editActions.__debug) console.log("left12 = ", stringOf(left12)); 
-            
-            let leftPart = merge(
-              left11,
-              Down(Offset(0, inCount2), left2),
-              multiple);
-            
-            let rightPart = merge(
-              Down(Offset(inCount2), Concat(outCount1-newOutPosition,
-                Up(Offset(inCount2), left12),
-                Up(Offset(inCount2), Down(Offset(inCount1), right1)))),
-              Down(Offset(inCount2), right2), multiple);
-            let newLeftCount = MinUndefined(outCount2, outLength(leftPart));
-            result.push(Concat(newLeftCount, leftPart, rightPart));
+            let [o1, l1, r1] = splitIn(inCount2, E1);
+            if(r1 !== undefined) {
+              let newLeft = merge(l1, left2, multiple);
+              let newRight = merge(r1, right2, multiple);
+              let newLeftCount = MinUndefined(outLength(newLeft, inCount2), outCount1 + outCount2);
+              result.push(Fork(inCount2, newLeftCount, newLeft, newRight));
+            } else {
+              let [o2, l2, r2] = splitIn(inCount1, E2); // We split the bigger left first if possible.
+              if(r2 !== undefined) {
+                let newLeft = merge(left1, l2, multiple);
+                let newRight = merge(right1, r2, multiple);
+                let newLeftCount = MinUndefined(outLength(newLeft, inCount1), outCount1 + outCount2);
+                result.push(Fork(inCount1, newLeftCount, newLeft, newRight));
+              } else {
+                // A generic action, I'm not sure it's working well.
+                if(editActions.__debug) console.log("inCount2 = ", inCount2);
+                
+                let newE1Left = restrictInput(Offset(0, inCount2), E1);
+                let newE1Right = restrictInput(Offset(inCount2), E1);
+                let leftPart = merge(
+                  newE1Left, left2, multiple)
+                let rightPart = merge(
+                  newE1Right, right2, multiple)
+                let newLeftCount = MinUndefined(outCount2, outLength(leftPart, inCount2));
+                result.push(Fork(inCount1, newLeftCount, leftPart, rightPart));
+                /*
+                let newOutPosition = Math.max(0, adaptInBoundTo(E1, inCount2));
+                if(editActions.__debug) console.log("newOutPosition = ", stringOf(newOutPosition));
+                let [left11, left12] = splitAt(newOutPosition, Down(Offset(0, inCount1), left1));
+                // left1 = Concat(, left11, left12)
+                if(editActions.__debug) console.log("left11 = ", stringOf(left11));
+                if(editActions.__debug) console.log("left12 = ", stringOf(left12)); 
+                
+                let leftPart = merge(
+                  left11,
+                  Down(Offset(0, inCount2), left2),
+                  multiple);
+                
+                let rightPart = merge(
+                  Down(Offset(inCount2), Concat(outCount1-newOutPosition,
+                    Up(Offset(inCount2), left12),
+                    Up(Offset(inCount2), Down(Offset(inCount1), right1)))),
+                  Down(Offset(inCount2), right2), multiple);
+                let newLeftCount = MinUndefined(outCount2, outLength(leftPart));
+                result.push(Concat(newLeftCount, leftPart, rightPart));*/
+              }
+            }
           }
         } else {
           result.push(E1);
@@ -2792,34 +3035,6 @@ Assuming ?1 = apply(E0, r, rCtx)
       console.log("<="+addPadding(stringOf(U), "  "));
       console.log("-|"+addPadding(stringOf(ECtx), "  "));
     }
-    if(U.ctor == Type.Reuse) {
-      let buildPart = buildingPartOf(E);
-      if(editActions.__debug) {
-        console.log("Recovered a build part: " + stringOf(buildPart));
-      }
-      return [buildPart, [[E, U, ECtx]], ECtx];
-    }
-    if(U.ctor == Type.New) {
-      let o = {};
-      let next = [];
-      for(let k in U.childEditActions) {
-        if(editActions.__debug) {
-          console.log("Pre-pending New({..."+k+": | })");
-        }
-        let [subK, nexts] = partitionEdit(E, U.childEditActions[k], ECtx);
-        o[k] = subK;
-        next.push(...nexts);
-      }
-      return [New(o, U.model), next, ECtx];
-    }
-    if(U.ctor == Type.Down) {
-      let [E1p, E1Ctxp] = walkDownActionCtx(U.keyOrOffset, E, ECtx);
-      if(editActions.__debug) {
-        console.log("After walking down " + keyOrOffsetToString(U.keyOrOffset) + ", we get "+stringOf(E1p));
-        console.log("E1Ctxp: "+actionContextToString(E1Ctxp));
-      }
-      return partitionEdit(E1p,  U.subAction,  E1Ctxp, ECtx);
-    }
     if(U.ctor == Type.Up) {
       if(ECtx === undefined) {
         console.trace("/!\\ Error, trying to go up " + keyOrOffsetToString(U.keyOrOffset) + " but empty context");
@@ -2839,6 +3054,41 @@ Assuming ?1 = apply(E0, r, rCtx)
       }
       let [E1p, E1Ctxp, newSecondUpOffset] = walkUpActionCtx(U.keyOrOffset, E, ECtx);
       return partitionEdit(E1p, newSecondUpOffset ? Up(newSecondUpOffset, U.subAction) : U.subAction, E1Ctxp);
+    }
+    if(U.ctor == Type.Reuse) {
+      let buildPart = buildingPartOf(E);
+      if(editActions.__debug) {
+        console.log("Recovered a build part: " + stringOf(buildPart));
+      }
+      return [buildPart, [[E, U, ECtx]], ECtx];
+    }
+    // From now, everything is likely to go down. We first follow E to factor things out.
+    /*if(E.ctor == Type.Up) {
+    }*/
+    /*if(E.ctor == Type.Down) {
+      let [subSolution, subProblems, ECtx2] = partitionEdit(E.subAction, U, Down(E.keyOrOffset, ECtx));
+      return [Down(E.keyOrOffset, subSolution), subProblems, ECtx2]
+    }*/
+    if(U.ctor == Type.Down) {
+      let [E1p, E1Ctxp] = walkDownActionCtx(U.keyOrOffset, E, ECtx);
+      if(editActions.__debug) {
+        console.log("After walking down " + keyOrOffsetToString(U.keyOrOffset) + ", we get "+stringOf(E1p));
+        console.log("E1Ctxp: "+stringOf(E1Ctxp));
+      }
+      return partitionEdit(E1p,  U.subAction,  E1Ctxp);
+    }
+    if(U.ctor == Type.New) {
+      let o = {};
+      let next = [];
+      for(let k in U.childEditActions) {
+        if(editActions.__debug) {
+          console.log("Pre-pending New({..."+k+": | })");
+        }
+        let [subK, nexts] = partitionEdit(E, U.childEditActions[k], ECtx);
+        o[k] = subK;
+        next.push(...nexts);
+      }
+      return [New(o, U.model), next, ECtx];
     }
     if(U.ctor == Type.Concat) {
       // Even forks, we treat them like Concat when we try to resolve partitionEdit. At this point, we are already creating something new from old pieces.
@@ -2888,7 +3138,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     if(E.ctor == Type.Concat) {
       let left = buildingPartOf(E.first);
       let right = buildingPartOf(E.second);
-      return Concat(E.count, left, right)
+      return Concat(E.count, left, right, E.forkAt);
     }
     return E;
   }
@@ -2986,7 +3236,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         // and since Offset(0, undefined) are removed, we can expect newLength to be zero.
         // In this particular case, if E is a Fork, we split the deletion to both sides as well.
         if(U.keyOrOffset.newLength === 0 && E.ctor == Type.Concat) {
-          U = Fork(E.count, 0, Down(Offset(0, 0, E.count)), Down(Offset(0, 0, MinUndefined(U.keyOrOffset.oldLength, E.count))));
+          U = Delete(E.count, Down(Offset(0, 0, MinusUndefined(U.keyOrOffset.oldLength, E.count))));
           if(editActions.__debug) {
             console.log("Rewritten user action from Down to \n"+stringOf(U));
           }
@@ -3000,11 +3250,19 @@ Assuming ?1 = apply(E0, r, rCtx)
         // Whatever the fork of the user, it does not touch the left portion.
         return backPropagate(E.second, U, ECtx);
       }
+      // Let's try to split the user's action, if possible.
+      /*let [outCountU, leftU, rightU] = splitIn(outCountE, U);
+      if(rightU !== undefined && false && editActions.__debug) {
+        let resultLeft = backPropagate(leftE, leftU, Up(Offset(0, inCountE), ECtx));
+        let resultRight = backPropagate(rightE, rightU, Up(Offset(inCountE), ECtx));
+        return merge(resultLeft, resultRight);
+      } else {*/
       let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, inCount), E, ECtx);
       let resultLeft = backPropagate(ELeft, left, ECtxLeft);
       let [ERight, ECtxRight] = walkDownActionCtx(Offset(inCount), E, ECtx);
       let resultRight = backPropagate(ERight, right, ECtxRight);
       return merge(resultLeft, resultRight);
+      //}
     }
     
     // TODO: If edit action is Up or Down, we walk it before continuing. When we wrap something, we wrap it where it is directly.
@@ -3513,16 +3771,17 @@ Assuming ?1 = apply(E0, r, rCtx)
               } else if(right.isDeleted) {
                 left.isDeleted = true;
               } else {
-                if((k + 1 in oldSeps) && oldSeps[k+1].deleted > oldSeps[k+1].kept) {
+                let compareWithIndex = Number(k) + 1;
+                while(compareWithIndex in oldSeps && oldSeps[compareWithIndex].deleted > oldSeps[compareWithIndex].kept) {
+                  compareWithIndex++;
+                }
+                let farRight = oldActions[compareWithIndex];
+                let leftRatio = left.deleted / (left.deleted + left.kept + 1);
+                let rightRatio = farRight.deleted / (farRight.deleted + farRight.kept + 1 );
+                if(leftRatio > rightRatio) {
                   left.isDeleted = true;
                 } else {
-                  let leftRatio = left.deleted / (left.deleted + left.kept + 1);
-                  let rightRatio = right.deleted / (right.deleted + right.kept + 1 );
-                  if(leftRatio > rightRatio) {
-                    left.isDeleted = true;
-                  } else {
-                    right.isDeleted = true;
-                  }
+                  right.isDeleted = true;
                 }
               }
             }
@@ -3541,16 +3800,17 @@ Assuming ?1 = apply(E0, r, rCtx)
               } else if(right.isInserted) {
                 left.isInserted = true;
               } else { // If the next separator is also inserted, that means that the data inside is inserted anyway.
-                if((k + 1 in newSeps) && newSeps[k+1].inserted > newSeps[k+1].kept) {
+                let compareWithIndex = Number(k) + 1;
+                while(compareWithIndex in newSeps && newSeps[compareWithIndex].inserted > newSeps[compareWithIndex].kept) {
+                  compareWithIndex++;
+                }
+                let farRight = newActions[compareWithIndex];
+                let leftRatio = left.inserted / (left.inserted + left.kept + 1);
+                let rightRatio = farRight.inserted / (farRight.inserted + farRight.kept + 1 );
+                if(leftRatio > rightRatio) {
                   left.isInserted = true;
                 } else {
-                  let leftRatio = left.inserted / (left.inserted + left.kept + 1);
-                  let rightRatio = right.inserted / (right.inserted + right.kept + 1 );
-                  if(leftRatio > rightRatio) {
-                    left.isInserted = true;
-                  } else {
-                    right.isInserted = true;
-                  }
+                  right.isInserted = true;
                 }
               }
             }
@@ -4680,10 +4940,11 @@ Assuming ?1 = apply(E0, r, rCtx)
     }
     return str;
   }
-  
+
   // Given a pair (prog, ctx), walks the context down by the provided key or offset and returns a [new prog, new ctx]
   function walkDownCtx(downKeyOrOffset, prog, ctx) {
-    return [applyKeyOrOffset(downKeyOrOffset, prog), AddContext(downKeyOrOffset, prog, ctx)];
+    return [applyKeyOrOffset(downKeyOrOffset, prog),
+            AddContext(downKeyOrOffset, prog, ctx)];
   }
   
   // Given a pair (prog, ctx), walks the context up by the provided key or offset and returns a [new prog, new ctx]
@@ -4697,8 +4958,11 @@ Assuming ?1 = apply(E0, r, rCtx)
         console.log("Error: up " + keyOrOffsetToString(upKeyOrOffset) + " but no offset context available on " + uneval(prog), ctx);
         return [prog, ctx];
       }
+      printDebug("upKeyOrOffset", keyOrOffsetToString(upKeyOrOffset));
       let newOffset = downUpOffsetReturnsUp(keyOrOffset, upKeyOrOffset);
+      printDebug("newOffset", keyOrOffsetToString(newOffset));
       let newDownOffset = upToDownOffset(newOffset);
+      printDebug("newDownOffset", keyOrOffsetToString(newDownOffset));
       if(!newDownOffset) {
         return [originalProg, originalUpCtx, newOffset]
       }
@@ -4884,7 +5148,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         let insertRight = isInsertRight(self);
         str = (insertRight ? "InsertRight" : "Concat") + "(" + self.count + ", ";
         str += addPadding(stringOf(self.first), "  ")
-        str += ", " + addPadding(stringOf(self.second), "  ") + ")";
+        str += ", " + addPadding(stringOf(self.second), "  ") + (self.forkAt !== undefined ? ", " + self.forkAt : "") + ")";
       }
       return str;
     } else if(self.ctor == Type.Custom) { // Custom
@@ -4946,7 +5210,7 @@ Assuming ?1 = apply(E0, r, rCtx)
       mkPath([], E) = E
     
     apply(Ej, x, LCtx ++ (k, r)::rCtx)
-    = apply(mapUpHere(Ej, k, Offset(c), mkPath(LCtx, Up(k))), x, LCtx ++ (k-c, r[c[)::(Offset(c), r)::rCtx)
+    = apply(mapUpHere(Ej, k, Offset(c, n), mkPath(LCtx, Up(k))), x, LCtx ++ (k-c, r[c..c+n[)::(Offset(c, n), r)::rCtx)
   */
   // mapUpHere enables us to change the key of a Reuse statement by an offset. We change its underlying sub edit action by wrapping it up calls to the main expression to Up(the new offseted key, the offset, the edit action on the main expression)
   //
@@ -5061,7 +5325,7 @@ Assuming ?1 = apply(E0, r, rCtx)
       if(newFirst == editAction.first && newSecond == editAction.second) {
         return editAction;
       } else {
-        return Concat(editAction.count, newFirst, newSecond);
+        return Concat(editAction.count, newFirst, newSecond, editAction.forkAt);
       }
     }
     case Type.Custom: {

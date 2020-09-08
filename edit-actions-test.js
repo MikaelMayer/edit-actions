@@ -3,7 +3,65 @@ var {List,Reuse,New,Concat,Keep,Insert,Delete,Up,Down,Custom,UseResult,Type,Offs
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
-var failAtFirst = false;
+var failAtFirst = true;
+
+shouldBeEqual(
+  apply(
+  Up(Offset(0, 0), Down(0)),
+  [],
+  __AddContext(Offset(0, 0, 0), [ ], __AddContext(Offset(0, 0), [ "a", "b", "c", "d", "e", "f"]))),
+  "a"
+);
+
+shouldBeEqual(
+  andThen(
+    Fork(4, 4, Reuse({1: New(2)}), Reuse({3: 0})),
+    Fork(2, 3, Reuse({2: New(1)}), Reuse())),
+  Fork(2, 3,
+  Reuse({
+    1: New(2),
+    2: New(1)}),
+  Keep(1, Reuse({
+      3: New(0)}))));
+
+shouldBeEqual(
+  andThen(
+    Insert(2, "ab"),
+    Insert(3, "cde")
+  ),
+  Insert(5, "abcde")
+);
+
+shouldBeEqual(
+  andThen(
+    Keep(1, Insert(2, "ab")),
+    Insert(3, "cde")
+  ),
+  Insert(5, "cabde")
+);
+
+shouldBeEqual(
+  andThen(
+    Keep(4, Insert(2, "ab")),
+    Insert(3, "cde")
+  ),
+  Insert(3, "cde", Keep(1, Insert(2, "ab")))
+);
+
+shouldBeEqual(
+  andThen(
+    Keep(3, Insert(2, "ab")),
+    Insert(3, "cde")
+  ),
+  Insert(3, "cde", Insert(2, "ab"))
+);
+
+shouldBeEqual(
+  stringOf(Up(Offset(0, 0), Down(Offset(0, 0)))), "Reuse()"
+);
+shouldBeEqual(
+  stringOf(Insert(1, "k")), "Insert(1, \"k\")"
+);
 
 shouldBeEqual(
   isFinal(New(1)), true);
@@ -15,6 +73,7 @@ shouldBeEqual(isFinal([1]), false);
 shouldBeEqual(
   stringOf(Up(Offset(0, 0), New([New(1)]))), "New([1])"
 );
+
 shouldBeEqual(
   diff(["a", "b", "c", "d"], ["a", "k", "c", "d"]),
   Choose(Reuse({1: Delete(1, Insert(1, "k"))}),
@@ -92,9 +151,13 @@ shouldBeEqual(
 shouldBeEqual(
   andThen(
     Reuse({9: Up(9, Down(0))}),
-    Concat(5, Down(Offset(0, 5), Reuse({0: Up(0, Offset(0, 5), Down(2))})), Down(Offset(5), Concat(3, Down(Offset(0, 3)), Down(Offset(3)))))
+    Fork(5, 5, Reuse({0: Up(0, Offset(0, 5), Down(2))}), Fork(3, 3, Reuse(), Reuse()))
   ),
-  Concat(5, Down(Offset(0, 5), Reuse({0: Up(0, Offset(0, 5), Down(2))})), Down(Offset(5), Concat(3, Down(Offset(0, 3)), Down(Offset(3), Reuse({1: Up(1, Offset(8), Down(2))}))))));
+  Fork(5, 5,
+    Reuse({
+      0: Up(0, Offset(0, 5), Down(2))}),
+    Reuse({
+      4: Up(4, Offset(5), Down(2))})));
 
 shouldBeEqual(
   apply({1: Down(2), 2: {a: Reuse({1: 0})}, 3: undefined},
@@ -146,7 +209,8 @@ testAndThen(
 );
 
 shouldBeEqual(
-  stringOf(Concat(3, Down(Offset(2, 5)), Down(Offset(8)))),  "Fork(8, 3,\n  Down(Offset(2, 5, 8)),\n  Reuse())"
+  stringOf(
+    Concat(3, Down(Offset(2, 5)), Down(Offset(8)), 8)),  "Fork(8, 3,\n  Down(Offset(2, 5, 8)),\n  Reuse())"
 );
 
 /*
@@ -266,7 +330,7 @@ shouldBeEqual(
 shouldBeEqual(andThen(Down(1), Reuse({1: Up(1, Down(0))})),
   Down(0));
 
-shouldBeEqual(andThen(Fork(2, 2, Reuse(), Up(Offset(2))), Reuse({1: New(1), 3: Up(3, Down(0)), 4: Up(4, Down(3))})),
+shouldBeEqual(andThen(Keep(2, Up(Offset(2))), Reuse({1: New(1), 3: Up(3, Down(0)), 4: Up(4, Down(3))})),
   Fork(2, 2, Reuse({1: New(1)}), Up(Offset(2), Reuse({1: New(1), 3: Up(3, Down(0)), 4: Up(4, Down(3))})))
   )
 
@@ -293,19 +357,6 @@ shouldBeEqual(andThen(
   Reuse({
     a: Up("a", Down("b", Down("c", Reuse({
       d: Up("d", Up("c", Up("b", Down("e"))))}))))}));
-
-// Verify that applying firstAction and secondAction to the input is the same as applying the andthen on the input.
-function testAndThen(secondAction, firstAction, input, debugIntermediate) {
-  let total = andThen(secondAction, firstAction);
-  if(editActions.__debug || debugIntermediate) {
-    console.log("composition:\n",stringOf(total));
-  }
-  let expected = apply(secondAction, apply(firstAction, input));
-  let got = apply(total, input);
-  /*console.log("expected", expected);
-  console.log("got", expected);*/
-  shouldBeEqual(got, expected);
-}
 
 shouldBeEqual(apply(Fork(0, 1, New([Up(Offset(0, 0), Down(2))]), Reuse()), ["a", "b", "c", "d", "e"]), ["c", "a", "b", "c", "d", "e"]);
 
@@ -388,15 +439,15 @@ testAndThen(
 // => [d, c, e, d]
   
 testAndThen(
-  Fork(0, 1, New([Up(Offset(0, 0), Down(0))]), Reuse()),
-  Fork(0, 1, New([Up(Offset(0, 0), Down(5))]), Reuse()),
-  "ABCDEFGH"
+  Insert(1, New([Up(Offset(0, 0), Down(0))]), Reuse()),
+  Insert(1, New([Up(Offset(0, 0), Down(5))]), Reuse()),
+  ["a", "b", "c", "d", "e", "f"]
 );
 // = Insert(1, New([Down(5)]),Insert(1, Down(Offset(0, 0), New([Up(Offset(0, 0), Down(5))])),Reuse()))
 
 testAndThen(
-  Fork(2, 2, Reuse(), Fork(0, 1, New([Up(Offset(2, 0), Down(0))]), Reuse())),
-  Fork(0, 1, New([Up(Offset(0, 0), Down(5))]), Reuse()),
+  Keep(2, Insert(1, New([Up(Offset(2, 0), Down(0))]), Reuse())),
+  Insert(1, New([Up(Offset(0, 0), Down(5))]), Reuse()),
   ["A", "B", "C", "D", "E", "F", "G"]
 );
 
@@ -458,10 +509,10 @@ testAndThen(
 
 shouldBeEqual(
   andThen(
-    Reuse({a: Concat(1, Down(Offset(0, 1)), Concat(2, New([8, 9]), Down(Offset(1))))}),
+    Reuse({a: Keep(1, Insert(2, New([8, 9])))}),
     Reuse({a: Concat(0, Up("a", Down("b")), New([1, 2]))})),
     Reuse({
-  a: Concat(1,  Concat(0, Up("a", Down("b")), New([1])), Insert(2, New([8, 9]), New([2])))})
+  a: Concat(1,  Concat(0, Up("a", Down("b")), New([1])), Concat(2, New([8, 9]), New([2])))})
 );
 
 /* // Todo: make it work.
@@ -605,7 +656,7 @@ shouldBeEqual(
         1: Reuse({
           b: New(5),
           c: New(6)})}),
-      Down(Offset(0, 0)))))
+      Insert(1, New([2]), Down(Offset(0, 0))))))
 );
 
 shouldBeEqual(
@@ -613,7 +664,11 @@ shouldBeEqual(
     Fork(3, 3, Reuse({2: Reuse({c: New(6)})}), New([2])),
     Delete(1, Insert(2, New([1, 2]), Reuse({1: Reuse({b: New(5)})})))
   ),
-  Delete(1, Insert(2, New([1, 2]), Fork(2, 2, Reuse({1: Reuse({c: New(6), b: New(5)})}),  New([2]))))
+  Delete(1,
+  Insert(2, New([1, 2]),
+  Fork(2, 2,
+    Reuse({1: Reuse({c: New(6), b: New(5)})}),
+  New([2]))))
 );
 
 shouldBeEqual(
@@ -764,7 +819,7 @@ testBackPropagate(
   Reuse({c: Delete(3), x: Delete(2)}),
     Reuse({d: Concat(2, Up("d", Down("c", Delete(5))), Up("d", Down("x", Keep(7, Delete(3)))))}),
   Reuse({
-  d: Concat(2, Up("d", Down("c", Offset(8))), Up("d", Insert(7, Down("x",  Delete(2, Down(Offset(0, 7)))), Down("x", Offset(12)))))})
+  d: Concat(2, Up("d", Down("c", Offset(8))), Up("d", Concat(7, Down("x",  Delete(2, Down(Offset(0, 7)))), Down("x", Offset(12)))))})
 );
 
 testBackPropagate(
@@ -3026,6 +3081,21 @@ function addHTMLCapabilities(editActions) {
 
   editActions.uniqueTags = {head: true, body: true, html: true};
 }
+
+// Verify that applying firstAction and secondAction to the input is the same as applying the andthen on the input.
+function testAndThen(secondAction, firstAction, input, debugIntermediate) {
+  let total = andThen(secondAction, firstAction);
+  if(editActions.__debug || debugIntermediate) {
+    console.log("composition:\n",stringOf(total));
+  }
+  let expected = apply(secondAction, apply(firstAction, input));
+  let got = apply(total, input);
+  /*console.log("expected", expected);
+  console.log("got", expected);*/
+  shouldBeEqual(got, expected);
+}
+
+
 // Starts debugging
 function s() {
   editActions.__debug = true;
