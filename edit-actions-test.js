@@ -963,41 +963,48 @@ step = Keep(5,  // "Hello"
       ))));
 shouldBeEqual(apply(step, "Hello world! ?"), "Hello big world, nice world! ??")
 
-e();
 testBackPropagate(
-  Reuse(Slice(5, 9)),
-  Reuse(Slice(0, 2)),
-  Reuse(Slice(5,7)),
+  Down(Offset(5, 4)),
+  Down(Offset(0, 2)),
+  Keep(5, Fork(4, 2,
+    Down(Offset(0, 2, 4)),
+    Reuse())),
   "slice back-propagation 2"
 );
+
 testBackPropagate(
-  Reuse(Slice(5, 9)),
-  Reuse(Remove(2)),
-  Reuse(Remove(7,9)),
-  "slice back-propagation 2"
+  Down(Offset(5, 4)),
+  Down(Offset(2)),
+  Keep(5, Fork(4, 2,
+    Down(Offset(2, 2, 4)),
+    Reuse())),
+  "slice back-propagation 3"
 );
 testBackPropagate(
-  Reuse({a: Reuse(up("a"), "b", Slice(5))}),
-  Reuse({a: Reuse(Slice(0, 2))}),
-  Reuse({b: Reuse(Slice(5, 7))}),
+  Reuse({a: Up("a", Down("b", Offset(5)))}),
+  Reuse({a: Down(Offset(0, 2))}),
+  Reuse({b: Keep(5, Down(Offset(0, 2)))}),
   "Slice backprop with up down"
 );
 testBackPropagate(
-  Reuse({a: Reuse(Slice(5))}),
-  Reuse({b: Reuse(up("b"), "a", Slice(0, 2))}),
-  Reuse({b: Reuse(up("b"), "a", Slice(5, 7))}),
+  Reuse({a: Down(Offset(5))}),
+  Reuse({b: Up("b", Down("a", Offset(0, 2-0)))}),
+  Reuse({b: Up("b", Down("a", Offset(5, 7-5)))}),
   "Slice backprop with up down"
 );
 testBackPropagate(
-  Reuse("b", Slice(2, 7)),
-  Reuse(Slice(3, 5)),
-  Reuse({b: Reuse(Slice(5,7))}),
+  Down("b", Offset(2, 5)),
+  Down(Offset(3, 2)),
+  Reuse({
+  b: Keep(2, Fork(5, 2,
+      Down(Offset(3, 2, 5)),
+      Reuse()))}),
   "Slice backprop with one down"
 );
 testBackPropagate(
-  Reuse("b", Slice(2, 7)),
-  Reuse(Remove(0, 3, 5)),
-  Reuse({b: Reuse(Remove(2, 5))}),
+  Down("b", Offset(2, 5)),
+  Delete(3),
+  Reuse({b: Keep(2, Delete(5-2))}),
   "Slice backprop with one down 2"
 );
 
@@ -1005,42 +1012,43 @@ testBackPropagate(
 
 testBackPropagate(
   Reuse({a: Concat(5,
-    Reuse(up("a"), "b", Slice(2, 7)),
-    Reuse(Slice(4, 6)))}),
-  Reuse({a: Reuse(Remove(0, 3, 6))}),
-  Reuse({b: Reuse(Remove(2,5)),
-         a: Reuse(Remove(5,6))}),
+    Up("a", Down("b", Offset(2, 7-2))),
+    Down(Offset(4, 6-4)))}),
+  Reuse({a: Delete(3, Keep(3, Down(Offset(0, 0))))}),
+  Reuse({b: Keep(2, Delete(5-2)),
+         a: Keep(5, Delete(6-5))}),
   "Case Concat Reuse Slice 1"
 );
+
 testBackPropagate(
   Reuse({a: Concat(5,
-    Reuse(up("a"), "b", Slice(2, 7)),
-    Reuse(Slice(4, 6)))}),
-  Reuse({a: Reuse(Slice(3, 6))}),
-  Reuse({b: Reuse(Slice(5,7)),
-         a: Reuse(Slice(4,5))}),
+    Up("a", Down("b", Offset(2, 5))),
+    Down(Offset(4, 2)))}),
+  Reuse({a: Delete(3, Keep(3, Down(Offset(0, 0))))}),
+  Reuse({b: Keep(2, Delete(3)),
+         a: Keep(5, Delete(1))}),
   "Case Concat Reuse Slice 1 strict"
 );
 testBackPropagate(
-  Reuse({a: Reuse(up("a"), "b", Remove(0, 2, 7))}),
-  Reuse({c: Reuse(up("c"), "a", Slice(3, 5))}),
-  Reuse({c: Reuse(up("c"), "b", Slice(5, 7))}),
+  Reuse({a: Up("a", Down("b", Delete(2, Keep(5, Down(Offset(0, 0))))))}),
+  Reuse({c: Up("c", Down("a", Offset(3, 5-3)))}),
+  Reuse({c: Up("c", Down("b", Offset(5, 7-5)))}),
   "Case Concat Reuse Slice 2 premise"
 );
 testBackPropagate(
-  Reuse({a: Reuse(Remove(0, 4, 6))}),
-  Reuse({c: Reuse(up("c"), "a", Slice(0, 1))}),
-  Reuse({c: Reuse(up("c"), "a", Slice(4, 5))}),
+  Reuse({a: Delete(4, Keep(2, Down(Offset(0, 0))))}),
+  Reuse({c: Up("c", Down("a", Offset(0, 1-0)))}),
+  Reuse({c: Up("c", Down("a", Delete(4, Down(Offset(0, 1)))))}),
   "Case Concat Reuse Slice 2 premise 2"
 );
 // In this case, we import another array, so we just need to find how to import the same array in the program.
 testBackPropagate(
   Reuse({a: Concat(5,
-    Reuse(up("a"), "b", Remove(0, 2, 7)),
-    Reuse(Remove(0, 4, 6)))}),
-  Reuse({c: Reuse(up("c"), "a", Slice(3, 6))}),
-  Reuse({c: Concat(2, Reuse(up("c"), "b", Slice(5, 7)),
-                      Reuse(up("c"), "a", Slice(4, 5)))
+    Up("a", Down("b", Delete(2, Keep(5, Down(Offset(0, 0)))))),
+    Delete(4, Keep(2, Down(Offset(0, 0)))))}),
+  Reuse({c: Up("c", Down("a", Offset(3, 3)))}),
+  Reuse({c: Up("c", Down("a", Concat(2, Up("a", Down("b", Offset(5, 7-5))),
+                      Down(Offset(4, 5-4)))))
          }),
   "Case Concat Reuse Slice 2"
 );
@@ -1050,136 +1058,120 @@ testBackPropagate(
 // We took a portion of b, we removed 2 to 5 to it as well as stopped at 8 (but we did not know that the two elements were removed in the view)
 // We took a portion of c, we removed everything except the first element, which was actually the fourth element of c.
 
-
-//Simple operators, and prove that if a certain form it always simplify?
-//up(x), down(y), Remove(portions), Reuse({fi: op}), New(x)
-// For example, Reuse("a", {x: Reuse(up("x"), down("y")}) is actually down("a"),Reuse({x: up("x"),down("y") })
-// The path is no longer inside Reuse or New, it's actually the Reuse or New which is inside a path edit action.
-// Path(path, relative edit action)
-// Can we do merge, andThen, back-propagate on that?
-// Path(p, Concat(x, 1, 2)) = Concat(x, Path(p, 1), Path(p, 2))
-//  ==> Avoid duplicating paths in concat.
-// apply(Path(path, ed), prog, progCtx) = [prog2, progCtx2] = walkPath(path, prog, progCtx), apply(ed, prog, progCtx)
-// Reuse("abc") becomes Path("abc", Reuse()) = Path("abc")
-// Now it makes sense to see back-propagate to back-propagate something if the diff has a Path that was not simplified.
-// There, we want to do the conversion again.
-// How to ensure it works with Remove?
-//
-
 testBackPropagate(
-  Concat(4, Reuse(Slice(0, 4)),
-         Reuse(Slice(5))),
+  Concat(4, Down(Offset(0, 4-0)),
+         Down(Offset(5))),
   Reuse(Remove(2)),
-  Reuse(Remove(2,4,5)), "Reinject the omitted element"
+  Keep(2, Delete(4-2, Keep(5-4, Down(Offset(0, 0))))), "Reinject the omitted element"
 );
 testBackPropagate(
-  Concat(4, Reuse(Slice(0, 4)),
-         Reuse(Slice(5))),
-  Reuse(Slice(6,8)),
-  Reuse(Slice(7,9)), "Shifted slice"
+  Concat(4, Down(Offset(0, 4-0)),
+         Down(Offset(5))),
+  Down(Offset(6, 8-6)),
+  Down(Offset(7, 9-7)), "Shifted slice"
 );
 s();
 testBackPropagate(
-  Concat(4, Reuse(Slice(0, 4)),
-         Reuse(Slice(5))),
-  Reuse(Slice(2,8)),
+  Concat(4, Down(Offset(0, 4-0)),
+         Down(Offset(5))),
+  Down(Offset(2, 8-2)),
   Reuse(Slice(2,4,5,9)), "Spanning slice"
 );
 e();
 testBackPropagate(
-  Reuse({a: Concat(4, Reuse(up("a"), "b", Slice(0, 4)),
-    Reuse(Slice(5)))}),
-  Reuse({a: Reuse(Slice(6,8))}),
+  Reuse({a: Concat(4, Up("a", Down("b", Offset(0, 4-0))),
+    Down(Offset(5)))}),
+  Reuse({a: Down(Offset(6, 8-6))}),
   Reuse({
-    b: Reuse(Slice(4)),
-    a: Reuse(Remove(5,7,9))}),
+    b: Down(Offset(4)),
+    a: Keep(5, Delete(7-5, Keep(9-7, Down(Offset(0, 0)))))}),
   "Shifted slice on separate branches"
 );
 
 testBackPropagate(
-  Reuse({a: Concat(4, Concat(2, Reuse(up("a"), "b", Slice(1, 3)), Reuse(up("a"), "c", Slice(0, 2))),
-    Reuse(Slice(5)))}),
-  Reuse({a: Reuse(Slice(6,8))}),
+  Reuse({a: Concat(4, Concat(2, Up("a", Down("b", Offset(1, 3-1))), Up("a", Down("c", Offset(0, 2-0)))),
+    Down(Offset(5)))}),
+  Reuse({a: Down(Offset(6, 8-6))}),
   Reuse({
-    b: Reuse(Remove(1,3)),
-    c: Reuse(Slice(2)),
-    a: Reuse(Remove(5,7,9))}),
+    b: Keep(1, Delete(3-1)),
+    c: Down(Offset(2)),
+    a: Keep(5, Delete(7-5, Keep(9-7, Down(Offset(0, 0)))))}),
   "Shifted slice on separate branches"
 );
 
 testBackPropagate(
-  Concat(4, Reuse(Slice(0, 4)),
+  Concat(4, Down(Offset(0, 4-0)),
          1, New("X"),
-         Reuse(Slice(4))),
-  Reuse(Slice(6,8)),
-  Reuse(Slice(5,7)), "Shifted slice again"
+         Down(Offset(4))),
+  Down(Offset(6, 8-6)),
+  Down(Offset(5, 7-5)), "Shifted slice again"
 );
 testBackPropagate(
-  Reuse(Remove(4, 5)),
-  Reuse(Remove(1,2,3)),
+  Keep(4, Delete(5-4)),
+  Keep(1, Delete(2-1, Keep(3-2, Down(Offset(0, 0))))),
   Reuse(Remove(1,2,3,4,5)),
   "right-aligned concat."
 );
 /*
-Concat(4, Reuse(Slice(0, 4)),
-          Reuse(Slice(5))),
-   <-- Concat(2, Reuse(Slice(0, 2)), Reuse(Slice(1, 3)))
-1) Concat(Reuse(Slice(0, 2)), Reuse(Slice(4, 5)))
-2) Concat(Reuse(Slice(1, 3)), Reuse(Slice(4, 5)))
-Result should be Concat(Reuse(Slice(0, 2)), Reuse(Slice(1, 3)), Reuse(Slice(4, 5)))
+Concat(4, Down(Offset(0, 4-0)),
+          Down(Offset(5))),
+   <-- Concat(2, Down(Offset(0, 2-0)), Down(Offset(1, 3-1)))
+1) Concat(Down(Offset(0, 2-0)), Down(Offset(4, 5-4)))
+2) Concat(Down(Offset(1, 3-1)), Down(Offset(4, 5-4)))
+Result should be Concat(Down(Offset(0, 2-0)), Down(Offset(1, 3-1)), Down(Offset(4, 5-4)))
 We cannot just blindly concatenate these results.
 
 
 
 */
 testBackPropagate(
-  Concat(4, Reuse(Slice(0, 4)),
-         Reuse(Slice(5))),
-  Reuse(Remove(2,6,8)),
+  Concat(4, Down(Offset(0, 4-0)),
+         Down(Offset(5))),
+  Keep(2, Delete(6-2, Keep(8-6, Down(Offset(0, 0))))),
   Reuse(Remove(2,4,5,7,9)),
   "back-Propagation of bigger concat"
 );
 
 testBackPropagate(
-  Reuse(Slice(5)),
-  Reuse(Slice(2)),
-  Reuse(Remove(5, 7)),
+  Down(Offset(5)),
+  Down(Offset(2)),
+  Keep(5, Delete(7-5)),
   "slice back-propagation"
 )
 
 testBackPropagate(
-  Reuse(Slice(5, 9)),
-  Reuse(Slice(2)),
-  Reuse(Remove(5, 7)),
+  Down(Offset(5, 9-5)),
+  Down(Offset(2)),
+  Keep(5, Delete(7-5)),
   "slice back-propagation"
 )
 
 
 testBackPropagate(
-  Concat(4, Reuse(Slice(0, 4)),
-            Reuse(Slice(5))),
-  Reuse(Slice(0, 6)),
-  Reuse(Slice(0, 7)), "Concat to slice");
+  Concat(4, Down(Offset(0, 4-0)),
+            Down(Offset(5))),
+  Down(Offset(0, 6-0)),
+  Down(Offset(0, 7-0)), "Concat to slice");
 
 s();
 testBackPropagate(
-  Reuse(Remove(4, 5)),
-  Reuse(Slice(0, 6), {5: New(1)}),
-  Reuse(Slice(0, 7), {6: New(1)}), "Concat to slice");
+  Keep(4, Delete(5-4)),
+  Down(Offset(0, 6-0), {5: New(1)}),
+  Down(Offset(0, 7-0), {6: New(1)}), "Concat to slice");
 e();
 
 
 
 editActions.__debug = true;       
 testBackPropagate(
-  Concat(4, Reuse(Slice(0, 4)),
-            Reuse(Slice(5))),
-  Concat(6, Reuse(Slice(0, 6)),
+  Concat(4, Down(Offset(0, 4-0)),
+            Down(Offset(5))),
+  Concat(6, Down(Offset(0, 6-0)),
          1, New("\""),
-         Reuse(Slice(6))),
-  Concat(7, Reuse(Slice(0, 7)),
+         Down(Offset(6))),
+  Concat(7, Down(Offset(0, 7-0)),
          1, New("\""),
-         Reuse(Slice(7)))
+         Down(Offset(7)))
 , "Concat Iterated");
 finishTests(true);
 
@@ -1252,32 +1244,32 @@ shouldBeEqual(
 );
 
 shouldBeEqual(
-  path(Slice(3, 10), Slice(2, 4)),
-  path(Slice(5, 7)),
+  path(Offset(3, 10-3), Offset(2, 4-2)),
+  path(Offset(5, 7-5)),
   "Slice Concat 1"
 );
 
 shouldBeEqual(
-  path(Slice(3, 10), Slice(2)),
-  path(Slice(5, 10)),
+  path(Offset(3, 10-3), Offset(2)),
+  path(Offset(5, 10-5)),
   "Slice Concat 2"
 )
 
 shouldBeEqual(
-  path(Slice(3), Slice(2, 4)),
-  path(Slice(5, 7)),
+  path(Offset(3), Offset(2, 4-2)),
+  path(Offset(5, 7-5)),
   "Slice Concat 3"
 )
 
 shouldBeEqual(
-  path(Slice(3, 10), Slice(2, 14)),
-  path(Slice(5, 10)),
+  path(Offset(3, 10-3), Offset(2, 14-2)),
+  path(Offset(5, 10-5)),
   "Slice Concat 4"
 )
 
 shouldBeEqual(
-  path(Slice(3,), Slice(2)),
-  path(Slice(5)),
+  path(Slice(3,), Offset(2)),
+  path(Offset(5)),
   "Slice Concat 5"
 )
 shouldBeEqual(
@@ -1293,139 +1285,121 @@ shouldBeEqual(
   merge(Reuse(Remove(0, 3), {0: New(1), 4: New(3)}), Reuse(Remove(0, 1,5), {0: New(0), 3: New(2)})),
   Reuse(Remove(0, 3, 5), {0: New(1), 1: New(2)}), "Merge two slices 4");
 testMergeAndReverse(
-  Reuse(Remove(0, 1,5)), Reuse(Remove(0, 6)),
+  Reuse(Remove(0, 1,5)), Delete(6),
   Reuse(Remove(0)), "Merge two slices 5");
 testMergeAndReverse(
-  Reuse(Remove(0, 5)), Reuse(Remove(0, 3, 7)),
+  Delete(5), Reuse(Remove(0, 3, 7)),
   Reuse(Remove(0, 5, 7)), "Merge two slices 7");
 testMergeAndReverse(
-  Reuse(Remove(0, 3, 7)), Reuse(Remove(0, 5)),
+  Reuse(Remove(0, 3, 7)), Delete(5),
   Reuse(Remove(0, 5, 7)), "Merge two slices 8");
 testMergeAndReverse(
-  Reuse(Remove(0, 5)), Reuse(Remove(0, 3)),
-  Reuse(Remove(0, 5)), "Merge two slices 9");
+  Delete(5), Delete(3),
+  Delete(5), "Merge two slices 9");
 testMergeAndReverse(
-  Reuse(Remove(0, 3)), Reuse(Remove(0, 5)),
-  Reuse(Remove(0, 5)), "Merge two slices 10");
+  Delete(3), Delete(5),
+  Delete(5), "Merge two slices 10");
 
 testMergeAndReverse(
-  Reuse(Remove(0, 5)), Concat(3, New("abc"), Reuse(Remove(0, 4))),
-  Reuse(Remove(0, 5)), "insertion removed");
+  Delete(5), Concat(3, New("abc"), Delete(4)),
+  Delete(5), "insertion removed");
 testMergeAndReverse(
-  Reuse(Remove(0, 5)), Concat(3, New("abc"), Reuse(Remove(0, 5))),
-  Concat(3, New("abc"), Reuse(Remove(0, 5))), "insertion kept"
+  Delete(5), Concat(3, New("abc"), Delete(5)),
+  Concat(3, New("abc"), Delete(5)), "insertion kept"
 );
 testMergeAndReverse(
-  Reuse(Remove(0, 5)), Concat(3, New("abc"), Reuse(Remove(0, 7))),
-  Concat(3, New("abc"), Reuse(Remove(0, 7))), "insertion not removed"
+  Delete(5), Concat(3, New("abc"), Delete(7)),
+  Concat(3, New("abc"), Delete(7)), "insertion not removed"
 );
 testMergeAndReverse(
   Concat(Reuse(Remove(0, 4, 10)),Reuse(Remove(0, 1, 3))),
-  Concat(3, New("abc"), Reuse(Remove(0, 4))),
+  Concat(3, New("abc"), Delete(4)),
   Concat(New("abc"), Reuse(Remove(0, 4, 10))), "insertion removed");
 
 testMergeAndReverse(
-  Concat(8, New("inserted"), Reuse(Remove(0, 4))),
-  Reuse(Remove(0, 3)),
-  Concat(8, New("inserted"), Reuse(Remove(0, 4))), "merge concat Remove");
+  Concat(8, New("inserted"), Delete(4)),
+  Delete(3),
+  Concat(8, New("inserted"), Delete(4)), "merge concat Remove");
 
 shouldBeEqual(
   merge(Concat(10, Reuse(Remove(10)), Reuse(Remove(10))),
-  Concat(5, Reuse(Remove(5)), 2, New("ab"), Reuse(Remove(0, 5)))),
+  Concat(5, Reuse(Remove(5)), 2, New("ab"), Delete(5))),
   Concat(Concat(5, Reuse(Remove(5)), 2, New("ab"), Reuse(Remove(0, 5, 10))), Concat(5, Reuse(Remove(5)), 2, New("ab"), Reuse(Remove(0, 5, 10)))),
   "insert and duplicate"
 );
 shouldBeEqual(
   merge(Concat(New("abc"), Reuse()),
-            Concat(Reuse(Slice(3, 5)),Reuse(Slice(0, 3)))),
-  Concat(Reuse(Slice(3, 5)), Concat(New("abc"), Reuse(Slice(0, 3)))),
+            Concat(Down(Offset(3, 5-3)),Down(Offset(0, 3-0)))),
+  Concat(Down(Offset(3, 5-3)), Concat(New("abc"), Down(Offset(0, 3-0)))),
   "Permutation and insertion 1");
 shouldBeEqual(
-  merge(Concat(Reuse(Slice(3, 5)),Reuse(Slice(0, 3))),
+  merge(Concat(Down(Offset(3, 5-3)),Down(Offset(0, 3-0))),
             Concat(New("abc"), Reuse())),
-  Concat(Reuse(Slice(3, 5)), Concat(New("abc"), Reuse(Slice(0, 3)))),
+  Concat(Down(Offset(3, 5-3)), Concat(New("abc"), Down(Offset(0, 3-0)))),
   "Permutation and insertion 2");
 
 s();
 testMergeAndReverse(
-    Concat(8, New("inserted"), Reuse(Slice(1))),
-    Concat(4, Reuse(Slice(0, 4)), 
+    Concat(8, New("inserted"), Down(Offset(1))),
+    Concat(4, Down(Offset(0, 4-0)), 
       Concat(9, New("inserted2"),
-                Reuse(Slice(4)))),
+                Down(Offset(4)))),
   Concat(10, Concat(8, New("inserted"),
-                     Reuse(Slice(2, 4))),
+                     Down(Offset(2, 4-2))),
        9, New("inserted2"),
-          Reuse(Slice(4))), "merge concat concat 1");
+          Down(Offset(4))), "merge concat concat 1");
 e();
 shouldBeEqual(
-  merge(Concat(5, Reuse(Slice(0,5)), Reuse(Slice(7))),
-    Concat(2, Reuse(Slice(0,2)), Reuse(Slice(4)))),
-  Concat(3, Concat(2, Reuse(Slice(0, 2)),
-                    Reuse(Slice(4, 5))),
-          Reuse(Slice(7))),
+  merge(Concat(5, Down(Offset(0, 5-0)), Down(Offset(7))),
+    Concat(2, Down(Offset(0, 2-0)), Down(Offset(4)))),
+  Concat(3, Concat(2, Down(Offset(0, 2-0)),
+                    Down(Offset(4, 5-4))),
+          Down(Offset(7))),
   "Merge of two deletions"
 );
 
 testMergeAndReverse(
-  Concat(8, Reuse(Slice(0, 8)), New("abc")),
-  Concat(8, Reuse(Slice(1, 9)), Reuse(Slice(0, 1))),
-  Concat(10, Concat(7, Reuse(Slice(1, 8)),
+  Concat(8, Down(Offset(0, 8-0)), New("abc")),
+  Concat(8, Down(Offset(1, 9-1)), Down(Offset(0, 1-0))),
+  Concat(10, Concat(7, Down(Offset(1, 8-1)),
                      New("abc")),
-           Reuse(Slice(0, 1))),
+           Down(Offset(0, 1-0))),
   "Permutation and insertion again"
 );
 shouldBeEqual(
-  merge(Concat(5, Reuse(Slice(0,5)), Reuse(Slice(8))),
-            Concat(7, Reuse(Slice(0,7)), Concat(3, New("abc"), Reuse(Slice(7))))),
-  Concat(5, Reuse(Slice(0,5)), Reuse(Slice(8)))
+  merge(Concat(5, Down(Offset(0, 5-0)), Down(Offset(8))),
+            Concat(7, Down(Offset(0, 7-0)), Concat(3, New("abc"), Down(Offset(7))))),
+  Concat(5, Down(Offset(0, 5-0)), Down(Offset(8)))
 );
 
 shouldBeEqual(path(up("name", "body", "arg", "arg"), "arg", "body", "body", "arg"),
   {up: List.fromArray(["name", "body", "arg"]), down: List.fromArray(["body", "body", "arg"])}, "pathupdown")
 shouldBeEqual(stringOf(New({a: New("1")})), "New({ a: \"1\"})");
 shouldBeEqual(display(New({a: New("1")})), "[START]{==>{a: \"1\"}}");
-shouldBeEqual(path(up("a"), "a"), path.identity, "path1");
-shouldBeEqual(path(up("a"), path("a")), path.identity, "path1");
+shouldBeEqual(path(up("a"), "a"), Reuse(), "path1");
+shouldBeEqual(path(up("a"), path("a")), Reuse(), "path1");
 
 shouldBeEqual(display(Reuse()), "[START]{}");
-shouldBeEqual(display(Reuse("a")), "[START]{==>A1\n  a: A1={}}");
-shouldBeEqual(display(Reuse(up("a"))), "A1={\n  a: [START]{==>A1}}");
-shouldBeEqual(display(Reuse({a: Reuse(up("a"))})), "[START]A1={\n  a: {==>A1}}");
-shouldBeEqual(display(Reuse(up("a"), "b")), "{\n  a: [START]{==>A1},\n  b: A1={}}");
+shouldBeEqual(display(Down("a")), "[START]{==>A1\n  a: A1={}}");
+shouldBeEqual(display(Up("a")), "A1={\n  a: [START]{==>A1}}");
+shouldBeEqual(display(Reuse({a: Up("a")})), "[START]A1={\n  a: {==>A1}}");
+shouldBeEqual(display(Up("a", Down("b"))), "{\n  a: [START]{==>A1},\n  b: A1={}}");
 shouldBeEqual(display(New("1")), "[START]{==>\"1\"}");
-shouldBeEqual(display(New({a: Reuse("b")})), "[START]{==>{a: A1}\n  b: A1={}}");
-shouldBeEqual(display(New({a: New({b: Reuse("b"), c: Reuse(up("x"), "c")})})),
+shouldBeEqual(display(New({a: Down("b")})), "[START]{==>{a: A1}\n  b: A1={}}");
+shouldBeEqual(display(New({a: New({b: Down("b"), c: Up("x", Down("c"))})})),
   "{\n  x: [START]{==>{a: {b: A1, c: A2}}\n    b: A1={}},\n  c: A2={}}");
-shouldBeEqual(display(New({a: Reuse(up("b"))})), "A1={\n  b: [START]{==>{a: A1}}}");
+shouldBeEqual(display(New({a: Up("b")})), "A1={\n  b: [START]{==>{a: A1}}}");
 
 
-shouldBeEqual(path("a", "b", up("b", "a")), path.identity, "path1");
-shouldBeEqual(path(up("b", "a"), "a", "b"), path.identity, "path2");
-shouldBeEqual(path(up("b", "a"), "a", "c"), path(up("b"), "c"), "path3");
-shouldBeEqual(path("a", "c", up("c"), "b"), path("a", "b"), "path4");
-shouldBeEqual(path("a", up("a", "b")), up("b"), "path5");
-shouldBeEqual(path("a", up("a", "b", "c")), up("b", "c"), "path5b");
-shouldBeEqual(path("a", "b", "c", up("c", "b")), path("a"), "path6");
-shouldBeEqual(path(up("a", "b"),"b"), up("a"), "path7");
-shouldBeEqual(path(up("c", "b"), "b", "c", "a"), path("a"), "path8");
-
-shouldBeEqual(pathChildEditActions(["a", "b", up("b", "a")]), [path.identity, {}], "path1-child");
-shouldBeEqual(pathChildEditActions([up("b", "a"), "a", "b"]), [path.identity, {}], "path2-child");
-shouldBeEqual(pathChildEditActions([up("b", "a"), "a", "c"]), [path(up("b"), "c"), {}], "path3-child");
-shouldBeEqual(pathChildEditActions(["a", "c", up("c"), "b"]), [path("a", "b"), {}], "path4-child");
-shouldBeEqual(pathChildEditActions(["a", up("a", "b")]), [up("b"), {}], "path5-child");
-shouldBeEqual(pathChildEditActions(["a", up("a", "b", "c")]), [up("b", "c"), {}], "path5-child");
-shouldBeEqual(pathChildEditActions(["a", "b", "c", up("c", "b")]), [path("a"), {}], "path6-child");
-shouldBeEqual(pathChildEditActions([up("a", "b"),"b"]), [up("a"), {}], "path7-child");
-shouldBeEqual(pathChildEditActions([up("c", "b"), "b", "c", "a"]), [path("a"), {}], "path8-child");
-shouldBeEqual(pathChildEditActions([{up: undefined, down: New(1)}]), [path.identity, {up: undefined, down: New(1)}], "path0-child");
-
-shouldBeEqual(path(Slice(2, 5), 1), path(3), "No field after slice");
-shouldBeEqual(path(Slice(2, 5), path(1)), path(3), "No field after slice");
-shouldBeEqual(path(Slice(2, 5), Slice(1, 3), up(Slice(3, 5))), path.identity, "path with slices");
-shouldBeEqual(pathChildEditActions([Slice(2, 5), Slice(1, 3), up(Slice(3, 5))]), [path.identity, {}], "path with slices - with edit actions");
-shouldBeEqual(pathChildEditActions([Slice(2, 5), 1]), [path(3), {}], "No field after slices - with edit actions");
-shouldBeEqual(pathChildEditActions([Slice(2, 5), path(1)]), [path(3), {}], "No field after slices - with edit actions");
+shouldBeEqual(Down("a", "b", Up("b", "a")), Reuse(), "path1");
+shouldBeEqual(Up("b", "a", Down("a", "b")), Reuse(), "path2");
+shouldBeEqual(Up("b", "a", Down("a", "c")), Up("b", Down("c")), "path3");
+shouldBeEqual(Down("a", "c", Up("c", Down("b"))), Down("a", "b"), "path4");
+shouldBeEqual(Down("a", Up("a", "b")), Up("b"), "path5");
+shouldBeEqual(Down("a", Up("a", "b", "c")), Up("b", "c"), "path5b");
+shouldBeEqual(Down("a", "b", "c", Up("c", "b")), Down("a"), "path6");
+shouldBeEqual(Up("a", "b", Down("b")), Up("a"), "path7");
+shouldBeEqual(Up("c", "b", Down("b", "c", "a")), Down("a"), "path8");
 
 var exp1 =
   { ctor: "let1",
@@ -1474,44 +1448,33 @@ var exp1 =
         fun: "a",
         arg: "b"}}};
 var globalStep1 = Reuse(
-         {body: Reuse("arg",
-           {body: Reuse(up("body", "arg"), "arg", "body", 
-             {body: Reuse(up("body", "body", "arg"),
-               {arg: Reuse(up("arg"), "arg", "arg", "body",
-                 {name: Reuse(up("name", "body", "arg", "arg"), "arg", "body", "body", "arg")}),
-                body: Reuse(up("body", "body"), "arg", "body",
+         {body: Down("arg", Reuse(
+           {body: Up("body", "arg", Down("arg", "body", Reuse( 
+             {body: Up("body", "body", "arg", Reuse(
+               {arg: Up("arg", Down("arg", "arg", "body", Reuse(
+                 {name: Up("name", "body", "arg", "arg", Down("arg", "body", "body", "arg"))}))),
+                body: Up("body", "body", Down( "arg", "body", Reuse(
                  {argName: New("a"),
-                  arg: Reuse({fun: Reuse(up("fun", "arg", "body", "arg"), "body", "body", "arg"),
-                              arg: Reuse(up("arg", "arg", "body", "arg"), "body", "body", "arg")}),
-                  body: Reuse({fun: New("a")})})})})})});
+                  arg: Reuse({fun: Up("fun", "arg", "body", "arg", Down( "body", "body", "arg")),
+                              arg: Up("arg", "arg", "body", "arg", Down( "body", "body", "arg"))}),
+                  body: Reuse({fun: New("a")})})))}))})))}))});
 var step = Reuse(
          {body: Reuse(
            {body: Reuse(
-             {body: Reuse("body", 
+             {body: Down("body", Reuse(
                {arg: Reuse(
-                 {fun: Reuse(up("fun", "arg", "body"), "arg", "name"),
-                  arg: Reuse(up("arg", "arg", "body"), "arg", "name")})})})})});
+                 {fun: Up("fun", "arg", "body", Down( "arg", "name")),
+                  arg: Up("arg", "arg", "body", Down( "arg", "name"))})}))})})});
 
 var globalStep2 = Reuse(
-  {body: Reuse("arg",
+  {body: Down("arg", Reuse(
     {body: Reuse(
-      {body: Reuse(up("body", "body", "arg", "body"), "arg", "body",
+      {body: Up("body", "body", "arg", "body", Down( "arg", "body", Reuse(
         {arg: Reuse(
-          {fun: Reuse(up("fun"), up("arg"), up("body"), /*<+*/up("arg"), "body",/*+>*/ "arg", "body", "body", "arg"),
-           arg: Reuse(up("arg"), up("arg"), up("body"), /*<+*/up("arg"), "body",/*+>*/ "arg", "body", "body", "arg")}),
+          {fun: Up("fun", Up("arg", "body", "arg", Down("body", "arg", "body", "body", "arg"))),
+           arg: Up("arg", Up("arg", "body", "arg", Down("body",/*+>*/ "arg", "body", "body", "arg")))}),
          argName: New("a"),
-         body: Reuse({fun: New("a")})})})})});
-
-//Reuse({
-//  body: Reuse("arg", {
-//    body: Reuse({
-//      body: Reuse(up("body", "body", "arg", "body"), "arg", "body", {
-//        argName: New("a"),
-//        arg: Reuse({
-//          fun: Reuse(up("fun"), up("arg"), up("body"), /*<+*/up("arg"), "body",/*+>*/ "arg", "body", "body", "arg"),
-//          arg: Reuse(up("arg"), up("arg"), up("body"), /*<+*/up("arg"), "body",/*+>*/ "arg", "body", "body", "arg")
-//        })
-//      }) }) }) });
+         body: Reuse({fun: New("a")})})))})}))});
 
 var expBeforeStep = apply(globalStep1, exp1);
 shouldBeEqual(expBeforeStep,
@@ -1617,111 +1580,111 @@ shouldBeEqual(
   globalStep2);
 shouldBeEqual(
   andThen(
-    Reuse({body: Reuse(up("body"))}),
-    New({ body: Reuse("a", "b")})
+    Reuse({body: Up("body")}),
+    New({ body: Down("a", "b")})
   ),
-  New({ body: New({ body: Reuse("a", "b")})})
+  New({ body: New({ body: Down("a", "b")})})
 );
 
 shouldBeEqual(
   andThen(
-    Reuse({body: Reuse({fun: Reuse(up("fun"), up("body"), "arg")})}),
+    Reuse({body: Reuse({fun: Up("fun", "body", Down("arg"))})}),
     New({ 
-      arg: Reuse("c"),
-      body: Reuse({fun: Reuse(up("fun"))})})
+      arg: Down("c"),
+      body: Reuse({fun: Up("fun")})})
   ),
   New({ 
-      arg: Reuse("c"),
-      body: Reuse({fun: Reuse(up("fun"), "c")})})
+      arg: Down("c"),
+      body: Reuse({fun: Up("fun", Down( "c"))})})
 );
 
 shouldBeEqual(
   andThen(
-    Reuse({body: Reuse({fun: Reuse({fun2: Reuse(up("fun2"), up("fun"), up("body"), "arg")})})}),
+    Reuse({body: Reuse({fun: Reuse({fun2: Up("fun2", "fun", "body", Down("arg"))})})}),
     New({ 
-      arg: Reuse("c"),
-      arg2: Reuse("d"),
-      body: Reuse({fun: Reuse({ fun2: Reuse(up("fun2"), up("fun"), {arg2: Reuse(up("arg2"))})})})})
+      arg: Down("c"),
+      arg2: Down("d"),
+      body: Reuse({fun: Reuse({ fun2: Up("fun2", "fun", Reuse({arg2: Up("arg2")}))})})})
   ),
   New({ 
-      arg: Reuse("c"),
-      arg2: Reuse("d"),
-      body: Reuse({fun: Reuse({ fun2: Reuse(up("fun2"), up("fun"), "c")})})})
+      arg: Down("c"),
+      arg2: Down("d"),
+      body: Reuse({fun: Reuse({ fun2: Up("fun2", "fun", Down("c"))})})})
 );
 
 
 shouldBeEqual(
   andThen(
-    Reuse({body: Reuse({fun: Reuse(up("fun"), up("body"), "arg")})}),
+    Reuse({body: Reuse({fun: Up("fun", "body", Down("arg"))})}),
     New({ 
-      arg: Reuse("c"),
-      body: Reuse("a")})
+      arg: Down("c"),
+      body: Down("a")})
   ),
   New({ 
-      arg: Reuse("c"),
-      body: Reuse("a", {fun: Reuse(up("fun"), up("a"), "c")})})
+      arg: Down("c"),
+      body: Down("a", Reuse({fun: Up("fun", "a", Down("c"))}))})
 );
 
 shouldBeEqual(
   andThen(
-    Reuse({body: Reuse({fun: Reuse(up("fun"), up("body"), "arg")})}),
+    Reuse({body: Reuse({fun: Up("fun", "body", Down("arg"))})}),
     New({ 
-      arg: Reuse("c"),
-      body: Reuse("a", "b")})
+      arg: Down("c"),
+      body: Down("a", "b")})
   ),
   New({ 
-      arg: Reuse("c"),
-      body: Reuse("a", "b", {fun: Reuse(up("fun"), up("b"), up("a"), "c")})})
+      arg: Down("c"),
+      body: Down("a", "b", Reuse({fun: Up("fun", "b", "a", Down("c"))}))})
 );
 
 shouldBeEqual(
   andThen(
-    Reuse({body: Reuse({fun: Reuse(up("fun"), up("body"), "arg")})}),
+    Reuse({body: Reuse({fun: Up("fun", "body", Down("arg"))})}),
     New({ 
-      arg: Reuse("c"),
-      body: Reuse("a", "b")})
+      arg: Down("c"),
+      body: Down("a", "b")})
   ),
   New({ 
-      arg: Reuse("c"),
-      body: Reuse("a", "b", {fun: Reuse(up("fun"), up("b"), up("a"), "c")})})
+      arg: Down("c"),
+      body: Down("a", "b", Reuse({fun: Up("fun", "b", "a", Down("c"))}))})
 );
 
 shouldBeEqual(
   andThen(
-    Reuse({c: Reuse({e: Reuse({f: Reuse(up("f"), up("e"), up("c"), "a")})})}),
-    New({a: Reuse("b"), c: Reuse("d")})),
-  New({a: Reuse("b"), c: Reuse("d", {e: Reuse({f: Reuse(up("f"), up("e"), up("d"), "b")})})}));
+    Reuse({c: Reuse({e: Reuse({f: Up("f", "e", "c", Down("a"))})})}),
+    New({a: Down("b"), c: Down("d")})),
+  New({a: Down("b"), c: Down("d", Reuse({e: Reuse({f: Up("f", "e", "d", Down("b"))})}))}));
 
 shouldBeEqual(
   andThen(
-    Reuse({c: Reuse({e: Reuse(up("e"), up("c"), "a")})}),
-    New({a: Reuse("b"), c: Reuse("d")})),
-  New({a: Reuse("b"), c: Reuse("d", {e: Reuse(up("e"), up("d"), "b")})}));
+    Reuse({c: Reuse({e: Up("e", "c", Down("a"))})}),
+    New({a: Down("b"), c: Down("d")})),
+  New({a: Down("b"), c: Down("d", Reuse({e: Up("e", "d", Down("b"))}))}));
 
 shouldBeEqual(
   andThen(
-    Reuse({body: Reuse({fun: Reuse({fun: Reuse(up("fun"), up("fun"), up("body"), "arg"),
-                                    arg: Reuse(up("arg"), up("fun"), up("fun"), "arg")})})}),
+    Reuse({body: Reuse({fun: Reuse({fun: Up("fun", "fun", "body", Down("arg")),
+                                    arg: Up("arg", "fun", "fun", Down("arg"))})})}),
     New({ ctor: "let",
-      argName: Reuse("fun", "argName"),
-      arg: Reuse("arg", "arg"),
-      body: Reuse("fun", "body")})
+      argName: Down("fun", "argName"),
+      arg: Down("arg", "arg"),
+      body: Down("fun", "body")})
   ),
   New({ ctor: "let",
-      argName: Reuse("fun", "argName"),
-      arg: Reuse("arg", "arg"),
-      body: Reuse("fun", "body", {fun: Reuse({fun: Reuse(up("fun"), up("fun"), up("body"), up("fun"), "arg", "arg"),
-                                              arg: Reuse(up("arg"), up("fun"), up("body"), up("fun"), "arg", "arg")})})})
+      argName: Down("fun", "argName"),
+      arg: Down("arg", "arg"),
+      body: Down("fun", "body", Reuse({fun: Reuse({fun: Up("fun", "fun", "body", "fun", Down("arg", "arg")),
+                                              arg: Up("arg", "fun","body","fun", Down("arg", "arg"))})}))})
 );
 
 shouldBeEqual(
   andThen(
-    Reuse("fun", "body", {fun: Reuse({fun: Reuse(up("fun"), up("fun"), up("body"), up("fun"), "arg"),
-                                      arg: Reuse(up("arg"), up("fun"), up("body"), up("fun"), "arg")})}),
-    Reuse({arg: Reuse("arg")})
+    Down("fun", "body", Reuse({fun: Reuse({fun: Up("fun", "fun", "body", "fun", Down("arg")),
+                                      arg: Up("arg", "fun", "body", "fun", Down("arg"))})})),
+    Reuse({arg: Down("arg")})
   ),
-  Reuse("fun", "body", {fun: Reuse({fun: Reuse(up("fun"), up("fun"), up("body"), up("fun"), "arg", "arg"),
-                                    arg: Reuse(up("arg"), up("fun"), up("body"), up("fun"), "arg", "arg")})})
+  Down("fun", "body", Reuse({fun: Reuse({fun: Up("fun", "fun", "body", "fun", Down("arg", "arg")),
+                                    arg: Up("arg", "fun", "body", "fun", Down("arg", "arg"))})}))
 )
 
 shouldBeEqual(
@@ -1731,118 +1694,118 @@ shouldBeEqual(
 );
 
 shouldBeEqual(
-  apply(Reuse(Slice(3, 7)), [0, 1, 2, 3, 4, 5, 6, 7, 8]),
+  apply(Down(Offset(3, 7-3)), [0, 1, 2, 3, 4, 5, 6, 7, 8]),
   [3, 4, 5, 6],
   "Slice"
 );
 
 shouldBeEqual(
-  apply(Concat(2, Reuse(Slice(3, 5)), Reuse(Slice(6, 7))), [0, 1, 2, 3, 4, 5, 6, 7, 8]),
+  apply(Concat(2, Down(Offset(3, 5-3)), Down(Offset(6, 7-6))), [0, 1, 2, 3, 4, 5, 6, 7, 8]),
   [3, 4, 6],
   "Concat normal"
 )
 
 shouldBeEqual(
-  apply(Concat(3, Reuse(Slice(3, 5)), Reuse(Slice(6, 7))), [0, 1, 2, 3, 4, 5, 6, 7, 8]),
+  apply(Concat(3, Down(Offset(3, 5-3)), Down(Offset(6, 7-6))), [0, 1, 2, 3, 4, 5, 6, 7, 8]),
   [3, 4, undefined, 6],
   "Concat inflated without filler"
 )
 
 shouldBeEqual(
-  apply(Concat(3, Reuse(Slice(3, 5)), Reuse(Slice(6, 7)), 1), [0, 1, 2, 3, 4, 5, 6, 7, 8]),
+  apply(Concat(3, Down(Offset(3, 5-3)), Down(Offset(6, 7-6)), 1), [0, 1, 2, 3, 4, 5, 6, 7, 8]),
   [3, 4, 1, 6],
   "Concat inflated with filler"
 )
 
 shouldBeEqual(
-  apply(Concat(1, Reuse(Slice(3, 5)), Reuse(Slice(6, 7))), [0, 1, 2, 3, 4, 5, 6, 7, 8]),
+  apply(Concat(1, Down(Offset(3, 5-3)), Down(Offset(6, 7-6))), [0, 1, 2, 3, 4, 5, 6, 7, 8]),
   [3, 6],
   "Concat deflated"
 )
 
 shouldBeEqual(
-  apply(Concat(2, Reuse(Slice(3, 5)), 1, Reuse(Slice(6, 7)), Reuse(Slice(0, 2))), [0, 1, 2, 3, 4, 5, 6, 7, 8]),
+  apply(Concat(2, Down(Offset(3, 5-3)), 1, Down(Offset(6, 7-6)), Down(Offset(0, 2-0))), [0, 1, 2, 3, 4, 5, 6, 7, 8]),
   [3, 4, 6, 0, 1],
   "Concat multiple"
 )
 
 shouldBeEqual(
-  andThen(Concat(1, New([1]), Reuse()), Reuse(Slice(1))),
-  Concat(1, New([1]), Reuse(Slice(1))),
+  andThen(Concat(1, New([1]), Reuse()), Down(Offset(1))),
+  Concat(1, New([1]), Down(Offset(1))),
   "Non-reversible Concat"
 )
 
 shouldBeEqual(
-  andThen(Reuse(Slice(1)), Concat(1, New([1]), Reuse())),
+  andThen(Down(Offset(1)), Concat(1, New([1]), Reuse())),
   Reuse(),
   "Reversible Concat"
 )
 
 shouldBeEqual(
-  andThen(Concat(3, Reuse(Slice(2, 5)), Reuse(Slice(0, 2))),
-          Concat(2, Reuse(Slice(3, 5)), Reuse(Slice(0, 3)))),
-  Reuse(Slice(0, 5)),
+  andThen(Concat(3, Down(Offset(2, 5-2)), Down(Offset(0, 2-0))),
+          Concat(2, Down(Offset(3, 5-3)), Down(Offset(0, 3-0)))),
+  Down(Offset(0, 5-0)),
   "Simplification of two anti-permutations"
 )
 shouldBeEqual(
-  andThen(Concat(3, Reuse(Slice(2, 5)), Reuse(Slice(0, 2))),
-          Concat(3, Reuse(Slice(2, 5)), Reuse(Slice(0, 2)))),
-  Concat(1, Reuse(Slice(4, 5)), Reuse(Slice(0, 4))),
+  andThen(Concat(3, Down(Offset(2, 5-2)), Down(Offset(0, 2-0))),
+          Concat(3, Down(Offset(2, 5-2)), Down(Offset(0, 2-0)))),
+  Concat(1, Down(Offset(4, 5-4)), Down(Offset(0, 4-0))),
   "Simplification of permutations"
 )
 
 editActions.__debug = true;       
 testBackPropagate(
-  Concat(4, Reuse(Slice(0, 4)),
-         2, Reuse(Slice(5, 7)),
-            Reuse(Slice(9))),
-  Concat(17, Reuse(Slice(0, 17)),
+  Concat(4, Down(Offset(0, 4-0)),
+         2, Down(Offset(5, 7-5)),
+            Down(Offset(9))),
+  Concat(17, Down(Offset(0, 17-0)),
          1, New("\""),
-         Reuse(Slice(18))),
-  Concat(20, Reuse(Slice(0, 20)),
+         Down(Offset(18))),
+  Concat(20, Down(Offset(0, 20-0)),
          1, New("\""),
-         Reuse(Slice(21)))
+         Down(Offset(21)))
 , "Concat Multiple");
 finishTests(true);
 
-step = Reuse({1: Reuse({2: Concat(4, Reuse(Slice(0, 4)),
-                                  2, Reuse(Slice(5, 7)),
-                                     Reuse(Slice(9)))})});
-user = Reuse({1: Reuse({2: Concat(17, Reuse(Slice(0, 17)),
+step = Reuse({1: Reuse({2: Concat(4, Down(Offset(0, 4-0)),
+                                  2, Down(Offset(5, 7-5)),
+                                     Down(Offset(9)))})});
+user = Reuse({1: Reuse({2: Concat(17, Down(Offset(0, 17-0)),
                                   1, New("\""),
-                                  5, Reuse(Slice(18, 23)),
+                                  5, Down(Offset(18, 23-18)),
                                   1, New("\""),
-                                  49, Concat(45, Reuse(Slice(24,69)),
+                                  49, Concat(45, Down(Offset(24, 69-24)),
                                             1, New("\""),
-                                            Reuse(Slice(70,73))),
+                                            Down(Offset(70, 73-70))),
                                   1, New("\""),
-                                  57, Reuse(Slice(73, 130)),
+                                  57, Down(Offset(73, 130-73)),
                                   1, New("\""),
-                                  3, Reuse(Slice(131, 134)),
+                                  3, Down(Offset(131, 134-131)),
                                   1, New("\""),
-                                  46, Reuse(Slice(135, 181)),
+                                  46, Down(Offset(135, 181-135)),
                                   1, New("\""),
-                                  3, Reuse(Slice(182, 185)),
-                                  1, New("\""), Reuse(Slice(186)))})});
+                                  3, Down(Offset(182, 185-182)),
+                                  1, New("\""), Down(Offset(186)))})});
 editActions.__debug = true;
 testBackPropagate(step, user,
-        Reuse({1: Reuse({2: Concat(20, Reuse(Slice(0, 20)),
+        Reuse({1: Reuse({2: Concat(20, Down(Offset(0, 20-0)),
                                    
                                    1, New("\""),
-                                   5, Reuse(Slice(21, 26)),
+                                   5, Down(Offset(21, 26-21)),
                                    1, New("\n"),
-                                   49, Concat(45, Reuse(Slice(27,72)),
+                                   49, Concat(45, Down(Offset(27, 72-27)),
                                              1, New("\""),
-                                             Reuse(Slice(73,76))),
+                                             Down(Offset(73, 76-73))),
                                    1, New("\""),
-                                   57, Reuse(Slice(76, 133)),
+                                   57, Down(Offset(76, 133-76)),
                                    1, New("\""),
-                                   3, Reuse(Slice(134, 137)),
+                                   3, Down(Offset(134, 137-134)),
                                    1, New("\""),
-                                   46, Reuse(Slice(138, 184)),
+                                   46, Down(Offset(138, 184-138)),
                                    1, New("\""),
-                                   3, Reuse(Slice(185, 188)),
-                                   1, New("\""), Reuse(Slice(189)))})}), "editActionOutLength == 0");
+                                   3, Down(Offset(185, 188-185)),
+                                   1, New("\""), Down(Offset(189)))})}), "editActionOutLength == 0");
 finishTests(true);
 
 /*
@@ -1859,7 +1822,7 @@ shouldBeEqual(
 
 var editStep = ReuseArray(5, Custom(Reuse(),
     {name: "test",
-     apply: x=>x.slice(0, 2),
+     apply: x=>x.Offset(0, 2-0),
      update: outEdit => ReuseArray(2, outEdit, Reuse())}), Reuse());
 var applied = apply(editStep, [1, 2, 3, 4, 5, 6, 7]);
 
@@ -1878,24 +1841,24 @@ testBackPropagate(
 //finishTests(true);
 
 testBackPropagate(
-  Custom(New([Reuse("a"), Reuse("b", "c")]),
+  Custom(New([Down("a"), Down("b", "c")]),
   { name: "max",
     apply: x => x[0] > x[1] ? x[0] : x[1],
-    update: outEdit => (Array.isArray(outEdit) ? nd.Reuse : Reuse)({1: outEdit})
+    update: outEdit => (Array.isArray(outEdit) ? Reuse : Reuse)({1: outEdit})
   }),
   New(2),
   Reuse({b: Reuse({c: New(2)})})
 );
 
 shouldBeEqual(New({a: {b: 1}}), New({a: New({b: New(1)})}), "Wrap bare New");
-shouldBeEqual(nd.New({a: {b: 1}}), nd.New({a: nd.New({b: nd.New(1)})}), "Wrap bare New nd");
+shouldBeEqual(New({a: {b: 1}}), New({a: New({b: New(1)})}), "Wrap bare New nd");
 
 shouldBeEqual(Reuse({a: 1}), Reuse({a: New(1)}), "Wrap New");
-shouldBeEqual(nd.Reuse({a: 1}), nd.Reuse({a: nd.New(1)}), "Wrap New nd");
+shouldBeEqual(Reuse({a: 1}), Reuse({a: New(1)}), "Wrap New nd");
 shouldBeEqual(Reuse({a: {b: 1}}), Reuse({a: New({b: New(1)})}), "Wrap New object")
-shouldBeEqual(nd.Reuse({a: {b: 1}}), nd.Reuse({a: nd.New({b: nd.New(1)})}), "Wrap New object nd");
-shouldBeEqual(Reuse({a: {b: Reuse("x")}}), Reuse({a: New({b: Reuse("x")})}), "Wrap New nested object");
-shouldBeEqual(nd.Reuse({a: {b: nd.Reuse("x")}}), nd.Reuse({a: nd.New({b: nd.Reuse("x")})}), "Wrap New nested object nd");
+shouldBeEqual(Reuse({a: {b: 1}}), Reuse({a: New({b: New(1)})}), "Wrap New object nd");
+shouldBeEqual(Reuse({a: {b: Down("x")}}), Reuse({a: New({b: Down("x")})}), "Wrap New nested object");
+shouldBeEqual(Reuse({a: {b: Down("x")}}), Reuse({a: New({b: Down("x")})}), "Wrap New nested object nd");
 
                  
 step = Reuse({1: Reuse({2: ReuseArray(4, Reuse(),
@@ -1944,27 +1907,27 @@ testBackPropagate(
   Reuse({2: Reuse({1: ReuseArray(1, Reuse(),
                                   0, New("\n"),
                                      Reuse())})}),
-  ReuseArray(3, New({  0: Reuse(0),
+  ReuseArray(3, New({  0: Down(0),
                        1: New({ 0: "section",
                                 1: New([]),
                                 2: New([])}, []),
-                       2: Reuse(1),
-                       3: Reuse(2)}, []),
+                       2: Down(1),
+                       3: Down(2)}, []),
                  Reuse()),
-  ReuseArray(3, New({  0: Reuse(0),
+  ReuseArray(3, New({  0: Down(0),
                        1: New({ 0: "section",
                                 1: New([]),
                                 2: New([])}, []),
-                       2: Reuse(1),
-                       3: Reuse(2)}, []),
+                       2: Down(1),
+                       3: Down(2)}, []),
                  Reuse()), "independend changes")
 shouldBeEqual(editActions.diff(1, undefined), New(undefined));
 shouldBeEqual(editActions.diff(undefined, 1), New(1));
 shouldBeEqual(editActions.diff(undefined, [undefined], {maxCloneDown: 1}), New([Reuse()]))
 
 var step =
-  ReuseArray(2, New({ 0: Reuse(0),
-                      1: Reuse(1)}, []),
+  ReuseArray(2, New({ 0: Down(0),
+                      1: Down(1)}, []),
                 Reuse())
 
 var edit =
@@ -2020,7 +1983,7 @@ shouldCommute(Reuse({0: New(1), 1: Reuse({2: New(3)})}),
               Reuse({0: Reuse({1: New(2)}), 3: Reuse({2: New(4)})}), false, "Non independent Reuse");
 shouldCommute(Reuse({0: New(1), 1: Reuse({2: New(3)})}),
               Reuse({1: Reuse({2: New(2)}), 3: Reuse({2: New(4)})}), false, "Non independent Reuse inner");
-shouldCommute(Reuse({0: Reuse(up("0"), 1)}), Reuse({1: New(1)}), false, "Reuse with outsideLevel > 0");
+shouldCommute(Reuse({0: Up("0", Down( 1))}), Reuse({1: New(1)}), false, "Reuse with outsideLevel > 0");
 
 var a = 
   ReuseArray(2, ReuseArray(1, Reuse(),
@@ -2033,19 +1996,19 @@ var b =
 shouldBeEqual(andThen(b, a),
   ReuseArray(2, ReuseArray(1, Reuse(), New("0")), Reuse()));
 
-var d = ReuseArray(14, New({ 0: Reuse(0)  ,
-                             1: Reuse(1),
-                             2: Reuse(2),
-                             3: Reuse(4),
-                             4: Reuse(5),
-                             5: Reuse(6),
-                             6: Reuse(7),
-                             7: Reuse(8),
-                             8: Reuse(9),
-                             9: Reuse(10),
-                             10: Reuse(11),
-                             11: Reuse(12),
-                             12: Reuse(13)}, []),
+var d = ReuseArray(14, New({ 0: Down(0)  ,
+                             1: Down(1),
+                             2: Down(2),
+                             3: Down(4),
+                             4: Down(5),
+                             5: Down(6),
+                             6: Down(7),
+                             7: Down(8),
+                             8: Down(9),
+                             9: Down(10),
+                             10: Down(11),
+                             11: Down(12),
+                             12: Down(13)}, []),
                        Reuse());
 var s = Reuse({13: Reuse({1: ReuseArray(1, Reuse(),
                                         0, New("\n"),
@@ -2171,16 +2134,9 @@ findNextSimilar = debugFun(function findNextSimilar(inArray, toElement, fromInde
 
 var defaultDiffOptions = {findNextSimilar, onlyReuse: true,
    isCompatibleForReuseArray: (oldValue, newValue) => !editActions.isNode(oldValue) && !editActions.isNode(newValue)};
-/*
-editActions.debug(
-  backPropagate(
-    Reuse("tl", {tl: Reuse({tl: Reuse(up("tl"), up("tl"), up("tl"), {tl: Reuse("tl", "tl", "tl")})})}),
-    Reuse({tl: Reuse({tl: New({hd: "Inserted", tl: Reuse()})})})
-  ));
-finishTests(true);
-*/
+
 testBackPropagate(
-  ReuseArray(3, New({0: Reuse(1), 1: Reuse(2), 2: Reuse(0)}, []), Reuse()),
+  ReuseArray(3, New({0: Down(1), 1: Down(2), 2: Down(0)}, []), Reuse()),
   ReuseArray(2, Reuse(), 0, New(["Inserted"]), Reuse()),
   ReuseArray(0, New(["Inserted"]), Reuse()),
   "Insert in array after reordering");
@@ -2234,10 +2190,10 @@ function testMergeAndReverse(edit1, edit2, expectedResult, name) {
 
 testBackPropagate(
     Reuse({heap: Reuse({1: Reuse({values: ReuseArray(0, Reuse(),
-                                                     1, Reuse({0: Reuse(up("0"), up, up, up, up, "stack", "hd", "value")}),
+                                                     1, Reuse({0: Up("0", Offset(0, 1), "values", 1, "heap", Down("stack", "hd", "value"))}),
                                                         Reuse())})}),
            stack: Reuse({hd: New({ ctor: "ComputationNode",
-                                   node: Reuse(up("node"), up, "heap", 1, "values", 1)}),
+                                   node: Up("node", Down( up, "heap", 1, "values", 1))}),
                          tl: Reuse({hd: Reuse({resultIsSpread: New(false),
                                                indexToEval: New(1)})})})}),
     Reuse({heap: Reuse({1: Reuse({values: ReuseArray(1, Reuse(),
@@ -2251,8 +2207,8 @@ testBackPropagate(
 , "heap update")
 
 testBackPropagate(
-    Reuse("heap", 1, "values", {0: Reuse("value"),
-                                1: Reuse("value")}),
+    Down("heap", 1, "values", Reuse({0: Down("value"),
+                                    1: Down("value")})),
     ReuseArray(1, Reuse(),
                0, New({ 0: New({ ctor: "Raw",
                                  value: 2})}, []),
@@ -2265,15 +2221,15 @@ testBackPropagate(
     );
 
 testBackPropagate(
-    Reuse({0: Reuse("value")}),
+    Reuse({0: Down("value")}),
     ReuseArray(0, New([2]), Reuse())
    ,ReuseArray(0, New([2]), Reuse()), "ReuseArray through Reuse");
 
 
-// Same tests without nd.
+// Same tests without 
 
 testBackPropagate(
-    ReuseArray(2, Reuse({1: Reuse(up("1"), up, 3)}), Reuse({1: Reuse(up("1"), up, 4)})),
+    ReuseArray(2, Reuse({1: Up("1", Down( up, 3))}), Reuse({1: Up("1", Down( up, 4))})),
     ReuseArray(2, Reuse({1: New(3)}), Reuse({1: New(4)}))
    ,Reuse({3: New(3), 4: New(4)}), "ReuseReuse");
 
@@ -2288,22 +2244,22 @@ testBackPropagate(
   , ReuseArray(1, Reuse(), 0, New([2]), Reuse()), "Insertion after deletion");
 
 testBackPropagate(
-     ReuseArray(2, Reuse(), Reuse({0: Reuse(up("0"), up, 5)})),
+     ReuseArray(2, Reuse(), Reuse({0: Up("0", Down( up, 5))})),
      ReuseArray(3, Reuse({2: New(3)}), Reuse())
   , Reuse({5: New(3)}), "Split right backPropagateReuseArray");
 
 testBackPropagate(
-     ReuseArray(2, Reuse(), New([Reuse(up, 5)])),
+     ReuseArray(2, Reuse(), New([Down(up, 5)])),
      ReuseArray(3, Reuse({2: New(3)}), Reuse())
   , Reuse({5: New(3)}), "Split right backPropagateReuseArray");
 
 testBackPropagate(
-     ReuseArray(2, Reuse({1: Reuse(up("1"), up, 5)}), Reuse()),
+     ReuseArray(2, Reuse({1: Up("1", Down( up, 5))}), Reuse()),
      ReuseArray(1, Reuse(), Reuse({0: New(3)}))
   , Reuse({5: New(3)}), "Split left backPropagateReuseArray");
 
 testBackPropagate(
-    Reuse("a"),
+    Down("a"),
     ReuseArray(2, New([4]), Reuse())
   ,Reuse({a: ReuseArray(2, New([4]), Reuse())}), "ReuseArray after reuse");
 
@@ -2357,9 +2313,9 @@ shouldBeEqual(
 // andThen with ReuseArray
 
 shouldBeEqual(andThen(
-  Reuse({values: Reuse({0: Reuse(up("0"), up, "toReplace")})}),
-  New({values: Reuse(), toReplace: Reuse(5)})),
-  New({values: Reuse({0: Reuse(up("0"), 5)}), toReplace: Reuse(5)}), "andThen_ReuseArray1");
+  Reuse({values: Reuse({0: Up("0", Down( up, "toReplace"))})}),
+  New({values: Reuse(), toReplace: Down(5)})),
+  New({values: Reuse({0: Up("0", Down( 5))}), toReplace: Down(5)}), "andThen_ReuseArray1");
 
 // First cut before second cut, no overlap, only reuse
 shouldBeEqual(andThen(
@@ -2388,22 +2344,22 @@ shouldBeEqual(andThen(
 
 // First cut before second cut, full overlap, only reuse
 shouldBeEqual(andThen(
-     ReuseArray(10, Reuse({7: Reuse({b: Reuse(up("b"), "a")})}), Reuse()),
+     ReuseArray(10, Reuse({7: Reuse({b: Up("b", Down( "a"))})}), Reuse()),
      ReuseArray(6, Reuse(), Reuse({1: New({a: New(2), b: New(3)})}))
   ), ReuseArray(6, Reuse(), ReuseArray(4, Reuse({1: New({a: New(2), b: New(2)})}), Reuse())), "andThen_ReuseArray6");
 
 // First cut after second cut, full overlap, only reuse
 shouldBeEqual(andThen(
-     ReuseArray(6, Reuse(), Reuse({1: Reuse({b: Reuse(up("b"), "a")})})),
+     ReuseArray(6, Reuse(), Reuse({1: Reuse({b: Up("b", Down( "a"))})})),
      ReuseArray(10, Reuse({7: New({a: New(2), b: New(3)})}), Reuse())
   ), ReuseArray(10, ReuseArray(6, Reuse(), Reuse({1: New({ a: 2, b: 2})})), Reuse()), "andThen_ReuseArray7");
 
 // Reaching outside of ReuseArray after deletion
 shouldBeEqual(andThen(
-     Reuse({values: ReuseArray(2, Reuse(), ReuseArray(1, New([]), New([Reuse(up, up, "toReplace")])))}),
-     New({values: Reuse(), toReplace: Reuse(5)})
-  ), New({values: ReuseArray(2, Reuse(), ReuseArray(1, New([]), New([Reuse(up, 5)]))),
-     toReplace: Reuse(5)
+     Reuse({values: ReuseArray(2, Reuse(), ReuseArray(1, New([]), New([Down(up, up, "toReplace")])))}),
+     New({values: Reuse(), toReplace: Down(5)})
+  ), New({values: ReuseArray(2, Reuse(), ReuseArray(1, New([]), New([Down(up, 5)]))),
+     toReplace: Down(5)
   }), "andThen_ReuseArray8");
 
 shouldBeEqual(andThen(
@@ -2434,71 +2390,58 @@ shouldBeEqual(andThen(
 
 // If second action is a New, then result should be a New as well
 shouldBeEqual(andThen(
-     New([Reuse(3)]),
-     ReuseArray(3, Reuse(), ReuseArray(1, Reuse({0: Reuse(up("0"), 1)}), Reuse()))
-  ), New([Reuse(1)]));
+     New([Down(3)]),
+     ReuseArray(3, Reuse(), ReuseArray(1, Reuse({0: Up("0", Down( 1))}), Reuse()))
+  ), New([Down(1)]));
 //--------------------
 
 shouldBeEqual(
   andThen(
-    New({x: Reuse("a")}),
-    Reuse({a: Reuse(up("a"), "b")})),
-  New({x: Reuse("b")})
+    New({x: Down("a")}),
+    Reuse({a: Up("a", Down( "b"))})),
+  New({x: Down("b")})
 );
 
 shouldBeEqual(
   diff([["b", [], [["TEXT", "hello"]]]], [["TEXT", "hello"]], {maxCloneDown: 3}),
   Reuse({0: ReuseArray(3, New([]),
-                          New([Reuse(up, 2, 0, 0),
-                               Reuse(up, 2, 0, 1)]))})
+                          New([Down(up, 2, 0, 0),
+                               Down(up, 2, 0, 1)]))})
 )
 //process.exit(0)
 
 shouldBeEqual(
   diff(["p", 1, 1], [1, "p"]),
   Choose(
-    nd.ReuseArray(0, nd.New([nd.or(nd.Reuse(up, 1), nd.Reuse(up, 2), nd.New(1))]), 1, nd.Reuse(), nd.New([])),
-    nd.ReuseArray(1, nd.New([]), 1, nd.Reuse(), nd.New([nd.or(nd.Reuse(up, 0), nd.New("p"))])),
-    nd.ReuseArray(2, nd.New([]), 1, nd.Reuse(), nd.New([nd.or(nd.Reuse(up, 0), nd.New("p"))])),
-    nd.New([nd.Reuse(1).concat(nd.Reuse(2)), nd.Reuse(0)])
+    ReuseArray(0, New([or(Down(up, 1), Down(up, 2), New(1))]), 1, Reuse(), New([])),
+    ReuseArray(1, New([]), 1, Reuse(), New([or(Down(up, 0), New("p"))])),
+    ReuseArray(2, New([]), 1, Reuse(), New([or(Down(up, 0), New("p"))])),
+    New([Down(1).concat(Down(2)), Down(0)])
   )
 );
 shouldBeEqual(
-  nd.diff(["p", 1, 1], [1, "p"], {onlyReuse: true}),
-  nd.or(
-    nd.ReuseArray(0, nd.New([nd.or(nd.Reuse(up, 1), nd.Reuse(up, 2))]), 1, nd.Reuse(), nd.New([])),
-    nd.ReuseArray(1, nd.New([]), 1, nd.Reuse(), nd.New([nd.Reuse(up, 0)])),
-    nd.ReuseArray(2, nd.New([]), 1, nd.Reuse(), nd.New([nd.Reuse(up, 0)]))
+  diff(["p", 1, 1], [1, "p"], {onlyReuse: true}),
+  or(
+    ReuseArray(0, New([or(Down(up, 1), Down(up, 2))]), 1, Reuse(), New([])),
+    ReuseArray(1, New([]), 1, Reuse(), New([Down(up, 0)])),
+    ReuseArray(2, New([]), 1, Reuse(), New([Down(up, 0)]))
   )
 );
 
 shouldBeEqual(
-  nd.diff(["link", "meta"], ["script", "script", "link", "meta"], {maxDepth: 0, onlyReuse: true}),
-  nd.ReuseArray(0, nd.New(["script", "script"]), nd.Reuse())
+  diff(["link", "meta"], ["script", "script", "link", "meta"], {maxDepth: 0, onlyReuse: true}),
+  ReuseArray(0, New(["script", "script"]), Reuse())
 );
 
 shouldBeEqual(
-  andThen(Reuse({a: Reuse(up("a"), "b")}), Reuse({b: Reuse(up("b"), "c"), a: New(1) })),
-  Reuse({a: Reuse(up("a"), "c"), b: Reuse(up("b"), "c")}));
+  andThen(Reuse({a: Up("a", Down( "b"))}), Reuse({b: Up("b", Down( "c")), a: New(1) })),
+  Reuse({a: Up("a", Down( "c")), b: Up("b", Down( "c"))}));
 
-shouldBeEqual(
-  path({hd: "x", tl: {hd: "y", tl: undefined}}), path("x", "y")
-);
-
-/*
-shouldBeEqual(
-  backPropagate(
-    ReuseArray(1, Reuse(),
-               1, Reuse({0: Reuse(up("0"), up, up, up, up, "stack", "hd", "value")}),
-               Reuse())
-  )
-
-);*/
 shouldBeEqual(
   backPropagate(
     ReuseArray("heap",
-           1, Reuse({0: Reuse("value")}),
-           1, Reuse({0: Reuse("value")}),
+           1, Reuse({0: Down("value")}),
+           1, Reuse({0: Down("value")}),
            Reuse()),
     ReuseArray(1, Reuse(),
                0, New({ 0: 2}, []),
@@ -2517,44 +2460,34 @@ shouldBeEqual(
 );
 
 shouldBeEqual(
-  nd.concatMap(nd.Reuse({value: nd.New(1)}).concat(nd.New({b: 2})), ea => {
+  concatMap(Reuse({value: New(1)}).concat(New({b: 2})), ea => {
     if(ea.ctor == Type.Reuse) {
-      return nd.concatMap(ea.childEditActions.value, value => {
+      return concatMap(ea.childEditActions.value, value => {
         if(value.ctor == Type.New) {
-          return nd.Reuse({value: nd.New(value.model).concat(nd.New(value.model+1)) });
+          return Reuse({value: New(value.model).concat(New(value.model+1)) });
         }
       });
     } else {
-      return nd.New({c: nd.New(3)});
+      return New({c: New(3)});
     }
   }),
-  nd.Reuse({value: nd.New(1).concat(nd.New(2))}).concat(nd.New({c: nd.New(3)}))
+  Reuse({value: New(1).concat(New(2))}).concat(New({c: New(3)}))
 );
 
 shouldBeEqual(
-  nd.first(nd.New([])), New([])
+  first(New([])), New([])
 )
 shouldBeEqual(
-  nd.first(
-    nd.Reuse("abc", {
-      value: nd.ReuseArray(1, nd.New([]).concat(nd.New([1])), nd.Reuse()),
-    }).concat(nd.New(1))
+  first(Choose(
+    Down("abc", Reuse({
+      value: Concat(1, Choose(New([]), New([1])), Reuse()),
+    })), New(1))
   ),
-  Reuse("abc", {value: ReuseArray(1, New([]), Reuse())})
+  Down("abc", Reuse({value: Concat(1, New([]), Reuse())}))
 )
 
 shouldBeEqual(
-  nd.ensure(New([])), nd.New([])
-);
-shouldBeEqual(
-  nd.ensure(Reuse("abc", {value: ReuseArray(1, New([]), Reuse())})),
-    nd.Reuse("abc", {
-      value: nd.ReuseArray(1, nd.New([]), nd.Reuse()),
-    })
-  );
-
-shouldBeEqual(
-  andThen(Reuse("f", {a: Reuse(up("a"), "b")}), Reuse("g", {f: New({a: New(1), b: New(2)})})),
+  andThen(Down("f", Reuse({a: Up("a", Down( "b"))})), Down("g", Reuse({f: New({a: New(1), b: New(2)})}))),
   New({a: New(2), b: New(2)}));
 
 addLens = {
@@ -2570,7 +2503,7 @@ addLens = {
 }
 step = 
   Reuse({stack: Reuse({hd: New({ ctor: "Result",
-                               value: Custom(Reuse("argsEvaled"), addLens)})})});
+                               value: Custom(Down("argsEvaled"), addLens)})})});
 
 // Need to execute the lens once in forward first so that it can cache the results.
 shouldBeEqual(apply(step, { stack: {hd: {argsEvaled: [{value: 1}, {value: 2}]}}}), { stack: {hd: {ctor: "Result", value: {value: 3}}}});
@@ -2580,7 +2513,7 @@ testBackPropagate(step,
   Reuse({stack: Reuse({hd: Reuse({argsEvaled: Reuse({ 0: Reuse({ value: New(2)})})})})}));
 
 shouldBeEqual(
-  andThen(Reuse({a: Reuse({c: New(1)}), b: Reuse(up("b"), "a")}), New({a: Reuse()})),
+  andThen(Reuse({a: Reuse({c: New(1)}), b: Up("b", Down( "a"))}), New({a: Reuse()})),
   New({a: Reuse({c: New(1)}), b: Reuse()})
 )
 
@@ -2588,17 +2521,17 @@ var thisObj = { ctor: "Ref", heapIndex: 8}
 
 shouldBeEqual(apply(
   Reuse({
-    env: Reuse(up("env"), "heap", 5, "env"),
+    env: Up("env", Down( "heap", 5, "env")),
     stack: New({ hd: New({ ctor: "AssignmentMultiple",
                            params: New([]),
                            args: ReuseArray("hd", "argsEvaled",
                                             0, New({ 0: New(thisObj)}, []),
                                             0, Reuse())}),
                  tl: New({ hd: New({ ctor: "ComputationNode",
-                                     node: Reuse(up("node"), "heap", 5, "funDecl", "body")}),
+                                     node: Up("node", Down( "heap", 5, "funDecl", "body"))}),
                            tl: New({ hd: New({ ctor: "EndOfFunction",
-                                               env: Reuse(up("env"), "env")}),
-                                     tl: Reuse("tl")})})})}),
+                                               env: Up("env", Down( "env"))}),
+                                     tl: Down("tl")})})})}),
   {env: "deleted",
    heap: [{ctor: "Obj"}, {ctor: "Obj"}, {ctor: "Obj"}, {ctor: "Obj"}, {ctor: "Obj"}, {env: "newenv", funDecl: {body: "test"}}],
    stack: {
@@ -2628,9 +2561,9 @@ shouldBeEqual(thisObj, { ctor: "Ref", heapIndex: 8})
 shouldBeEqual(
   apply( Reuse({
     stack: Reuse({
-      hd: Reuse(up("hd"), "tl", "hd", { // Convert to self-sufficient computation
-    objectRef: Reuse(up("objectRef"), up, up, "hd", "value")}),
-      tl: Reuse("tl")})}),
+      hd: Up("hd", Reuse( "tl", "hd", { // Convert to self-sufficient computation
+    objectRef: Up("objectRef", "hd", "tl", Down("hd", "value"))})),
+      tl: Down("tl")})}),
     {stack: {hd: {value: 2}, tl: {hd: {objectRef: 1, n: 3}, tl: undefined}}}),
   {stack: {hd: {objectRef: 2, n: 3}, tl: undefined}});
 
@@ -2643,132 +2576,132 @@ shouldBeEqual(andThen(Reuse(), Reuse()), Reuse());
 shouldBeEqual(andThen(Reuse(), New(1)), New(1));
 shouldBeEqual(andThen(New(1), Reuse()), New(1));
 shouldBeEqual(andThen(New(1), New(2)), New(1));
-shouldBeEqual(andThen(Reuse({a: Reuse("..", "b")}), New({a: New(1), b: New(2)})),
+shouldBeEqual(andThen(Reuse({a: Down("..", "b")}), New({a: New(1), b: New(2)})),
             New({a: New(2), b: New(2)}));
             
-shouldBeEqual(andThen(Reuse("a"), Reuse()), Reuse("a"))
-shouldBeEqual(andThen(Reuse(), Reuse("a")), Reuse("a"))
+shouldBeEqual(andThen(Down("a"), Reuse()), Down("a"))
+shouldBeEqual(andThen(Reuse(), Down("a")), Down("a"))
 
 s0 = New({ stack: New({ hd: New({ ctor: "ComputationNode",
                                   node: Reuse()}),
                         tl: undefined})}, {env:1, heap: 1});
 s1 = Reuse({stack: Reuse({hd: New({ ctor: "Statements",
-                               statements: New({ hd: Reuse("node", "body", 0),
+                               statements: New({ hd: Down("node", "body", 0),
                                                  tl: undefined})})})})
 s2 = Reuse({stack: Reuse({hd: New({ ctor: "ComputationNode",
-                               node: Reuse("statements", "hd")}),
-                     tl: Reuse(up("tl"), "hd", {statements: Reuse("tl")})})});
-s3 = Reuse({stack: Reuse({hd: Reuse({node: Reuse("expression")})})});
+                               node: Down("statements", "hd")}),
+                     tl: Up("tl", Reuse( "hd", {statements: Down("tl")}))})});
+s3 = Reuse({stack: Reuse({hd: Reuse({node: Down("expression")})})});
 s10 = New({ stack: New({ hd: New({ ctor: "Statements",
-                             statements: New({ hd: Reuse("body", 0),
+                             statements: New({ hd: Down("body", 0),
                                                tl: undefined})}),
                          tl: undefined})}, {env:1, heap: 1});
 //shouldBeEqual(andThen(s1, s0), s10);
-s20 = New({ stack: New({ hd: New({ ctor: "ComputationNode", node: Reuse("body", 0)}),
+s20 = New({ stack: New({ hd: New({ ctor: "ComputationNode", node: Down("body", 0)}),
   tl: New({ ctor: "Statements",
                              statements: New(undefined)})
 })}, {env: 1, heap: 1});
 //shouldBeEqual(andThen(s2, s10), s20);
 s30 = New({ stack: New({ hd: New({ ctor: "ComputationNode",
-                             node: Reuse("body", 0, "expression")}),
+                             node: Down("body", 0, "expression")}),
                    tl: New({ ctor: "Statements",
                              statements: undefined})})}, {env:1, heap: 1})
 shouldBeEqual(andThen(s3, s20), s30);
 
 // Back-propagation
 
-shouldBeEqual(nd.backPropagate(
-   Reuse("b"),
-    nd.New(3)),
-  nd.Reuse({b: nd.New(3)}), "Clone new");
-
-shouldBeEqual(nd.backPropagate(
-   Reuse({d: Reuse(up("d"), "c")}, "b"),
-    nd.Reuse({d: nd.New(3)})),
-  nd.Reuse({b: nd.Reuse({c: nd.New(3)})}));
-
-shouldBeEqual(nd.backPropagate(
-   Reuse({d: Reuse(up("d"), "c"), e: Reuse(up("e"), "c")}),
-    nd.Reuse({d: nd.New(3), e: nd.New(5)})),
-  nd.Reuse({c: nd.New(3).concat(nd.New(5))}));
+shouldBeEqual(backPropagate(
+   Down("b"),
+    New(3)),
+  Reuse({b: New(3)}), "Clone new");
 
 shouldBeEqual(backPropagate(
-   Reuse({a: Reuse(up("a"), "b")}),
-    Reuse("a")),
-  Reuse("b"));
-
-shouldBeEqual(nd.backPropagate(
-   Reuse({a: Reuse(up("a"), "b")}),
-    nd.Reuse("a")),
-  nd.Reuse("b"));
+   Reuse({d: Up("d", Down( "c"))}, "b"),
+    Reuse({d: New(3)})),
+  Reuse({b: Reuse({c: New(3)})}));
 
 shouldBeEqual(backPropagate(
-   New({a: Reuse("b"), b: Reuse("b")}),
-    Reuse("a")),
-  Reuse("b"));
+   Reuse({d: Up("d", Down( "c")), e: Up("e", Down( "c"))}),
+    Reuse({d: New(3), e: New(5)})),
+  Reuse({c: New(3).concat(New(5))}));
 
-shouldBeEqual(nd.backPropagate(
-   New({a: Reuse("b"), b: Reuse("b")}),
-    nd.Reuse("a")),
-  nd.Reuse("b"));
+shouldBeEqual(backPropagate(
+   Reuse({a: Up("a", Down( "b"))}),
+    Down("a")),
+  Down("b"));
 
-shouldBeEqual(nd.backPropagate(
-   Reuse({a: Reuse(up("a"), "b")}),
-    nd.Reuse("b")),
-  nd.Reuse("b"));
+shouldBeEqual(backPropagate(
+   Reuse({a: Up("a", Down( "b"))}),
+    Down("a")),
+  Down("b"));
 
-shouldBeEqual(nd.backPropagate(
-   Reuse({a: Reuse(up("a"), "b"), b: Reuse(up("b"), "a")}),
-    nd.Reuse("b")),
-  nd.Reuse("a"));
+shouldBeEqual(backPropagate(
+   New({a: Down("b"), b: Down("b")}),
+    Down("a")),
+  Down("b"));
 
-shouldBeEqual(nd.backPropagate(
-   Reuse({a: Reuse(up("a"), "b")}),
-    nd.Reuse({a: nd.New(3)})),
-  nd.Reuse({b: nd.New(3)}));
+shouldBeEqual(backPropagate(
+   New({a: Down("b"), b: Down("b")}),
+    Down("a")),
+  Down("b"));
 
-shouldBeEqual(nd.backPropagate(
-   New({d: Reuse("a"), c: Reuse("a"), b: Reuse("b")}),
-    nd.Reuse({d: nd.New(3), c: nd.New(5)})),
-  nd.Reuse({a: nd.New(3).concat(nd.New(5))}));
+shouldBeEqual(backPropagate(
+   Reuse({a: Up("a", Down( "b"))}),
+    Down("b")),
+  Down("b"));
 
-shouldBeEqual(nd.backPropagate(
+shouldBeEqual(backPropagate(
+   Reuse({a: Up("a", Down( "b")), b: Up("b", Down( "a"))}),
+    Down("b")),
+  Down("a"));
+
+shouldBeEqual(backPropagate(
+   Reuse({a: Up("a", Down( "b"))}),
+    Reuse({a: New(3)})),
+  Reuse({b: New(3)}));
+
+shouldBeEqual(backPropagate(
+   New({d: Down("a"), c: Down("a"), b: Down("b")}),
+    Reuse({d: New(3), c: New(5)})),
+  Reuse({a: New(3).concat(New(5))}));
+
+shouldBeEqual(backPropagate(
    New({a: Identity, b: Identity}),
-    nd.Reuse({a: nd.New(2)})),
-  nd.New(2));
+    Reuse({a: New(2)})),
+  New(2));
 
-shouldBeEqual(nd.backPropagate(
-   Reuse("a", {
-     b: Reuse(up("b"), up, "c")
-   }),
-    nd.Reuse({
-      b: nd.New(3)
+shouldBeEqual(backPropagate(
+   Down("a", Reuse({
+     b: Up("b", "a", Down("c"))
+   })),
+    Reuse({
+      b: New(3)
     })),
-  nd.Reuse({
-    c: nd.New(3)
+  Reuse({
+    c: New(3)
   }));
 
-shouldBeEqual(nd.backPropagate(
-   Reuse("app", "body", {
+shouldBeEqual(backPropagate(
+   Down("app", "body", Reuse({
       body: Reuse({
         app: Reuse({
-          arg: Reuse(up("arg"), up, up, up, up, "arg")
+          arg: Up("arg", "app", "body", "body", "app", Down("arg"))
         }),
-        arg: Reuse(up("arg"), up, up, up, "arg")
+        arg: Up("arg", "body", "body", "app", Down("arg"))
       })
-      }),
-    nd.Reuse({body: nd.Reuse({app: nd.Reuse("app")}).concat(nd.Reuse("app"))})),
-  nd.Reuse({
-    app: nd.Reuse({
-      body: nd.Reuse({
-         body: nd.Reuse({app: nd.Reuse("app")})
+      })),
+    Reuse({body: Choose(Reuse({app: Down("app")}), Down("app"))})),
+  Choose(Reuse({
+    app: Reuse({
+      body: Reuse({
+         body: Reuse({app: Down("app")})
        })
       })
-    }).concat(
-  nd.Reuse({
-    app: nd.Reuse({
-      body: nd.Reuse({
-         body: nd.Reuse("app")
+    }),
+  Reuse({
+    app: Reuse({
+      body: Reuse({
+         body: Down("app")
        })
       })
     })
@@ -2776,47 +2709,47 @@ shouldBeEqual(nd.backPropagate(
   );
 
 shouldBeEqual(backPropagate(
-  New({a: New({b: Reuse("c", {d: Reuse(up("d"), up, "f")}) })}),
-  Reuse({a: Reuse({b: Reuse({d: Reuse(up("d"), "e", {p: Reuse(up("p"), up, "d")}), e: Reuse(up("e"), "d")})})})),
+  New({a: New({b: Down("c", Reuse({d: Up("d", Down( up, "f"))})) })}),
+  Reuse({a: Reuse({b: Reuse({d: Up("d", Reuse( "e", {p: Up("p", Down( up, "d"))})), e: Up("e", Down( "d"))})})})),
   Reuse(
-    {f: Reuse(up("f"), "c", "e", {p: Reuse(up("p"), up, up, "f")}),
-     c: Reuse({e: Reuse(up("e"), up, "f")})
+    {f: Up("f", Reuse( "c", "e", {p: Up("p", Down( up, up, "f"))})),
+     c: Reuse({e: Up("e", Down( up, "f"))})
     }));
 
 shouldBeEqual(backPropagate(
-  Reuse({a: New({k: Reuse(up("k"), "b", "c"), p: Reuse(up("p"), "b", "d")}), b: Reuse(up("b"), "a", "m")}),
-  Reuse({b: New({u: Identity, o: Reuse(up("o"), "a", "k"), t: Reuse(up("t"), "a", "p")})})),
- Reuse({a: Reuse({m: New({u: Identity, o: Reuse(up("o"), up, "b", "c"), t: Reuse(up("t"), up, "b", "d")})})}));
+  Reuse({a: New({k: Up("k", Down( "b", "c")), p: Up("p", Down( "b", "d"))}), b: Up("b", Down( "a", "m"))}),
+  Reuse({b: New({u: Identity, o: Up("o", Down( "a", "k")), t: Up("t", Down( "a", "p"))})})),
+ Reuse({a: Reuse({m: New({u: Identity, o: Up("o", Down( up, "b", "c")), t: Up("t", Down( up, "b", "d"))})})}));
 
-shouldBeEqual(nd.backPropagate(
-  New({a: New({b: Reuse("c", {d: Reuse(up("d"), up, "f")}) })}),
-  nd.Reuse({a: nd.Reuse({b: nd.Reuse({d: nd.Reuse(up("d"), "e", {p: nd.Reuse(up("p"), up, "d")}), e: nd.Reuse(up("e"), "d")})})})),
-  nd.Reuse(
-    {f: nd.Reuse(up("f"), "c", "e", {p: nd.Reuse(up("p"), up, up, "f")}),
-     c: nd.Reuse({e: nd.Reuse(up("e"), up, "f")})
+shouldBeEqual(backPropagate(
+  New({a: New({b: Down("c", Reuse({d: Up("d", "c", Down("f"))})) })}),
+  Reuse({a: Reuse({b: Reuse({d: Up("d", Down("e", Reuse({p: Up("p", Down( up, "d"))}))), e: Up("e", Down( "d"))})})})),
+  Reuse(
+    {f: Up("f", Down("c", "e", Reuse({p: Up("p", Down( up, up, "f"))}))),
+     c: Reuse({e: Up("e", Down( up, "f"))})
     }));
 
-shouldBeEqual(nd.backPropagate(
-  Reuse({a: New({k: Reuse(up("k"), "b", "c"), p: Reuse(up("p"), "b", "d")}), b: Reuse(up("b"), "a", "m")}),
-  nd.Reuse({b: nd.New({u: nd.Identity, o: nd.Reuse(up("o"), "a", "k"), t: nd.Reuse(up("t"), "a", "p")})})),
- nd.Reuse({a: nd.Reuse({m: nd.New({u: nd.Identity, o: nd.Reuse(up("o"), up, "b", "c"), t: nd.Reuse(up("t"), up, "b", "d")})})}));
+shouldBeEqual(backPropagate(
+  Reuse({a: New({k: Up("k", Down( "b", "c")), p: Up("p", Down( "b", "d"))}), b: Up("b", Down( "a", "m"))}),
+  Reuse({b: New({u: Identity, o: Up("o", Down( "a", "k")), t: Up("t", Down( "a", "p"))})})),
+ Reuse({a: Reuse({m: New({u: Identity, o: Up("o", Down( up, "b", "c")), t: Up("t", Down( up, "b", "d"))})})}));
 
-shouldBeEqual(nd.backPropagate(
-  Reuse(["app", "body"], {arg: Reuse(up("arg"), up, up, "arg")}),
-  nd.Reuse({arg: nd.Reuse(up("arg"), "app")})),
-  nd.Reuse({arg: nd.Reuse(up("arg"), "app", "body", "app")})
+shouldBeEqual(backPropagate(
+  Reuse(["app", "body"], {arg: Up("arg", Down( up, up, "arg"))}),
+  Reuse({arg: Up("arg", Down( "app"))})),
+  Reuse({arg: Up("arg", Down( "app", "body", "app"))})
 )
 
-shouldBeEqual(nd.backPropagate(
-  Reuse(["app", "body"], {arg: Reuse(up("arg"), up, up, "arg")}),
-  nd.New({app: nd.Reuse("app"), arg: nd.Reuse("app")})),
-  nd.Reuse({app: nd.Reuse({body: nd.New({app: nd.Reuse("app"), arg: nd.Reuse("app")})})})
+shouldBeEqual(backPropagate(
+  Reuse(["app", "body"], {arg: Up("arg", Down( up, up, "arg"))}),
+  New({app: Down("app"), arg: Down("app")})),
+  Reuse({app: Reuse({body: New({app: Down("app"), arg: Down("app")})})})
 )
 
-shouldBeEqual(nd.backPropagate(
-    New({b: Reuse("a"), c: Reuse("a")}),
-    nd.Reuse({b: nd.New(2), c: nd.New({d: nd.Identity})})),
-    nd.Reuse({a: nd.New({d: nd.New(2)})})
+shouldBeEqual(backPropagate(
+    New({b: Down("a"), c: Down("a")}),
+    Reuse({b: New(2), c: New({d: Identity})})),
+    Reuse({a: New({d: New(2)})})
   )
 
 // ReuseArray
@@ -2826,9 +2759,9 @@ var prog = ["To move elsewhere", "Keep", "Keep with next", "Keep and to clone"];
 var step = ReuseArray(
     1, New([]),                            // Deletes 0
     1, Reuse(),                            // Keeps 1
-    0, New({0: Reuse(up, 3)},[]),              // Clones the field 3 before 2
+    0, New({0: Down(up, 3)},[]),              // Clones the field 3 before 2
     2, Reuse(), // Keeps 2 and 3
-    0, New({0: Reuse(up, 0)}, []),         // Move the field "0" there
+    0, New({0: Down(up, 0)}, []),         // Move the field "0" there
     0, New({0: New("Inserted at end")}, []) // Inserts a new value
   );
 
@@ -2837,7 +2770,7 @@ shouldBeEqual(apply(step, prog),
 
 shouldBeEqual(apply(
   Reuse({heap: ReuseArray(
-  1, Reuse(), 1, Reuse({0: Reuse(up("0"), up, up, "stack", "hd", "value")}), 1, Reuse())}),
+  1, Reuse(), 1, Reuse({0: Up("0", Down( up, up, "stack", "hd", "value"))}), 1, Reuse())}),
     {heap: [40, 50, 60], stack: {hd: {value: 1}}}),
   {heap: [40, 1, 60], stack: {hd: {value: 1}}})
 
@@ -2855,26 +2788,26 @@ step = ReuseArray(
     
 shouldBeEqual(apply(step, "Hello world! ?"), "Hello big world, nice world! ??")
 
-step = nd.ReuseArray(
-      5, nd.Reuse(),                       // "Hello"
+step = ReuseArray(
+      5, Reuse(),                       // "Hello"
       6,                                // " world"
-        nd.ReuseArray( // Considering substring " world"
-          0, nd.New(" big world, nice"),   // insertion
-          nd.Reuse()                    // " world"
+        ReuseArray( // Considering substring " world"
+          0, New(" big world, nice"),   // insertion
+          Reuse()                    // " world"
         ).concat(
-        nd.ReuseArray(
-          1, nd.Reuse(), // " "
-          0, nd.New("big world. nice "),   // insertion
-          nd.Reuse()                    // "world"
+        ReuseArray(
+          1, Reuse(), // " "
+          0, New("big world. nice "),   // insertion
+          Reuse()                    // "world"
         )),
-      2, nd.Reuse(), // The string "! "
-      0, nd.New("?"), // The inserted string "?"
-      nd.Reuse()
+      2, Reuse(), // The string "! "
+      0, New("?"), // The inserted string "?"
+      Reuse()
     )
 
-shouldBeEqual(nd.apply(step, "Hello world! ?"), "Hello big world, nice world! ??", "ReuseArray1");
-shouldBeEqual(nd.apply(step, "Hello world! ?", true), "Hello big world. nice world! ??", "ReuseArray2");
-shouldBeEqual(nd.applyAll(step, "Hello world! ?"), ["Hello big world, nice world! ??", "Hello big world. nice world! ??"], "ReuseArray3");
+shouldBeEqual(apply(step, "Hello world! ?"), "Hello big world, nice world! ??", "ReuseArray1");
+shouldBeEqual(apply(step, "Hello world! ?", true), "Hello big world. nice world! ??", "ReuseArray2");
+shouldBeEqual(applyAll(step, "Hello world! ?"), ["Hello big world, nice world! ??", "Hello big world. nice world! ??"], "ReuseArray3");
 
 // Should not fail
 apply(ReuseArray(1, Reuse(), 0, New({0: undefined, 1: undefined}, [])), [0])
@@ -2883,7 +2816,7 @@ apply(ReuseArray(1, Reuse(), 0, New({0: undefined, 1: undefined}, [])), [0])
 
 pStep = Reuse({heap: ReuseArray(
        1, Reuse(),
-       1, Reuse({0: Reuse(up("0"), up, up, "stack", "hd")}),
+       1, Reuse({0: Up("0", Down( up, up, "stack", "hd"))}),
        0, Reuse())});
 uStep = Reuse({heap: Reuse({1: Reuse({value: New(22)})})});
 
@@ -2906,7 +2839,7 @@ testBackPropagate(
 
 pStep = Reuse({heap: ReuseArray(
        1, New([]),
-       3, New([Reuse(up, 2)]))});
+       3, New([Down(up, 2)]))});
 uStep = Reuse({heap: Reuse({0: Reuse({value: New(22)})})});
 
 testBackPropagate(
@@ -2915,7 +2848,7 @@ testBackPropagate(
 
 pStep = Reuse({heap: ReuseArray(
        1, New([5, 6]),
-       3, New([Reuse(2)]))});
+       3, New([Down(2)]))});
 uStep = Reuse({heap: Reuse({2: Reuse({value: New(22)})})});
 
 testBackPropagate(
@@ -2924,12 +2857,12 @@ testBackPropagate(
 
 // Custom
 var plusEditAction =
-  Custom(Reuse("args"),
+  Custom(Down("args"),
            ({left, right}) => left + right,
            function(outputDiff, {left, right}, outputOld) {
              if(outputDiff.ctor === Type.New) {
                let diff = outputDiff.model - outputOld;
-               return nd.Reuse({left: nd.New(left + diff)}).concat(nd.Reuse({right: nd.New(right + diff)}));
+               return Reuse({left: New(left + diff)}).concat(Reuse({right: New(right + diff)}));
              } else {
                console.log(stringOf(outputDiff));
                throw "Unsupported output edit action for the + operator"
@@ -2942,9 +2875,9 @@ shouldBeEqual(
 )
 
 shouldBeEqual(
-  nd.backPropagate(plusEditAction, nd.New(5)),
-  nd.Reuse({args: nd.Reuse({left: nd.New(2)})}).concat(
-    nd.Reuse({args: nd.Reuse({right: nd.New(4)})})
+  backPropagate(plusEditAction, New(5)),
+  Reuse({args: Reuse({left: New(2)})}).concat(
+    Reuse({args: Reuse({right: New(4)})})
   )
 )
 
