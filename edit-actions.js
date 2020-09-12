@@ -273,7 +273,7 @@ var editActions = {};
             return Up(newOffset, subAction.subAction);
           }
         } 
-      } else if(subAction.ctor == Type.Down) {
+      } else if(subAction.ctor == Type.Down && !subAction.isRemove) {
         let isk = isOffset(subAction.keyOrOffset);
         if(!ik && !isk) {
           if(keyOrOffset == subAction.keyOrOffset) {
@@ -305,55 +305,61 @@ var editActions = {};
   }
   editActions.Up = Up;
   
-  function Down(keyOrOffset, subAction) {
-    if(arguments.length == 1) subAction = Reuse();
-    //printDebug("Down", keyOrOffset, subAction);
-    let subActionIsPureEdit = isEditAction(subAction);
-    if(arguments.length > 2 || arguments.length == 2 && !subActionIsPureEdit && (typeof subAction == "string" || typeof subAction == "number" || isOffset(subAction))) {
-      return Down(arguments[0], Down(...[...arguments].slice(1)));
-    }
-    if(isOffset(keyOrOffset) && isOffsetIdentity(keyOrOffset)) return subAction;
-    let ik = isOffset(keyOrOffset);
-    if(subActionIsPureEdit) {
-      if(subAction.ctor == Type.Down) {
-        let isk = isOffset(subAction.keyOrOffset);
-        if(ik && isk) {
-          let newOffset = downDownOffset(keyOrOffset, subAction.keyOrOffset);
-          return Down(newOffset, subAction.subAction);
-        }
-      } else if(subAction.ctor == Type.Up) {
-        let isk = isOffset(subAction.keyOrOffset);
-        if(ik && isk) {
-          let newOffset = downUpOffsetReturnsUp(keyOrOffset, subAction.keyOrOffset);
-          if(isOffsetIdentity(newOffset)) return subAction.subAction;
-          let newDownOffset = upToDownOffset(newOffset);
-          if(newDownOffset !== undefined) {
-            return Down(newDownOffset, subAction.subAction);
+  function DownLike(isRemove) {
+    return function Down(keyOrOffset, subAction) {
+      if(arguments.length == 1) subAction = Reuse();
+      //printDebug("Down", isRemove, arguments);
+      let subActionIsPureEdit = isEditAction(subAction);
+      if(arguments.length > 2 || arguments.length == 2 && !subActionIsPureEdit && (typeof subAction == "string" || typeof subAction == "number" || isOffset(subAction))) {
+        return Down(arguments[0], Down(...[...arguments].slice(1)));
+      }
+      if(isOffset(keyOrOffset) && isOffsetIdentity(keyOrOffset)) return subAction;
+      let ik = isOffset(keyOrOffset);
+      if(subActionIsPureEdit) {
+        if(subAction.ctor == Type.Down && (!isRemove && !subAction.isRemove || isRemove && subAction.isRemove)) {
+          let isk = isOffset(subAction.keyOrOffset);
+          if(ik && isk) {
+            let newOffset = downDownOffset(keyOrOffset, subAction.keyOrOffset);
+            return Down(newOffset, subAction.subAction);
           }
-          return Up(newOffset, subAction.subAction);
-        } else if(!ik && !isk) {
-          if(keyOrOffset == subAction.keyOrOffset) {
-            return subAction.subAction;
-          } else {
-            console.trace("/!\\ Warning, composing down ", keyOrOffset, " and up", subAction.keyOrOffset, ", so something is wrong");
+        } else if(subAction.ctor == Type.Up && !isRemove) {
+          printDebug("not there");
+          let isk = isOffset(subAction.keyOrOffset);
+          if(ik && isk) {
+            let newOffset = downUpOffsetReturnsUp(keyOrOffset, subAction.keyOrOffset);
+            if(isOffsetIdentity(newOffset)) return subAction.subAction;
+            let newDownOffset = upToDownOffset(newOffset);
+            if(newDownOffset !== undefined) {
+              return Down(newDownOffset, subAction.subAction);
+            }
+            return Up(newOffset, subAction.subAction);
+          } else if(!ik && !isk) {
+            if(keyOrOffset == subAction.keyOrOffset) {
+              return subAction.subAction;
+            } else {
+              console.trace("/!\\ Warning, composing down ", keyOrOffset, " and up", subAction.keyOrOffset, ", so something is wrong");
+            }
           }
-        }
-      } else if(subAction.ctor == Type.New) {
-        if(isFinal(subAction)) {
-          return subAction;
-        }
-      } else {
-        if(ik && (keyOrOffset.count < 0 || keyOrOffset.count === 0 && !LessThanEqualUndefined(keyOrOffset.newLength, keyOrOffset.oldLength))) {
-          // Flip to up.
-          let newUpOffset = downToUpOffset(keyOrOffset);
-          console.trace("/!\\ Warning, Down() was given an incorrect offset. Converting it to up. "+keyOrOffsetToString(keyOrOffset)+"=>"+keyOrOffsetToString(newUpOffset));
-          return Up(newUpOffset, subAction);
+        } else if(subAction.ctor == Type.New) {
+          if(isFinal(subAction)) {
+            return subAction;
+          }
+        } else {
+          if(ik && (keyOrOffset.count < 0 || keyOrOffset.count === 0 && !LessThanEqualUndefined(keyOrOffset.newLength, keyOrOffset.oldLength))) {
+            // Flip to up.
+            let newUpOffset = downToUpOffset(keyOrOffset);
+            console.trace("/!\\ Warning, Down() was given an incorrect offset. Converting it to up. "+keyOrOffsetToString(keyOrOffset)+"=>"+keyOrOffsetToString(newUpOffset));
+            return Up(newUpOffset, subAction);
+          }
         }
       }
+      return {ctor: Type.Down, keyOrOffset: keyOrOffset, subAction: subAction, isRemove: isRemove ? true : false};
     }
-    return {ctor: Type.Down, keyOrOffset: keyOrOffset, subAction: subAction};
   }
+  var Down = DownLike(false);
+  var RemoveExcept = DownLike(true);
   editActions.Down = Down;
+  editActions.RemoveExcept = RemoveExcept;
 
   // apply(Concat(1, New([Down(5)]), Reuse()), [0, 1, 2, 3, 4, x]) = [x] ++ [0, 1, 2, 3, 4, x]
   function Concat(count, first, second, forkAt) {
@@ -363,6 +369,10 @@ var editActions = {};
        typeof first.model == "string" && second.ctor == Type.New &&
        typeof second.model == "string") {
       return New(first.model + second.model);   
+    }
+    if(forkAt === undefined) {
+      if(outLength(first) === 0) return second;
+      if(outLength(second) === 0) return first;
     }
     /*if(editActions.__debug && forkAt === undefined && first.ctor == Type.Down && keyOrOffsetToString(first.keyOrOffset) == "Offset(0, 2)" && second.ctor == Type.Down && keyOrOffsetToString(second.keyOrOffset) == "Offset(2)") {
       console.trace("Weird, a contact without a Fork! Who is the traitor?")
@@ -378,11 +388,11 @@ var editActions = {};
           return Keep(keepCount + keepCount2, keepSub2);
         }
       } else {
-        let [deleteCount, deleteSub] = argumentsIfForkIsDelete(inCount, outCount, left, right);        
-        if(deleteSub !== undefined) {
-          let [deleteCount2, deleteSub2] = argumentsIfDelete(deleteSub);
-          if(deleteSub2 !== undefined) {
-            return Delete(deleteCount + deleteCount2, deleteSub2);
+        let [removeCount, removeSub] = argumentsIfForkIsRemove(inCount, outCount, left, right);        
+        if(removeSub !== undefined) {
+          let [removeCount2, removeSub2] = argumentsIfRemove(removeSub);
+          if(removeSub2 !== undefined) {
+            return Remove(removeCount + removeCount2, removeSub2);
           }
         }
       }
@@ -461,7 +471,7 @@ var editActions = {};
   }
   editActions.first = first;
   
-  //// HELPERS: Fork, Insert, Keep, Delete //////
+  //// HELPERS: Fork, Insert, Keep, Remove //////
   
   // A Concat that operates on two non-overlapping places of an array or string
   function Fork(inCount, outCount, first, second) {
@@ -481,6 +491,13 @@ var editActions = {};
     return Concat(outCount, Down(Offset(0, inCount), first), Down(Offset(inCount), second), inCount);
   }
   editActions.Fork = Fork;
+  
+  function argumentsIfRemove(editAction) {
+    if(isEditAction(editAction) && editAction.ctor == Type.Down && editAction.isRemove) {
+      return [editAction.keyOrOffset, editAction.subAction];
+    }
+    return [];
+  }
   
   function argumentsIfDownOffset(editAction, defaultOffsetIfNone) {
     //printDebug("argumentsIfDownOffset", editAction);
@@ -527,11 +544,11 @@ var editActions = {};
     //printDebug("argumentsIfForkIsKeep success", [inCount, second]);
     return [inCount, second];
   }
-  function argumentsIfDelete(editAction) {
+  function argumentsIfRemove(editAction) {
     let [inCount, outCount, first, second] = argumentsIfFork(editAction);
-    return argumentsIfForkIsDelete(inCount, outCount, first, second);
+    return argumentsIfForkIsRemove(inCount, outCount, first, second);
   }
-  function argumentsIfForkIsDelete(inCount, outCount, first, second) {
+  function argumentsIfForkIsRemove(inCount, outCount, first, second) {
     if(outCount === 0 && inCount > 0) {
       return [inCount, second];
     }
@@ -562,18 +579,32 @@ var editActions = {};
     // Concat(count, Down(Offset(0, count)), Down(Offset(count, subAction))
   }
   editActions.Keep = Keep;
-  // Delete back-propagates deletions, not building up the array. To build up the array, prefix the Fork with a Down(Offset(0, totalLength, undefined), 
-  function Delete(count, subAction = Reuse()) {
+  // Remove back-propagates deletions, not building up the array. To build up the array, prefix the Fork with a Down(Offset(0, totalLength, undefined), 
+  function Remove(count, subAction = Reuse()) {
     return Fork(count, 0, Down(Offset(0, 0, count)), subAction);
     // return Down(Offset(count), subAction);
     // return Fork(count, 0, New(?), subAction)
   }
-  editActions.Delete = Delete;
+  editActions.Remove = Remove;
   // Replace needs the length of replacement as a check and for reasoning purposes
   function Replace(start, end, replaced, subAction, nextAction = Reuse()) {
     return Keep(start, Fork(end - start, replaced, subAction, nextAction));
   }
   editActions.Replace = Replace;
+  
+  function RemoveAll(subAction, oldLength) {
+    if(typeof subAction === "number" && isEditAction(oldLength)) {
+      let tmp = subAction;
+      oldLength = subAction;
+      subAction = tmp;
+    }
+    if(arguments.length == 0) {
+      subAction = Reuse();
+    }
+    return RemoveExcept(Offset(0, 0, oldLength), subAction);
+  }
+  editActions.RemoveAll = RemoveAll;
+  
   // ReuseOffset(offset, X) is to Down(offset, X)
   // what Reuse({key: X}) is to Down(key, X)
   function ReuseOffset(offset, replaced, subAction) {
@@ -588,7 +619,7 @@ var editActions = {};
       }
       let wrapped;
       /*if(replaced === 0) {
-        wrapped = Delete(offset.newLength);
+        wrapped = Remove(offset.newLength);
       } else {**/
         wrapped = Fork(offset.newLength, replaced, subAction, Reuse());
       /*}*/
@@ -613,13 +644,13 @@ var editActions = {};
   }
   editActions.ReuseKeyOrOffset = ReuseKeyOrOffset;
   
-  function isKeepInsertDelete(editAction) {
-    return isDelete(editAction) ||
+  function isKeepInsertRemove(editAction) {
+    return isRemove(editAction) ||
       isInsert(editAction) ||
       isKeep(editAction) ||
       isIdentity(editAction);
   }
-  function isDelete(editAction) {
+  function isRemove(editAction) {
     let [inCount, outCount, first, second] = argumentsIfFork(editAction);
     return second !== undefined && outCount == 0 && inCount != 0;
   }
@@ -629,7 +660,7 @@ var editActions = {};
   }
   function isInsertRight(editAction) {
     return editAction.ctor == Type.Concat &&
-    isKeepInsertDelete(editAction.first);
+    isKeepInsertRemove(editAction.first);
   }
   function isKeep(editAction) {
     let [inCount, subAction] = argumentsIfKeep(editAction);
@@ -894,14 +925,13 @@ var editActions = {};
         console.trace("Error empty context for Up in andThen", firstAction, ";", secondAction);
       }
       if(firstActionContext.ctor == Type.Up) {
-        /**
-          Proof:
-            apply(andThen(Up(k, E2), E1, (k, E0, Up(m, X))::E2Ctx), r[m], (m, r)::rCtx)
-          = apply(Up(m, andThen(Up(k, E2), Down(m, E1), (k, E0, X)::E2Ctx)), r[m], (m, r)::rCtx)  -- AP-UP-SECOND-UP
-          = apply(andThen(Up(k, E2), Down(m, E1), (k, E0, X)::E2Ctx), r, rCtx)
-          = apply(Up(k, E2), apply(Down(m, E1), r, rCtx), apply((k, E0, X)::E2Ctx, r, rCtx)) -- iND
-          = apply(Up(k, E2), apply(E1, r[m], (m, r)::rCtx), apply((k, E0, X)::E2Ctx, r, rCtx))
-          = apply(Up(k, E2), apply(E1, r[m], (m, r)::rCtx), apply((k, E0, Up(m, X))::E2Ctx, r[m], (m, r)::rCtx)) -- GOAL
+        /** Proof:
+            apply(andThen(E2, E1, Up(m, (k, E0)::E2Ctx)), r[m], (m, r)::rCtx)
+          = apply(Up(m, andThen(E2, Down(m, E1), (k, E0)::E2Ctx)), r[m], (m, r)::rCtx)  -- AP-UP-SECOND-UP
+          = apply(andThen(E2, Down(m, E1), (k, E0)::E2Ctx), r, rCtx)
+          = apply(E2, apply(Down(m, E1), r, rCtx), apply((k, E0)::E2Ctx, r, rCtx)) -- iND
+          = apply(E2, apply(E1, r[m], (m, r)::rCtx), apply((k, E0)::E2Ctx, r, rCtx))
+          = apply(E2, apply(E1, r[m], (m, r)::rCtx), apply(Up(m, (k, E0)::E2Ctx), r[m], (m, r)::rCtx)) -- GOAL
           QED
         */
         if(editActions.__debug) {
@@ -914,14 +944,13 @@ var editActions = {};
             firstActionContext.subAction));
       }
       if(firstActionContext.ctor == Type.Down) {
-        /**
-          Proof:
-            apply(andThen(Up(k, E2), E1, (k, E0, Down(m, X))::E2Ctx), r, rCtx)
-          = apply(Down(m, andThen(Up(k, E2), Up(m, E1), (k, E0, X)::E2Ctx)), r, rCtx) -- AT-UP-SECOND-DOWN
-          = apply(andThen(Up(k, E2), Up(m, E1), (k, E0, X)::E2Ctx), , r[m], (m, r)::rCtx) -- AP-DOWN
-          = apply(Up(k, E2), apply(Up(m, E1), r[m], (m, r)::rCtx), apply((k, E0, X)::E2Ctx, r[m], (m, r)::rCtx)) -- IND
-          = apply(Up(k, E2), apply(E1, r, rCtx), apply((k, E0, X)::E2Ctx, r[m], (m, r)::rCtx)) --AP-UP
-          = apply(Up(k, E2), apply(E1, r, rCtx), apply((k, E0, Down(m, X))::E2Ctx, r, rCtx)) --APCTX-UP -- GOAL
+        /** Proof:
+            apply(andThen(Up(k, E2), E1, Down(m, (k, E0)::E2Ctx)), r, rCtx)
+          = apply(Down(m, andThen(Up(k, E2), Up(m, E1), (k, E0)::E2Ctx)), r, rCtx) -- AT-UP-SECOND-DOWN
+          = apply(andThen(Up(k, E2), Up(m, E1), (k, E0)::E2Ctx), , r[m], (m, r)::rCtx) -- AP-DOWN
+          = apply(Up(k, E2), apply(Up(m, E1), r[m], (m, r)::rCtx), apply((k, E0)::E2Ctx, r[m], (m, r)::rCtx)) -- IND
+          = apply(Up(k, E2), apply(E1, r, rCtx), apply((k, E0)::E2Ctx, r[m], (m, r)::rCtx)) --AP-UP
+          = apply(Up(k, E2), apply(E1, r, rCtx), apply(Down(m, (k, E0)::E2Ctx), r, rCtx)) --APCTX-UP -- GOAL
           QED
         */
         if(editActions.__debug) {
@@ -947,8 +976,7 @@ var editActions = {};
       // secondAction is Down, Reuse, New, UseResult or Sequence
     } else if(firstAction.ctor == Type.Down) {
       if(isOffset(firstAction.keyOrOffset)) {
-        /**
-          Proof for offset when there is already an offset on r
+        /** Proof for offset when there is already an offset on r
           apply(andThen(E2, Down(Offset(c, n, o), E1), ECtx), r[a,a+o[, (Offset(a, o), r)::rCtx)
           = apply(Down(Offset(c, n, o), andThen(E2, E1, (Offset(0), Reuse(), Up(Offset(c,n,o)))::ECtx)),  r[a,a+o[, (Offset(a, o), r)::rCtx)
           = apply(andThen(E2, E1, (Offset(0), Reuse(), Up(Offset(c,n,o)))::ECtx),  r[a+c,a+c+n[, (Offset(a+c, n), r)::rCtx)
@@ -975,8 +1003,7 @@ var editActions = {};
         }
         return Down(firstAction.keyOrOffset, recurse(secondAction, firstAction.subAction, Up(firstAction.keyOrOffset, firstActionContext)));
       } else {
-        /**
-          Proof:
+        /** Proof:
           apply(andThen(E2, Down(f, E1), (k, E0, X)::ECtx), r, rCtx)
           = apply(Down(f, andThen(E2, E1, (k, E0, Up(f, X))::ECtx)), r, rCtx)     -- AT-DOWN-FIRST
           = apply(andThen(E2, E1, (k, E0, Up(f, X))::ECtx), r[f], (f, r)::rCtx) -- AP-DOWN
@@ -992,8 +1019,7 @@ var editActions = {};
       }
       // firstAction is Up, Reuse, New, Custom, Concat, UseResult, or Sequence
     } else if(firstAction.ctor == Type.Up) {
-      /**
-        Proof for keys:
+      /** Proof for keys:
         
         apply(andThen(E2, Up(f, E1), (k, E0, X)::ECtx), r[f], (f, r)::rCtx)
         = apply(Up(f, andThen(E2, E1, (k, E0, Down(f, X))::ECtx)), r[f], (f, r)::rCtx)  -- AP-UP-FIRST
@@ -1250,13 +1276,13 @@ Assuming ?1 = apply(E0, r, rCtx)
       if(firstAction.ctor == Type.Reuse) {
         /** Proof (key, context does not contain offset)
           apply(andThen(Reuse({f: E2}), Reuse({f: E1}), E2Ctx), {...f: x...}, rCtx)
-        = apply(Reuse({f: andThen(E2, E1, (f, Reuse({f: E1}), Up(f))::E2Ctx)}), {...f: x...}, rCtx)   -- AT-REU 
-        = {...f: apply(andThen(E2, E1, (f, Reuse({f: E1}), Up(f))::E2Ctx), X, (f, {...f: x...})::rCtx)...}  -- AP-REU
-        =  {...f: apply(E2, apply(E1, x, (f, {...f: x...})::rCtx), apply((f, Reuse({f: E1}), Up(f))::E2Ctx, x, (f, {...f:x...})::rCtx)...}
-        =  {...f: apply(E2, apply(E1, x, (f, {...f: x...})::rCtx), apply((f, Reuse({f: E1}), Reuse())::E2Ctx, {...f:x...}, rCtx))...}
-        =  {...f: apply(E2, apply(E1, x, (f, {...f: x...})::rCtx), (f, apply(Reuse({f: E1}),  {...f: x...}, rCtx))::apply(E2Ctx, {...f:x...}, rCtx))...}
-        =  {...f: apply(E2, apply(E1, x, (f, {...f: x...})::rCtx), (f, {...f: apply(E1, x, (f, {...f: x...})::rCtx)...})::apply(E2Ctx, {...f: x...}, rCtx))...}
-        = apply(Reuse({f: E2}), {...f: apply(E1, x, (f, {...f: x...})::rCtx)...}, apply(E2Ctx, {...f: x...}, rCtx)) -- AP-REUSE
+        = apply(Reuse({f: andThen(E2, E1, Up(f, (f, Reuse({f: E1}))::E2Ctx))}), {...f: x...}, rCtx)   -- AndThen-Copy-Copy
+        = {...f: apply(andThen(E2, E1, Up(f, (f, Reuse({f: E1}))::E2Ctx)), X, (f, {...f: x...})::rCtx)...}  -- Copy
+        =  {...f: apply(E2, apply(E1, x, (f, {...f: x...})::rCtx), apply(Up(f, (f, Reuse({f: E1}))::E2Ctx), x, (f, {...f:x...})::rCtx)...}  -- IND
+        =  {...f: apply(E2, apply(E1, x, (f, {...f: x...})::rCtx), apply((f, Reuse({f: E1}))::E2Ctx, {...f:x...}, rCtx))...} -- UP
+        =  {...f: apply(E2, apply(E1, x, (f, {...f: x...})::rCtx), (f, apply(Reuse({f: E1}),  {...f: x...}, rCtx))::apply(E2Ctx, {...f:x...}, rCtx))...} -- NEW x 2
+        =  {...f: apply(E2, apply(E1, x, (f, {...f: x...})::rCtx), (f, {...f: apply(E1, x, (f, {...f: x...})::rCtx)...})::apply(E2Ctx, {...f: x...}, rCtx))...} -- Copy
+        = apply(Reuse({f: E2}), {...f: apply(E1, x, (f, {...f: x...})::rCtx)...}, apply(E2Ctx, {...f: x...}, rCtx)) -- Copy
    GOAL = apply(Reuse({f: E2}), apply(Reuse({f: E1}), {...f: x...}, rCtx), apply(E2Ctx, {...f: x...}, rCtx));
         QED.
         */
@@ -2364,7 +2390,7 @@ Assuming ?1 = apply(E0, r, rCtx)
       }
     } else if(editAction.ctor == Type.Down) {
       if(isOffset(editAction.keyOrOffset)) {
-        if(offset.newLength !== undefined && offset.count + offset.newLength <= editAction.keyOrOffset.count || editAction.keyOrOffset.newLength !== undefined && editAction.keyOrOffset.count + editAction.keyOrOffset.newLength <= offset.count) { // OK, nothing, in common, we just delete everything
+        if(offset.newLength !== undefined && offset.count + offset.newLength <= editAction.keyOrOffset.count || editAction.keyOrOffset.newLength !== undefined && editAction.keyOrOffset.count + editAction.keyOrOffset.newLength <= offset.count) { // OK, nothing, in common, we just remove everything
           return Down(Offset(0, 0, editAction.keyOrOffset.oldLength));
         } else { // Intervals not disjoint.
           let newOffset = intersectOffsets(offset, editAction.keyOrOffset);
@@ -2567,11 +2593,11 @@ Assuming ?1 = apply(E0, r, rCtx)
             break merge_cases; // We are done with insertions.
           }
           if(outCount1 == 0 && outCount2 == 0 && inCount1 > 0 && inCount2 > 0) {
-            // Two deletes. We factor out the smaller delete and continue.
-            let minDelete = Math.min(inCount1, inCount2);
-            result.push(Delete(minDelete, merge(
-              inCount1 == minDelete ? right1 : Delete(inCount1 - minDelete, right1),
-              inCount2 == minDelete ? right2 : Delete(inCount2 - minDelete, right2),
+            // Two removes. We factor out the smaller remove and continue.
+            let minRemove = Math.min(inCount1, inCount2);
+            result.push(Remove(minRemove, merge(
+              inCount1 == minRemove ? right1 : Remove(inCount1 - minRemove, right1),
+              inCount2 == minRemove ? right2 : Remove(inCount2 - minRemove, right2),
               multiple
             )));
           // Ok, two reuse of arrays, we just align them and merge them. We need to adjust where to split
@@ -3236,7 +3262,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         // and since Offset(0, undefined) are removed, we can expect newLength to be zero.
         // In this particular case, if E is a Fork, we split the deletion to both sides as well.
         if(U.keyOrOffset.newLength === 0 && E.ctor == Type.Concat) {
-          U = Delete(E.count, Down(Offset(0, 0, MinusUndefined(U.keyOrOffset.oldLength, E.count))));
+          U = Remove(E.count, Down(Offset(0, 0, MinusUndefined(U.keyOrOffset.oldLength, E.count))));
           if(editActions.__debug) {
             console.log("Rewritten user action from Down to \n"+stringOf(U));
           }
@@ -3291,8 +3317,11 @@ Assuming ?1 = apply(E0, r, rCtx)
   
   // Computes the length that a given edit action would produce when it is applied on something of length contextCount
   function outLength(editAction, contextCount) {
-    if(Array.isArray(editAction)) {
-      return outLength(editAction[0]);//Approximation
+    if(Array.isArray(editAction) || typeof editAction === "string") {
+      return editAction.length;
+    }
+    if(typeof editAction !== "object") {
+      return undefined;
     }
     if(editActions.__debug) console.log("outLength", stringOf(editAction), "("+contextCount+")");
     if(typeof editAction.cachedOutLength == "number") {
@@ -3700,15 +3729,15 @@ Assuming ?1 = apply(E0, r, rCtx)
           let newIsSep = false;
           let oldIsSep = false;
           let oldActions = oldValStrElems.map(x =>
-            ({deleted: 0, kept: 0, str: x, isDeleted: false}));
+            ({removed: 0, kept: 0, str: x, isRemoved: false}));
           let newActions = newValStrElems.map(x =>
             ({inserted: 0, kept: 0, str: x, isInserted: false}));
           let oldSeps = oldValStrElems.slice(1).map(x => 
-            ({deleted: 0, kept: 0, str: sep, isDeleted: false}))
+            ({removed: 0, kept: 0, str: sep, isRemoved: false}))
           let newSeps = newValStrElems.slice(1).map(x => 
             ({inserted: 0, kept: 0, str: sep, isInserted: false}));
           function unlabelledLength(entry, count) {
-            return Math.min(entry.str.length - ("inserted" in entry ? entry.inserted : 0) - ("deleted" in entry ? entry.deleted : 0) - entry.kept, count);
+            return Math.min(entry.str.length - ("inserted" in entry ? entry.inserted : 0) - ("removed" in entry ? entry.removed : 0) - entry.kept, count);
           }
           function recordLength(array, index, count, name) {
             let toInsert = unlabelledLength(array[index], count);
@@ -3741,7 +3770,7 @@ Assuming ?1 = apply(E0, r, rCtx)
                 index += 1;
                 break;
               case DIFF_DELETE: // We were already at the deletion position
-                [oldIsSep, indexOld] = handleLength(s[1].length, oldIsSep, indexOld, oldActions, oldSeps, "deleted");
+                [oldIsSep, indexOld] = handleLength(s[1].length, oldIsSep, indexOld, oldActions, oldSeps, "removed");
                 index += 1;
                 break;
               case DIFF_EQUAL: 
@@ -3752,7 +3781,7 @@ Assuming ?1 = apply(E0, r, rCtx)
                 break;
             }
           }
-          let aSepWasDeletedOrInserted = false;
+          let aSepWasRemovedOrInserted = false;
           printDebug("oldActions", oldActions);
           printDebug("newActions", newActions);
           printDebug("oldSeps", oldSeps);
@@ -3760,28 +3789,28 @@ Assuming ?1 = apply(E0, r, rCtx)
           // Ok, now, the classification.
           for(let k in oldSeps) {
             let sep = oldSeps[k];
-            if(sep.deleted > sep.kept) { // sep has an odd length, there cannot be equality
-              sep.isDeleted = true;
-              aSepWasDeletedOrInserted = true;
-              // We find the element nearby which is the most likely to be deleted.
+            if(sep.removed > sep.kept) { // sep has an odd length, there cannot be equality
+              sep.isRemoved = true;
+              aSepWasRemovedOrInserted = true;
+              // We find the element nearby which is the most likely to be removed.
               let left = oldActions[k];
               let right = oldActions[Number(k) + 1];
-              if(left.isDeleted) {
-                right.isDeleted = true;
-              } else if(right.isDeleted) {
-                left.isDeleted = true;
+              if(left.isRemoved) {
+                right.isRemoved = true;
+              } else if(right.isRemoved) {
+                left.isRemoved = true;
               } else {
                 let compareWithIndex = Number(k) + 1;
-                while(compareWithIndex in oldSeps && oldSeps[compareWithIndex].deleted > oldSeps[compareWithIndex].kept) {
+                while(compareWithIndex in oldSeps && oldSeps[compareWithIndex].removed > oldSeps[compareWithIndex].kept) {
                   compareWithIndex++;
                 }
                 let farRight = oldActions[compareWithIndex];
-                let leftRatio = left.deleted / (left.deleted + left.kept + 1);
-                let rightRatio = farRight.deleted / (farRight.deleted + farRight.kept + 1 );
+                let leftRatio = left.removed / (left.removed + left.kept + 1);
+                let rightRatio = farRight.removed / (farRight.removed + farRight.kept + 1 );
                 if(leftRatio > rightRatio) {
-                  left.isDeleted = true;
+                  left.isRemoved = true;
                 } else {
-                  right.isDeleted = true;
+                  right.isRemoved = true;
                 }
               }
             }
@@ -3791,8 +3820,8 @@ Assuming ?1 = apply(E0, r, rCtx)
             let sep = newSeps[k];
             if(sep.inserted > sep.kept) {
               sep.isInserted = true;
-              aSepWasDeletedOrInserted = true;
-              // We find the element nearby which is the most likely to be deleted.
+              aSepWasRemovedOrInserted = true;
+              // We find the element nearby which is the most likely to be removed.
               let left = newActions[k];
               let right = newActions[Number(k) + 1];
               if(left.isInserted) {
@@ -3815,7 +3844,7 @@ Assuming ?1 = apply(E0, r, rCtx)
               }
             }
           }
-          if(!aSepWasDeletedOrInserted && newActions.length == oldActions.length) { // Alignment decided that elements are the same.
+          if(!aSepWasRemovedOrInserted && newActions.length == oldActions.length) { // Alignment decided that elements are the same.
             let o = {};
             for(let index = 0; index < newActions.length; index++) {
               if(newValStrElems[index] != oldValStrElems[index]) {
@@ -3835,7 +3864,7 @@ Assuming ?1 = apply(E0, r, rCtx)
             */
             diffs.push(Reuse(o));
           } else {
-            // Ok, now newActions.isInserted and oldActions.isDeleted contains a consistent view of elements which were aligned or not.
+            // Ok, now newActions.isInserted and oldActions.isRemoved contains a consistent view of elements which were aligned or not.
             // For sub-edits we need to make sure contexts are up to date.
             // First pass: group edits into buckets; for each context, adapt the context.
             indexNew = 0;
@@ -3850,26 +3879,26 @@ Assuming ?1 = apply(E0, r, rCtx)
               printDebug("tmpVal", tmpVal);
               printDebug("tmpValStrElems", tmpValStrElems);
               // Deletions
-              let countDeleted = 0;
-              while(indexOld < oldActions.length && oldActions[indexOld].isDeleted) {
+              let countRemoved = 0;
+              while(indexOld < oldActions.length && oldActions[indexOld].isRemoved) {
                 indexOld++;
-                countDeleted++;
+                countRemoved++;
               }
               /**
                    acc1 = tail => tail
-                   Delete(1, .)
-                   acc2 = tail => Delete(1, tail)
-                        = tail => acc1(Delete(1, tail))
-                   Delete(3, .)
-                   acc3 = tail => Delete(1, Delete(3, tail))
-                        = tail => acc2(Delete(3, tail))
+                   Remove(1, .)
+                   acc2 = tail => Remove(1, tail)
+                        = tail => acc1(Remove(1, tail))
+                   Remove(3, .)
+                   acc3 = tail => Remove(1, Remove(3, tail))
+                        = tail => acc2(Remove(3, tail))
               */
-              if(countDeleted > 0) {
-                printDebug("Detected deletion of " + countDeleted);
-                acc = ((acc, countDeleted) => tail => acc(Delete(countDeleted, tail)))(acc, countDeleted);
-                tmpValCtx = AddContext(Offset(countDeleted), tmpVal, tmpValCtx);
-                tmpVal = tmpVal.slice(countDeleted);
-                tmpValStrElems = tmpValStrElems.slice(countDeleted);
+              if(countRemoved > 0) {
+                printDebug("Detected deletion of " + countRemoved);
+                acc = ((acc, countRemoved) => tail => acc(Remove(countRemoved, tail)))(acc, countRemoved);
+                tmpValCtx = AddContext(Offset(countRemoved), tmpVal, tmpValCtx);
+                tmpVal = tmpVal.slice(countRemoved);
+                tmpValStrElems = tmpValStrElems.slice(countRemoved);
                 printDebug("tmpVal", tmpVal);
               }
               let countInserted = 0;
@@ -3890,7 +3919,7 @@ Assuming ?1 = apply(E0, r, rCtx)
               }
               let countKept = 0;
               // Keeps
-              while(indexNew < newActions.length && indexOld < oldActions.length && !newActions[indexNew].isInserted && !oldActions[indexOld].isDeleted) {
+              while(indexNew < newActions.length && indexOld < oldActions.length && !newActions[indexNew].isInserted && !oldActions[indexOld].isRemoved) {
                 indexNew++;
                 indexOld++;
                 countKept++;
@@ -3971,7 +4000,7 @@ Assuming ?1 = apply(E0, r, rCtx)
   /**
    * The data structure representing a diff is an array of tuples:
    * [[DIFF_DELETE, 'Hello'], [DIFF_INSERT, 'Goodbye'], [DIFF_EQUAL, ' world.']]
-   * which means: delete 'Hello', add 'Goodbye' and keep ' world.'
+   * which means: remove 'Hello', add 'Goodbye' and keep ' world.'
    */
   var DIFF_DELETE = -1;
   var DIFF_INSERT = 1;
@@ -4507,7 +4536,7 @@ Assuming ?1 = apply(E0, r, rCtx)
                 text_delete = text_delete.substring(0, text_delete.length - commonlength);
               }
             }
-            // Delete the offending records and add the merged ones.
+            // Remove the offending records and add the merged ones.
             var n = count_insert + count_delete;
             if (text_delete.length === 0 && text_insert.length === 0) {
               diffs.splice(pointer - n, n);
@@ -4728,7 +4757,7 @@ Assuming ?1 = apply(E0, r, rCtx)
           if(index > 0) {
             let f = linear_diff[index - 1];
             if(f[0] == DIFF_DELETE) {
-              acc = Delete(f[1].length, Insert(s[1].length, New(s[1]), acc));
+              acc = Remove(f[1].length, Insert(s[1].length, New(s[1]), acc));
               index -= 2;
               break;
             }
@@ -4737,7 +4766,7 @@ Assuming ?1 = apply(E0, r, rCtx)
           index -= 1;
           break;
         case DIFF_DELETE: // We were already at the deletion position
-          acc = Delete(s[1].length, acc);
+          acc = Remove(s[1].length, acc);
           index -= 1;
           break;
         case DIFF_EQUAL: 
@@ -5044,9 +5073,15 @@ Assuming ?1 = apply(E0, r, rCtx)
       str += ")";
       return str;
     } else if(self.ctor == Type.Down) {
-      let str = "Down(";
+      if(self.isRemove && isOffset(self.keyOrOffset) && self.keyOrOffset.count === 0 && self.keyOrOffset.newLength === 0) {
+        let k = self.keyOrOffset.oldLength !== undefined ? self.keyOrOffset.oldLength : "";
+        let c = isIdentity(self.subAction) && k == "" ? "" : stringOf(self.subAction);
+        return "RemoveAll(" + c + (k != "" ? ", " : "") + k + ")";
+      }
+      let str = self.isRemove ? "RemoveExcept(" : "Down(";
       let selfIsIdentity = false;
-      while(self && self.ctor == Type.Down) {
+      let removeStart = self.isRemove;
+      while(self && self.ctor == Type.Down && self.isRemove == removeStart) {
         str += keyOrOffsetToString(self.keyOrOffset);
         self = self.subAction;
         selfIsIdentity = isIdentity(self);
@@ -5117,9 +5152,9 @@ Assuming ?1 = apply(E0, r, rCtx)
           str += addPadding(childStr, "  ");
           str += ")";
         } else {
-          let [del, subAction] = argumentsIfForkIsDelete(inCount, outCount, left, right);
+          let [del, subAction] = argumentsIfForkIsRemove(inCount, outCount, left, right);
           if(subAction !== undefined && editActions.__syntacticSugar) {
-            str = "Delete(" + del;
+            str = "Remove(" + del;
             str += isIdentity(subAction) ? "" : ", " + addPadding(stringOf(subAction), "  ");
             str += ")";
           } else {

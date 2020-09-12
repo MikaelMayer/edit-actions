@@ -1,9 +1,131 @@
 var editActions = require("./edit-actions.js");
-var {List,Reuse,New,Concat,Keep,Insert,Delete,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Fork, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, up, ReuseArray, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, isFinal} = editActions;
+var {List,Reuse,New,Concat,Keep,Insert,Remove,RemoveExcept,RemoveAll,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Fork, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, up, ReuseArray, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, isFinal, debug} = editActions;
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
+
+shouldBeEqual(
+  stringOf(Remove(1, Keep(2, Insert(1, "a")))), "Remove(1, Keep(2, Insert(1, \"a\")))"
+);
+shouldBeEqual(
+  stringOf(RemoveAll()), "RemoveAll()"
+);
+shouldBeEqual(
+  stringOf(RemoveAll(Insert(1, "a"))), "RemoveAll(Insert(1, \"a\"))"
+);
+shouldBeEqual(
+  stringOf(RemoveAll(Reuse(), 5)), "RemoveAll(Reuse(), 5)"
+);
+shouldBeEqual(
+  stringOf(RemoveExcept(Offset(5, 0), Insert(1, "a"))), "RemoveExcept(Offset(5, 0), Insert(1, \"a\"))"
+);
+shouldBeEqual(
+  stringOf(RemoveExcept(Offset(5, 0), Reuse())), "RemoveExcept(Offset(5, 0))"
+);
+shouldBeEqual(
+  stringOf(RemoveExcept(Offset(5, 0))), "RemoveExcept(Offset(5, 0))"
+);
+shouldBeEqual(
+  stringOf(RemoveExcept(Offset(3, 2))), "RemoveExcept(Offset(3, 2))"
+);
+shouldBeEqual(
+  stringOf(Down(Offset(2, 7), RemoveExcept(Offset(3, 2)))), "Down(Offset(2, 7), RemoveExcept(Offset(3, 2)))"
+);
+shouldBeEqual(
+  stringOf(Down(Offset(2, 7), Down(Offset(3, 2)))), "Down(Offset(5, 2))"
+);
+shouldBeEqual(
+  stringOf(RemoveExcept(Offset(2, 7), RemoveExcept(Offset(3, 2)))), "RemoveExcept(Offset(5, 2))"
+);
+
+shouldBeEqual(
+  andThen(RemoveExcept(Offset(3, 2)), RemoveExcept(Offset(2, 7))),
+  RemoveExcept(5, 2)
+);
+
+e();
+
+/*
+function intRand(minInclusive, maxInclusive = 1) {
+  let m = Math.min(minInclusive, maxInclusive);
+  let n = Math.max(minInclusive, maxInclusive);
+  return Math.floor(Math.random() * (n - m + 1)) + m;
+}
+
+function randomRecord(depth = 1) {
+  if(depth <= 0) return {};
+  let record = {};
+  if(intRand(1, 2) == 1) record[("a" + intRand(1000))] = randomRecord(depth-1);
+  if(intRand(1, 2) == 1) record[("b" + intRand(1000))] = randomRecord(depth-1);
+  if(intRand(1, 2) == 1) record[("c" + intRand(1000))] = randomRecord(depth-1);
+  return record;
+}
+possibilities = ["New", "Reuse", "UpDown", "UpDown", "UpDown"];
+function randomEditAction(depth, record, ctx) {
+  if(depth <= 0) return Reuse();
+  let canUp = ctx !== undefined;
+  if(typeof record !== "object") {
+    console.trace("Not a record?!");
+    throw "error"
+  }
+  let canDown = Object.keys(record).length > 0;
+  while(true) {
+    let choice = possibilities[intRand(0, possibilities.length - 1)];
+    if(choice == "New") {
+      let editNew = randomRecord();
+      for(let k in editNew) {
+        editNew[k] = randomEditAction(depth-1, record, ctx);
+      }
+      return New(editNew);
+    } else if(choice == "Reuse") {
+      let editReuse = {};
+      for(let k in record) {
+        if(intRand(1, 2) == 1) {
+          editReuse[k] = randomEditAction(depth-1, record[k], __AddContext(k, record, ctx));
+        }
+      }
+      return Reuse(editReuse);
+    } else {
+      if(canUp && (!canDown || intRand(1, 2) == 1)) {
+        return Up(ctx.hd.keyOrOffset, randomEditAction(depth-1, ctx.hd.prog, ctx.tl));
+      }
+      let keys = Object.keys(record);
+      if(keys.length > 0) {
+        let k = keys[intRand(0, keys.length-1)];
+        return Down(k, randomEditAction(depth-1, record[k], __AddContext(k, record, ctx)));
+      }
+    }
+  }
+}
+
+for(var i = 0; i < 1000000; i++) {
+  var a = randomRecord(1);
+  
+  var edit1 = randomEditAction(2, a);
+  var b = apply(edit1, a);
+  var edit2 = randomEditAction(3, b);
+  var c = apply(edit2, b);
+  var edit3 = randomEditAction(1, c);
+  var d = apply(edit3, c);
+
+  shouldBeEqual(
+    andThen(andThen(edit3, edit2), edit1),
+    andThen(edit3, andThen(edit2, edit1)),
+    () => {
+      debug(a);
+      debug(edit1);
+      debug(b);
+      debug(edit2);
+      debug(c);
+      debug(edit3);
+      debug(d);
+      return "this one";
+    }
+    );
+}
+
+e();*/
 
 shouldBeEqual(
   apply(
@@ -57,7 +179,7 @@ shouldBeEqual(
 );
 
 shouldBeEqual(
-  stringOf(Up(Offset(0, 0), Down(Offset(0, 0)))), "Reuse()"
+  stringOf(Up(Offset(0, 0), RemoveAll())), "Reuse()"
 );
 shouldBeEqual(
   stringOf(Insert(1, "k")), "Insert(1, \"k\")"
@@ -76,7 +198,7 @@ shouldBeEqual(
 
 shouldBeEqual(
   diff(["a", "b", "c", "d"], ["a", "k", "c", "d"]),
-  Choose(Reuse({1: Delete(1, Insert(1, "k"))}),
+  Choose(Reuse({1: Remove(1, Insert(1, "k"))}),
     New([Down(0), "k", Down(2), Down(3)]))
 );
 
@@ -98,8 +220,8 @@ shouldBeEqual(
     Insert(1, [["i", "hello"]],
       Fork(2, 2, 
           Reuse({1:
-            Keep(2, Delete(1, Insert(1, "a")))}),
-            Delete(1))))
+            Keep(2, Remove(1, Insert(1, "a")))}),
+            Remove(1))))
 );
 
 shouldBeEqual(
@@ -133,7 +255,7 @@ shouldBeEqual(
 
 shouldBeEqual(
   apply(
-    Delete(3, Keep(5, Insert(2, Up(Offset(7, undefined, 2))))),
+    Remove(3, Keep(5, Insert(2, Up(Offset(7, undefined, 2))))),
     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
   [3, 4, 5, 6, 7, 1, 2, 8, 9]
 );
@@ -188,14 +310,14 @@ shouldBeEqual(
   stringOf(Up(1, Offset(2))), "Up(1, Offset(2))"
 );
 
-shouldBeEqual(stringOf(Keep(10, Delete(5))), "Keep(10, Delete(5))");
+shouldBeEqual(stringOf(Keep(10, Remove(5))), "Keep(10, Remove(5))");
 
 shouldBeEqual(stringOf(Keep(8, New("1"))), "Keep(8, New(\"1\"))");
 
-shouldBeEqual(stringOf(Fork(5, 0, Down(Offset(0, 0)), Reuse())),
-"Delete(5)");
+shouldBeEqual(stringOf(Fork(5, 0, RemoveAll(), Reuse())),
+"Remove(5)");
 
-shouldBeEqual(stringOf(Fork(3, 3, Reuse(), Down(Offset(0, 0)))), "Keep(3, Down(Offset(0, 0)))");
+shouldBeEqual(stringOf(Fork(3, 3, Reuse(), RemoveAll())), "Keep(3, RemoveAll())");
 
 shouldBeEqual(
   andThen(Down(Offset(3, 5)), Custom(Reuse(), {apply: x => "1"+ x, update: e => ReuseOffset(Offset(1), e), name: "append1"})),
@@ -264,7 +386,7 @@ shouldBeEqual(apply(Keep(3, New("def")), "abcghi"), "abcdef");
 shouldBeEqual(apply(Down(Offset(3)), [0, 1, 2, 3, 4, 5]), [3, 4, 5]);
 shouldBeEqual(apply(Keep(3, New([Up(Offset(3), Down(0))])), [0, 1, 2, 3, 4, 5]), [0, 1, 2, 0]);
 
-shouldBeEqual(apply(Reuse({a: Keep(3, Insert(2, Up(Offset(3), "a", Down("b")), Delete(1)))}), {b: "XY", a: "abcdefghi"}), {b: "XY", a: "abcXYefghi"});
+shouldBeEqual(apply(Reuse({a: Keep(3, Insert(2, Up(Offset(3), "a", Down("b")), Remove(1)))}), {b: "XY", a: "abcdefghi"}), {b: "XY", a: "abcXYefghi"});
 
 var x = apply(Reuse({x: UseResult(Up("x"))}), {a: 1});
 shouldBeEqual(x.x.x.x.x.a, 1);
@@ -566,33 +688,33 @@ shouldBeEqual(
 shouldBeEqual(
   merge(
     Reuse({0: Up(0, Down(3))}),
-    Keep(2, Delete(2))
+    Keep(2, Remove(2))
   ),
-  Fork(2, 2, Reuse({0: Up(0, Offset(0, 2), Down(3))}), Delete(2))
+  Fork(2, 2, Reuse({0: Up(0, Offset(0, 2), Down(3))}), Remove(2))
 );
 
 shouldBeEqual(
   merge(
-    Keep(2, Delete(2)),
+    Keep(2, Remove(2)),
     Reuse({0: Up(0, Down(3))})
   ),
-  Fork(2, 2, Reuse({0: Up(0, Offset(0, 2), Down(3))}), Delete(2))
+  Fork(2, 2, Reuse({0: Up(0, Offset(0, 2), Down(3))}), Remove(2))
 );
 
 shouldBeEqual(
   merge(
-    Keep(5, Delete(1)),
-    Delete(2)
+    Keep(5, Remove(1)),
+    Remove(2)
   ),
-  Delete(2, Keep(3, Delete(1)))
+  Remove(2, Keep(3, Remove(1)))
 );
 
 shouldBeEqual(
   merge(
-    Delete(2),
-    Keep(5, Delete(1))
+    Remove(2),
+    Keep(5, Remove(1))
   ),
-  Delete(2, Keep(3, Delete(1)))
+  Remove(2, Keep(3, Remove(1)))
 );
 
 shouldBeEqual(
@@ -647,24 +769,24 @@ shouldBeEqual(
 
 shouldBeEqual(
   merge(
-    Delete(1, Insert(2, New([1, 2]), Reuse({1: Reuse({b: New(5)})}))),
-    Fork(3, 3, Reuse({2: Reuse({c: New(6)})}), Insert(1, New([2]), Down(Offset(0, 0))))
+    Remove(1, Insert(2, New([1, 2]), Reuse({1: Reuse({b: New(5)})}))),
+    Fork(3, 3, Reuse({2: Reuse({c: New(6)})}), Insert(1, New([2]), RemoveAll()))
   ),
-  Delete(1, Insert(2, New([1, 2]),
+  Remove(1, Insert(2, New([1, 2]),
     Fork(2, 2,
       Reuse({
         1: Reuse({
           b: New(5),
           c: New(6)})}),
-      Insert(1, New([2]), Down(Offset(0, 0))))))
+      Insert(1, New([2]), RemoveAll()))))
 );
 
 shouldBeEqual(
   merge(
     Fork(3, 3, Reuse({2: Reuse({c: New(6)})}), New([2])),
-    Delete(1, Insert(2, New([1, 2]), Reuse({1: Reuse({b: New(5)})})))
+    Remove(1, Insert(2, New([1, 2]), Reuse({1: Reuse({b: New(5)})})))
   ),
-  Delete(1,
+  Remove(1,
   Insert(2, New([1, 2]),
   Fork(2, 2,
     Reuse({1: Reuse({c: New(6), b: New(5)})}),
@@ -674,19 +796,19 @@ shouldBeEqual(
 shouldBeEqual(
   merge(
     Insert(2, "ab"),
-    Delete(3)
+    Remove(3)
   ),
-  Insert(2, "ab", Delete(3))
+  Insert(2, "ab", Remove(3))
 );
 
 shouldBeEqual(
   merge(
-    Keep(2, Delete(2)),
+    Keep(2, Remove(2)),
     Keep(4, Reuse({
         0: Reuse({
           0: New(7)})}))
   ),
-  Keep(2, Delete(2, 
+  Keep(2, Remove(2, 
       Reuse({
         0: Reuse({
           0: New(7)})})))
@@ -803,23 +925,23 @@ testBackPropagate(
 
 testBackPropagate(
   Reuse({c: Down(Offset(10))}),
-    Reuse({b: Up("b", Down("c", Delete(5)))}),
+    Reuse({b: Up("b", Down("c", Remove(5)))}),
   Reuse({
   b: Up("b", Down("c", Offset(15)))})
 );
 
 testBackPropagate(
   Reuse({c: Down(Offset(10))}),
-    Reuse({c: Delete(5)}),
+    Reuse({c: Remove(5)}),
   Reuse({
-  c: Keep(10, Delete(5))})
+  c: Keep(10, Remove(5))})
 );
 
 testBackPropagate(
-  Reuse({c: Delete(3), x: Delete(2)}),
-    Reuse({d: Concat(2, Up("d", Down("c", Delete(5))), Up("d", Down("x", Keep(7, Delete(3)))))}),
+  Reuse({c: Remove(3), x: Remove(2)}),
+    Reuse({d: Concat(2, Up("d", Down("c", Remove(5))), Up("d", Down("x", Keep(7, Remove(3)))))}),
   Reuse({
-  d: Concat(2, Up("d", Down("c", Offset(8))), Up("d", Concat(7, Down("x",  Delete(2, Down(Offset(0, 7)))), Down("x", Offset(12)))))})
+  d: Concat(2, Up("d", Down("c", Offset(8))), Up("d", Concat(7, Down("x",  Remove(2, Down(Offset(0, 7)))), Down("x", Offset(12)))))})
 );
 
 testBackPropagate(
@@ -829,21 +951,21 @@ testBackPropagate(
 )
 
 testBackPropagate(
-  Delete(2),
+  Remove(2),
   Insert(3, "abc"),
   Keep(2, Insert(3, "abc")),
   "Insertion after deletion"
 );
 
 testBackPropagate(
-  Keep(2, Delete(2)),
+  Keep(2, Remove(2)),
   Keep(2, Insert(3, "abc")),
   Keep(4, Insert(3, "abc")),
   "Insertion to the right of a deletion"
 );
 
 testBackPropagate(
-  Keep(2, Delete(2)),
+  Keep(2, Remove(2)),
   Fork(2, 5, Keep(2, Insert(3, "abc")), Reuse()),
   Keep(2, Insert(3, "abc")),
   "Insertion to the left of a deletion"
@@ -852,36 +974,36 @@ testBackPropagate(
 testBackPropagate(
   Fork(3, 3, Reuse({0: Up(0, Down(1))}), Reuse({1: Up(1, Down(0))})),
     Down(Offset(2, 1)),
-  Delete(2, Keep(1, Down(Offset(0, 0))))
+  Remove(2, Keep(1, RemoveAll()))
 );
 
 testBackPropagate(
   Fork(3, 3, Reuse({0: Up(0, Down(1))}), Reuse({1: Up(1, Down(0))})),
     Down(Offset(2, 2)),
-  Delete(2, Keep(2, Down(Offset(0, 0))))
+  Remove(2, Keep(2, RemoveAll()))
 );
 
 testBackPropagate(
-  Keep(2, Delete(1)),
-    Delete(3),
-  Delete(2, Keep(1, Delete(1)))
+  Keep(2, Remove(1)),
+    Remove(3),
+  Remove(2, Keep(1, Remove(1)))
 );
 
 testBackPropagate(
-  Reuse({a: Delete(2)}),
-    Reuse({a: Delete(3)}),
-  Reuse({a: Keep(2, Delete(3))})
+  Reuse({a: Remove(2)}),
+    Reuse({a: Remove(3)}),
+  Reuse({a: Keep(2, Remove(3))})
 );
 
 // ["a", "b", "c", "d", ["e"], "f", "g"]
 // -> ["c", "d", "e", "f",|out "a",|in "b"]
 // =>           [7,    2,      "a"]
-// ==> Deleted["c","d"], replaced "e" by 7 and "f" by 2, deleted ["g"]
-// => Keep(2, Delete(2, Fork(2, 2, Reuse({0: Reuse({0: New(7)}), 1: New(2)}), Down(Offset(0, 0)))))
+// ==> Removed["c","d"], replaced "e" by 7 and "f" by 2, removed ["g"]
+// => Keep(2, Remove(2, Fork(2, 2, Reuse({0: Reuse({0: New(7)}), 1: New(2)}), RemoveAll())))
 testBackPropagate(
-  Delete(2, Fork(4, 4, Reuse({2: Down(0)}), Up(Offset(6), Down(Offset(0, 2))))),
-    Delete(2, Fork(3, 3, Reuse({0: New(7), 1: New(2)}), Down(Offset(0, 0)))),
-  Keep(1, Delete(3,
+  Remove(2, Fork(4, 4, Reuse({2: Down(0)}), Up(Offset(6), Down(Offset(0, 2))))),
+    Remove(2, Fork(3, 3, Reuse({0: New(7), 1: New(2)}), RemoveAll())),
+  Keep(1, Remove(3,
     Fork(2, 2,
       Reuse({
         0: Reuse({
@@ -909,46 +1031,46 @@ testBackPropagate(
 );
 
 testBackPropagate(
-  Delete(2, Fork(4, 4, Reuse({2: Down(0)}), Up(Offset(2)))),
+  Remove(2, Fork(4, 4, Reuse({2: Down(0)}), Up(Offset(2)))),
     Fork(3, 3, Down(Offset(2, 1, 3), Reuse({0: New(7)})), Reuse()),
-  Keep(2, Delete(2, Fork(1, 1,
+  Keep(2, Remove(2, Fork(1, 1,
       Reuse({
         0: Reuse({
           0: New(7)})}),
-      Down(Offset(0, 0)))))
+      RemoveAll())))
 )
 
 testBackPropagate(
   Reuse(),
-    Keep(1, Delete(3, Keep(1, Delete(2)))),
-  Keep(1, Delete(3, Keep(1, Delete(2))))
+    Keep(1, Remove(3, Keep(1, Remove(2)))),
+  Keep(1, Remove(3, Keep(1, Remove(2))))
 )
 
 // TODO: It won't work with strings
-// That's because the Delete makes it so it thinks he has to recover the value of the Fork, instead of trying to back-propagate the Fork. Here, the Fork should be like Reuse and stop the building of the edit action, and give it back to back-propagation.
+// That's because the Remove makes it so it thinks he has to recover the value of the Fork, instead of trying to back-propagate the Fork. Here, the Fork should be like Reuse and stop the building of the edit action, and give it back to back-propagation.
 testBackPropagate(
-  Delete(3, Keep(2, Delete(2))),
-    Keep(1, Delete(3, Keep(1, Delete(2)))),
-  Keep(4, Delete(1, Keep(2, Delete(2, Keep(1, Delete(2))))))
+  Remove(3, Keep(2, Remove(2))),
+    Keep(1, Remove(3, Keep(1, Remove(2)))),
+  Keep(4, Remove(1, Keep(2, Remove(2, Keep(1, Remove(2))))))
 )
 
 testBackPropagate(
-  Delete(5),
+  Remove(5),
   Down(Offset(0, 2)),
-  Keep(7, Down(Offset(0, 0))),
+  Keep(7, RemoveAll()),
   "slice back-propagation"
 );
 
 testBackPropagate(
-  Delete(5),
+  Remove(5),
   Down(Offset(2, 4)),
-  Keep(5, Delete(2, Keep(4, Down(Offset(0, 0))))),
+  Keep(5, Remove(2, Keep(4, RemoveAll()))),
   "slice back-propagation bis"
 );
 testBackPropagate(
-  Delete(5),
-  Delete(2, Keep(2, Down(Offset(0, 0)))),
-  Keep(5, Delete(2, Keep(2, Down(Offset(0, 0))))),
+  Remove(5),
+  Remove(2, Keep(2, RemoveAll())),
+  Keep(5, Remove(2, Keep(2, RemoveAll()))),
   "slice back-propagation bis"
 );
 
@@ -1003,8 +1125,8 @@ testBackPropagate(
 );
 testBackPropagate(
   Down("b", Offset(2, 5)),
-  Delete(3),
-  Reuse({b: Keep(2, Delete(5-2))}),
+  Remove(3),
+  Reuse({b: Keep(2, Remove(5-2))}),
   "Slice backprop with one down 2"
 );
 
@@ -1014,9 +1136,9 @@ testBackPropagate(
   Reuse({a: Concat(5,
     Up("a", Down("b", Offset(2, 7-2))),
     Down(Offset(4, 6-4)))}),
-  Reuse({a: Delete(3, Keep(3, Down(Offset(0, 0))))}),
-  Reuse({b: Keep(2, Delete(5-2)),
-         a: Keep(5, Delete(6-5))}),
+  Reuse({a: Remove(3, Keep(3, RemoveAll()))}),
+  Reuse({b: Keep(2, Remove(5-2)),
+         a: Keep(5, Remove(6-5))}),
   "Case Concat Reuse Slice 1"
 );
 
@@ -1024,31 +1146,31 @@ testBackPropagate(
   Reuse({a: Concat(5,
     Up("a", Down("b", Offset(2, 5))),
     Down(Offset(4, 2)))}),
-  Reuse({a: Delete(3, Keep(3, Down(Offset(0, 0))))}),
-  Reuse({b: Keep(2, Delete(3)),
-         a: Keep(5, Delete(1))}),
+  Reuse({a: Remove(3, Keep(3, RemoveAll()))}),
+  Reuse({b: Keep(2, Remove(3)),
+         a: Keep(5, Remove(1))}),
   "Case Concat Reuse Slice 1 strict"
 );
 testBackPropagate(
-  Reuse({a: Up("a", Down("b", Delete(2, Keep(5, Down(Offset(0, 0))))))}),
+  Reuse({a: Up("a", Down("b", Remove(2, Keep(5, RemoveAll()))))}),
   Reuse({c: Up("c", Down("a", Offset(3, 5-3)))}),
   Reuse({c: Up("c", Down("b", Offset(5, 7-5)))}),
   "Case Concat Reuse Slice 2 premise"
 );
 testBackPropagate(
-  Reuse({a: Delete(4, Keep(2, Down(Offset(0, 0))))}),
+  Reuse({a: Remove(4, Keep(2, RemoveAll()))}),
   Reuse({c: Up("c", Down("a", Offset(0, 1-0)))}),
-  Reuse({c: Up("c", Down("a", Delete(4, Down(Offset(0, 1)))))}),
+  Reuse({c: Up("c", Down("a", Remove(4, Down(Offset(0, 1)))))}),
   "Case Concat Reuse Slice 2 premise 2"
 );
 // In this case, we import another array, so we just need to find how to import the same array in the program.
 testBackPropagate(
   Reuse({a: Concat(5,
-    Up("a", Down("b", Delete(2, Keep(5, Down(Offset(0, 0)))))),
-    Delete(4, Keep(2, Down(Offset(0, 0)))))}),
+    Up("a", Down("b", Remove(2, Keep(5, RemoveAll())))),
+    Remove(4, Keep(2, RemoveAll())))}),
   Reuse({c: Up("c", Down("a", Offset(3, 3)))}),
   Reuse({c: Up("c", Down("a", Concat(2, Up("a", Down("b", Offset(5, 7-5))),
-                      Down(Offset(4, 5-4)))))
+                       Remove(4, Down(Offset(0, 1))))))
          }),
   "Case Concat Reuse Slice 2"
 );
@@ -1061,30 +1183,28 @@ testBackPropagate(
 testBackPropagate(
   Concat(4, Down(Offset(0, 4-0)),
          Down(Offset(5))),
-  Reuse(Remove(2)),
-  Keep(2, Delete(4-2, Keep(5-4, Down(Offset(0, 0))))), "Reinject the omitted element"
+  Keep(2, RemoveAll()),
+  Keep(2, Remove(4-2, Keep(5-4, RemoveAll()))), "Reinject the omitted element"
 );
 testBackPropagate(
   Concat(4, Down(Offset(0, 4-0)),
          Down(Offset(5))),
   Down(Offset(6, 8-6)),
-  Down(Offset(7, 9-7)), "Shifted slice"
+  Remove(4, Keep(1, Remove(2, Keep(2, RemoveAll())))), "Shifted slice"
 );
-s();
 testBackPropagate(
   Concat(4, Down(Offset(0, 4-0)),
          Down(Offset(5))),
   Down(Offset(2, 8-2)),
-  Reuse(Slice(2,4,5,9)), "Spanning slice"
+  Remove(2, Keep(7, RemoveAll())), "Spanning slice"
 );
-e();
 testBackPropagate(
   Reuse({a: Concat(4, Up("a", Down("b", Offset(0, 4-0))),
     Down(Offset(5)))}),
   Reuse({a: Down(Offset(6, 8-6))}),
   Reuse({
-    b: Down(Offset(4)),
-    a: Keep(5, Delete(7-5, Keep(9-7, Down(Offset(0, 0)))))}),
+    b: Remove(4),
+    a: Keep(5, Remove(7-5, Keep(9-7, RemoveAll())))}),
   "Shifted slice on separate branches"
 );
 
@@ -1093,22 +1213,21 @@ testBackPropagate(
     Down(Offset(5)))}),
   Reuse({a: Down(Offset(6, 8-6))}),
   Reuse({
-    b: Keep(1, Delete(3-1)),
-    c: Down(Offset(2)),
-    a: Keep(5, Delete(7-5, Keep(9-7, Down(Offset(0, 0)))))}),
+    b: Keep(1, Remove(3-1)),
+    c: Remove(2),
+    a: Keep(5, Remove(7-5, Keep(9-7, RemoveAll())))}),
   "Shifted slice on separate branches"
 );
 
+n();
 testBackPropagate(
-  Concat(4, Down(Offset(0, 4-0)),
-         1, New("X"),
-         Down(Offset(4))),
-  Down(Offset(6, 8-6)),
-  Down(Offset(5, 7-5)), "Shifted slice again"
+  Keep(4, Insert(1, New("X"))),
+  Remove(6, Keep(2, RemoveAll())),
+  Remove(4, Keep(1, Remove(2, Keep(2, RemoveAll())))), "Shifted slice again"
 );
 testBackPropagate(
-  Keep(4, Delete(5-4)),
-  Keep(1, Delete(2-1, Keep(3-2, Down(Offset(0, 0))))),
+  Keep(4, Remove(5-4)),
+  Keep(1, Remove(2-1, Keep(3-2, RemoveAll()))),
   Reuse(Remove(1,2,3,4,5)),
   "right-aligned concat."
 );
@@ -1127,7 +1246,7 @@ We cannot just blindly concatenate these results.
 testBackPropagate(
   Concat(4, Down(Offset(0, 4-0)),
          Down(Offset(5))),
-  Keep(2, Delete(6-2, Keep(8-6, Down(Offset(0, 0))))),
+  Keep(2, Remove(6-2, Keep(8-6, RemoveAll()))),
   Reuse(Remove(2,4,5,7,9)),
   "back-Propagation of bigger concat"
 );
@@ -1135,14 +1254,14 @@ testBackPropagate(
 testBackPropagate(
   Down(Offset(5)),
   Down(Offset(2)),
-  Keep(5, Delete(7-5)),
+  Keep(5, Remove(7-5)),
   "slice back-propagation"
 )
 
 testBackPropagate(
   Down(Offset(5, 9-5)),
   Down(Offset(2)),
-  Keep(5, Delete(7-5)),
+  Keep(5, Remove(7-5)),
   "slice back-propagation"
 )
 
@@ -1155,7 +1274,7 @@ testBackPropagate(
 
 s();
 testBackPropagate(
-  Keep(4, Delete(5-4)),
+  Keep(4, Remove(5-4)),
   Down(Offset(0, 6-0), {5: New(1)}),
   Down(Offset(0, 7-0), {6: New(1)}), "Concat to slice");
 e();
@@ -1285,45 +1404,45 @@ shouldBeEqual(
   merge(Reuse(Remove(0, 3), {0: New(1), 4: New(3)}), Reuse(Remove(0, 1,5), {0: New(0), 3: New(2)})),
   Reuse(Remove(0, 3, 5), {0: New(1), 1: New(2)}), "Merge two slices 4");
 testMergeAndReverse(
-  Reuse(Remove(0, 1,5)), Delete(6),
+  Reuse(Remove(0, 1,5)), Remove(6),
   Reuse(Remove(0)), "Merge two slices 5");
 testMergeAndReverse(
-  Delete(5), Reuse(Remove(0, 3, 7)),
+  Remove(5), Reuse(Remove(0, 3, 7)),
   Reuse(Remove(0, 5, 7)), "Merge two slices 7");
 testMergeAndReverse(
-  Reuse(Remove(0, 3, 7)), Delete(5),
+  Reuse(Remove(0, 3, 7)), Remove(5),
   Reuse(Remove(0, 5, 7)), "Merge two slices 8");
 testMergeAndReverse(
-  Delete(5), Delete(3),
-  Delete(5), "Merge two slices 9");
+  Remove(5), Remove(3),
+  Remove(5), "Merge two slices 9");
 testMergeAndReverse(
-  Delete(3), Delete(5),
-  Delete(5), "Merge two slices 10");
+  Remove(3), Remove(5),
+  Remove(5), "Merge two slices 10");
 
 testMergeAndReverse(
-  Delete(5), Concat(3, New("abc"), Delete(4)),
-  Delete(5), "insertion removed");
+  Remove(5), Concat(3, New("abc"), Remove(4)),
+  Remove(5), "insertion removed");
 testMergeAndReverse(
-  Delete(5), Concat(3, New("abc"), Delete(5)),
-  Concat(3, New("abc"), Delete(5)), "insertion kept"
+  Remove(5), Concat(3, New("abc"), Remove(5)),
+  Concat(3, New("abc"), Remove(5)), "insertion kept"
 );
 testMergeAndReverse(
-  Delete(5), Concat(3, New("abc"), Delete(7)),
-  Concat(3, New("abc"), Delete(7)), "insertion not removed"
+  Remove(5), Concat(3, New("abc"), Remove(7)),
+  Concat(3, New("abc"), Remove(7)), "insertion not removed"
 );
 testMergeAndReverse(
   Concat(Reuse(Remove(0, 4, 10)),Reuse(Remove(0, 1, 3))),
-  Concat(3, New("abc"), Delete(4)),
+  Concat(3, New("abc"), Remove(4)),
   Concat(New("abc"), Reuse(Remove(0, 4, 10))), "insertion removed");
 
 testMergeAndReverse(
-  Concat(8, New("inserted"), Delete(4)),
-  Delete(3),
-  Concat(8, New("inserted"), Delete(4)), "merge concat Remove");
+  Concat(8, New("inserted"), Remove(4)),
+  Remove(3),
+  Concat(8, New("inserted"), Remove(4)), "merge concat Remove");
 
 shouldBeEqual(
   merge(Concat(10, Reuse(Remove(10)), Reuse(Remove(10))),
-  Concat(5, Reuse(Remove(5)), 2, New("ab"), Delete(5))),
+  Concat(5, Reuse(Remove(5)), 2, New("ab"), Remove(5))),
   Concat(Concat(5, Reuse(Remove(5)), 2, New("ab"), Reuse(Remove(0, 5, 10))), Concat(5, Reuse(Remove(5)), 2, New("ab"), Reuse(Remove(0, 5, 10)))),
   "insert and duplicate"
 );
@@ -2363,24 +2482,24 @@ shouldBeEqual(andThen(
   }), "andThen_ReuseArray8");
 
 shouldBeEqual(andThen(
-     ReuseArray(1, New([]), Reuse()), // 2. Delete first element
-     ReuseArray(1, New([]), Reuse())  // 1. Delete first element
-  ), ReuseArray(1, New([]), 1, New([]), Reuse()), "andThen_ReuseArrayDelete1"); // Delete first two elements
+     ReuseArray(1, New([]), Reuse()), // 2. Remove first element
+     ReuseArray(1, New([]), Reuse())  // 1. Remove first element
+  ), ReuseArray(1, New([]), 1, New([]), Reuse()), "andThen_ReuseArrayRemove1"); // Remove first two elements
 
 shouldBeEqual(andThen(
-     ReuseArray(1, New([]), Reuse()), // 2. Delete first element
-     ReuseArray(2, Reuse(), New([]))  // 1. Delete everything but first two elements
-  ), ReuseArray(2, ReuseArray(1, New([]), Reuse()), New([])), "andThen_ReuseArrayDelete2"); // Delete everything but second element.
+     ReuseArray(1, New([]), Reuse()), // 2. Remove first element
+     ReuseArray(2, Reuse(), New([]))  // 1. Remove everything but first two elements
+  ), ReuseArray(2, ReuseArray(1, New([]), Reuse()), New([])), "andThen_ReuseArrayRemove2"); // Remove everything but second element.
 
 shouldBeEqual(andThen(
-     ReuseArray(5, Reuse(), ReuseArray(1, New([]), Reuse())), // 2. Keep first 5 els, delete 6th
-     ReuseArray(1, New([]), Reuse())                          // 1. Delete first element
-  ), ReuseArray(1, New([]), ReuseArray(5, Reuse(), ReuseArray(1, New([]), Reuse()))), "andThen_ReuseArrayDelete3");
+     ReuseArray(5, Reuse(), ReuseArray(1, New([]), Reuse())), // 2. Keep first 5 els, remove 6th
+     ReuseArray(1, New([]), Reuse())                          // 1. Remove first element
+  ), ReuseArray(1, New([]), ReuseArray(5, Reuse(), ReuseArray(1, New([]), Reuse()))), "andThen_ReuseArrayRemove3");
 
 shouldBeEqual(andThen(
-     ReuseArray(5, Reuse(), ReuseArray(1, New([]), Reuse())), // 2. Keep first 5 els, delete 6th
+     ReuseArray(5, Reuse(), ReuseArray(1, New([]), Reuse())), // 2. Keep first 5 els, remove 6th
      ReuseArray(1, Reuse({0: New(1)}), Reuse())               // 1. Replace first element
-  ), ReuseArray(1, Reuse({0: New(1)}), ReuseArray(4, Reuse(), ReuseArray(1, New([]), Reuse()))), "andThen_ReuseArrayDelete4");
+  ), ReuseArray(1, Reuse({0: New(1)}), ReuseArray(4, Reuse(), ReuseArray(1, New([]), Reuse()))), "andThen_ReuseArrayRemove4");
 
 // If first action is a New, then result should be the computation of applying the edit action
 shouldBeEqual(andThen(
@@ -2532,7 +2651,7 @@ shouldBeEqual(apply(
                            tl: New({ hd: New({ ctor: "EndOfFunction",
                                                env: Up("env", Down( "env"))}),
                                      tl: Down("tl")})})})}),
-  {env: "deleted",
+  {env: "removed",
    heap: [{ctor: "Obj"}, {ctor: "Obj"}, {ctor: "Obj"}, {ctor: "Obj"}, {ctor: "Obj"}, {env: "newenv", funDecl: {body: "test"}}],
    stack: {
      hd: {argsEvaled: []},
@@ -2548,7 +2667,7 @@ shouldBeEqual(apply(
        hd: {ctor: "ComputationNode",
             node: "test"},
        tl: {
-         hd: {ctor: "EndOfFunction", env: "deleted"},
+         hd: {ctor: "EndOfFunction", env: "removed"},
          tl: 2
        }
      }
@@ -2757,7 +2876,7 @@ shouldBeEqual(backPropagate(
 var prog = ["To move elsewhere", "Keep", "Keep with next", "Keep and to clone"];
 
 var step = ReuseArray(
-    1, New([]),                            // Deletes 0
+    1, New([]),                            // Removes 0
     1, Reuse(),                            // Keeps 1
     0, New({0: Down(up, 3)},[]),              // Clones the field 3 before 2
     2, Reuse(), // Keeps 2 and 3
@@ -2954,7 +3073,7 @@ function shouldBeEqual(x1, x2, name) {
     testsPassed++;
   } else {
     linesFailed.push(line);
-    console.log((name ? name + " (line "+line+"): " : "Line " + line + ":") + "Expected\n" + s2 + "\n, got \n" + s1);
+    console.log((name ? (typeof name == "function" ? name() : name) + " (line "+line+"): " : "Line " + line + ":") + "Expected\n" + s2 + "\n, got \n" + s1);
     if(failAtFirst) {
       e();
     }
