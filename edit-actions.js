@@ -361,6 +361,13 @@ var editActions = {};
   editActions.Down = Down;
   editActions.RemoveExcept = RemoveExcept;
 
+  function SameDownAs(editActionOrIsRemove) {
+    if(typeof editAction == "object" && editAction.ctor == Type.Down) {
+      return editAction.isRemove ? RemoveExcept : Down;
+    }
+    return editActionOrIsRemove ? RemoveExcept : Down;
+  }
+
   // apply(Concat(1, New([Down(5)]), Reuse()), [0, 1, 2, 3, 4, x]) = [x] ++ [0, 1, 2, 3, 4, x]
   function Concat(count, first, second, forkAt) {
     if(!isEditAction(first)) first = New(first);
@@ -1001,7 +1008,7 @@ var editActions = {};
         if(editActions.__debug) {
           console.log("Pre-pending Down("+keyOrOffsetToString(firstAction.keyOrOffset)+", |)");
         }
-        return Down(firstAction.keyOrOffset, recurse(secondAction, firstAction.subAction, Up(firstAction.keyOrOffset, firstActionContext)));
+        return SameDownAs(firstAction)(firstAction.keyOrOffset, recurse(secondAction, firstAction.subAction, Up(firstAction.keyOrOffset, firstActionContext)));
       } else {
         /** Proof:
           apply(andThen(E2, Down(f, E1), (k, E0, X)::ECtx), r, rCtx)
@@ -1248,7 +1255,7 @@ Assuming ?1 = apply(E0, r, rCtx)
       QED;
       */
       
-      let [newFirstAction, newFirstActionContext] = walkDownActionCtx(f, firstAction, firstActionContext);
+      let [newFirstAction, newFirstActionContext] = walkDownActionCtx(f, firstAction, firstActionContext, secondAction.isRemove);
       return recurse(secondAction.subAction, newFirstAction, newFirstActionContext);
       // firstAction is Reuse, New, Custom, Concat, UseResult or Sequence
       // secondAction is Reuse, New, UseResult or Sequence
@@ -1599,7 +1606,7 @@ Assuming ?1 = apply(E0, r, rCtx)
   // Invariant:
   // applyZ(E2, applyZip(walkDownActionCtx(keyOrOffset, E1, ECtx, Reuse()), rrCtx))
   // = applyZ(Down(f, E2), applyZip((E1, ECtx), rrCtx))
-  function walkDownActionCtx(keyOrOffset, E1, ECtx) {
+  function walkDownActionCtx(keyOrOffset, E1, ECtx, isRemove) {
     // RelativePath is Reuse() if we walk down keyOrOffset because of a 
     let newAction;
     if(isOffset(keyOrOffset)) {
@@ -1612,7 +1619,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         = applyZ(Down(offset, E2), applyZip((E1, ECtx), rrCtx))
         QED
       */
-      newAction = offsetAt(keyOrOffset, E1);
+      newAction = offsetAt(keyOrOffset, E1, isRemove);
     } else {
       /** Proof:
         applyZ(E2, applyZip(walkDownActionCtx(key, E1, ECtx, Reuse()), rrCtx))
@@ -1956,9 +1963,9 @@ Assuming ?1 = apply(E0, r, rCtx)
   //
   // apply(left, r, rCtx) ++count apply(right, r, rCtx))
   // = apply(editAction, r, rCtx);
-  function splitAt(count, editAction) {
+  function splitAt(count, editAction, isRemove) {
     if(editActions.__debug) {
-      console.log("splitAt(", count, "," , stringOf(editAction), ")")
+      console.log("splitAt(", count, "," , stringOf(editAction), ",", isRemove, ")")
     }
     if(count == 0) {
       /**
@@ -1966,7 +1973,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         applyZ(Down(Offset(0, 0)), rrCtx) ++0 applyZ(editAction, rrCtx)
         = applyZ(editAction, rrCtx)
       */
-      return [Down(Offset(0, 0)), editAction];
+      return [SameDownAs(isRemove)(Offset(0, 0)), editAction];
     }
     var left, right;
     switch(editAction.ctor) {
@@ -2034,7 +2041,8 @@ Assuming ?1 = apply(E0, r, rCtx)
       // left: Down(Offset(0, n), Reuse({f: Up(f, Offset(0, n), Down(f, Ef))}))
       // right: Down(Offset(n), Reuse({(g-n): Up(g-n, Offset(n), Down(g, Eg))}))
      
-      return [Down(Offset(0, count), Reuse(left)), Down(Offset(count), Reuse(right))];
+      return [SameDownAs(isRemove)(Offset(0, count), Reuse(left)),
+              SameDownAs(isRemove)(Offset(count), Reuse(right))];
       }
     case Type.New:
       if(typeof editAction.model === "string") {
@@ -2104,7 +2112,7 @@ Assuming ?1 = apply(E0, r, rCtx)
           = apply(Concat(p, E1, E2), r, rCtx)
           = apply(editAction, r, rCtx)
         */
-        let [left1, right1] = splitAt(count, editAction.first);
+        let [left1, right1] = splitAt(count, editAction.first, isRemove);
         return [
           left1,
           Concat(editAction.count - count, right1, editAction.second) // TODO: forgotten forkAt?
@@ -2125,7 +2133,7 @@ Assuming ?1 = apply(E0, r, rCtx)
           = apply(Concat(p, E1, E2), r, rCtx)
           = apply(editAction, r, rCtx)
         */
-        let [left, right] = splitAt(count - editAction.count, editAction.second);
+        let [left, right] = splitAt(count - editAction.count, editAction.second, isRemove);
         return [
           Concat(editAction.count, editAction.first, left, editAction.forkAt),
           right
@@ -2151,7 +2159,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         */
         
         let o = editAction.keyOrOffset;
-        let [left, right] = splitAt(count, editAction.subAction);
+        let [left, right] = splitAt(count, editAction.subAction, isRemove);
         return [
           Up(o, left),
           Up(o, right)
@@ -2175,16 +2183,16 @@ Assuming ?1 = apply(E0, r, rCtx)
         */
         
         let o = editAction.keyOrOffset;
-        let [left, right] = splitAt(count, editAction.subAction);
+        let [left, right] = splitAt(count, editAction.subAction, isRemove);
         return [Up(o, left), Up(o,right)];
       }
     case Type.Down:
        if(isOffset(editAction.keyOrOffset)) {
         /** Proof: Identical to Type.Up but in reverse */
         let o = editAction.keyOrOffset;
-        let [left, right] = splitAt(count, editAction.subAction);
-        return [Down(o, left), Down(o, right)];
-        
+        let [left, right] = splitAt(count, editAction.subAction, isRemove);
+        return [SameDownAs(editAction)(o, left), SameDownAs(editAction)(o, right)];
+
       } else {
         /**
           Proof: Assume
@@ -2204,7 +2212,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         */
         
         let o = editAction.keyOrOffset;
-        let [left, right] = splitAt(count, editAction.subAction);
+        let [left, right] = splitAt(count, editAction.subAction, isRemove);
         return [Down(o, left), Down(o, right)];
       }
     default: {
@@ -2256,7 +2264,7 @@ Assuming ?1 = apply(E0, r, rCtx)
   */
   // apply(offsetAt(offset, EX), r, rCtx)
   // = applyOffset(offset, apply(EX, r, rCtx))
-  function offsetAt(newOffset, editAction) {
+  function offsetAt(newOffset, editAction, isRemove) {
     if(editAction.ctor == Type.Custom) {
       /**Proof:
           apply(offsetAt(f, C), r, rCtx)
@@ -2274,10 +2282,10 @@ Assuming ?1 = apply(E0, r, rCtx)
         },
         name: "applyOffset("+keyOrOffsetToString(newOffset) + ", _)"});
     }
-    let [leftFirst, rightFirst] = splitAt(newOffset.count, editAction);
+    let [leftFirst, rightFirst] = splitAt(newOffset.count, editAction, isRemove);
     if(editActions.__debug) console.log("splitting")
     if(newOffset.newLength !== undefined) {
-      let [rightFirst1, rightFirst2] = splitAt(newOffset.newLength, rightFirst);
+      let [rightFirst1, rightFirst2] = splitAt(newOffset.newLength, rightFirst, isRemove);
       return rightFirst1;
     } else {
       return rightFirst;

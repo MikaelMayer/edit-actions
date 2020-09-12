@@ -41,7 +41,7 @@ shouldBeEqual(
 
 shouldBeEqual(
   andThen(RemoveExcept(Offset(3, 2)), RemoveExcept(Offset(2, 7))),
-  RemoveExcept(5, 2)
+  RemoveExcept(Offset(5, 2))
 );
 
 e();
