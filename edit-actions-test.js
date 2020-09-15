@@ -1,10 +1,13 @@
 var editActions = require("./edit-actions.js");
-var {List,Reuse,New,Concat,Keep,Insert,Remove,RemoveExcept,RemoveAll,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Fork, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, up, ReuseArray, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, isFinal, debug} = editActions;
+var {List,Reuse,New,Concat,Keep,Insert,Remove,RemoveExcept,RemoveAll,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Fork, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, up, ReuseArray, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, isFinal, debug, Interval} = editActions;
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
 
+shouldBeEqual(
+  stringOf(Down(Interval(3, 5))), "Down(Interval(3, 5))"
+);
 shouldBeEqual(
   stringOf(Remove(1, Keep(2, Insert(1, "a")))), "Remove(1, Keep(2, Insert(1, \"a\")))"
 );
@@ -18,33 +21,43 @@ shouldBeEqual(
   stringOf(RemoveAll(Reuse(), 5)), "RemoveAll(Reuse(), 5)"
 );
 shouldBeEqual(
-  stringOf(RemoveExcept(Offset(5, 0), Insert(1, "a"))), "RemoveExcept(Offset(5, 0), Insert(1, \"a\"))"
+  stringOf(RemoveExcept(Offset(5, 0), Insert(1, "a"))), "RemoveExcept(Interval(5, 5), Insert(1, \"a\"))"
 );
 shouldBeEqual(
-  stringOf(RemoveExcept(Offset(5, 0), Reuse())), "RemoveExcept(Offset(5, 0))"
+  stringOf(RemoveExcept(Offset(5, 0), Reuse())), "RemoveExcept(Interval(5, 5))"
 );
 shouldBeEqual(
-  stringOf(RemoveExcept(Offset(5, 0))), "RemoveExcept(Offset(5, 0))"
+  stringOf(RemoveExcept(Offset(5, 0))), "RemoveExcept(Interval(5, 5))"
 );
 shouldBeEqual(
-  stringOf(RemoveExcept(Offset(3, 2))), "RemoveExcept(Offset(3, 2))"
+  stringOf(RemoveExcept(Offset(3, 2))), "RemoveExcept(Interval(3, 5))"
 );
 shouldBeEqual(
-  stringOf(Down(Offset(2, 7), RemoveExcept(Offset(3, 2)))), "Down(Offset(2, 7), RemoveExcept(Offset(3, 2)))"
+  stringOf(Down(Interval(2, 9), RemoveExcept(Interval(3, 5)))), "Down(Interval(2, 9), RemoveExcept(Interval(3, 5)))"
 );
 shouldBeEqual(
-  stringOf(Down(Offset(2, 7), Down(Offset(3, 2)))), "Down(Offset(5, 2))"
+  stringOf(Down(Offset(2, 7), Down(Offset(3, 2)))), "Down(Interval(5, 7))"
 );
 shouldBeEqual(
-  stringOf(RemoveExcept(Offset(2, 7), RemoveExcept(Offset(3, 2)))), "RemoveExcept(Offset(5, 2))"
+  stringOf(RemoveExcept(Offset(2, 7), RemoveExcept(Offset(3, 2)))), "RemoveExcept(Interval(5, 7))"
 );
-
+shouldBeEqual(
+  stringOf(Remove(3, Insert(2, "ab"))), "Remove(3, Insert(2, \"ab\"))"
+);
 shouldBeEqual(
   andThen(RemoveExcept(Offset(3, 2)), RemoveExcept(Offset(2, 7))),
   RemoveExcept(Offset(5, 2))
 );
 
-e();
+shouldBeEqual(
+  merge(
+    Fork(3, 3, New("abc"), Reuse()),
+    Fork(2, 2, Reuse(), New("def"))      
+  ),
+  Fork(2, 3,
+    RemoveAll(Insert(3, "abc"), 3),
+    New("def"))
+);
 
 /*
 function intRand(minInclusive, maxInclusive = 1) {
@@ -179,7 +192,7 @@ shouldBeEqual(
 );
 
 shouldBeEqual(
-  stringOf(Up(Offset(0, 0), RemoveAll())), "Reuse()"
+  stringOf(Up(Offset(0, 0), Down(Offset(0, 0)))), "Reuse()"
 );
 shouldBeEqual(
   stringOf(Insert(1, "k")), "Insert(1, \"k\")"
