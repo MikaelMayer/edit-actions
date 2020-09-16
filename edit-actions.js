@@ -365,10 +365,29 @@ var editActions = {};
   function Concat(count, first, second, forkAt) {
     if(!isEditAction(first)) first = New(first);
     if(!isEditAction(second)) second = New(second);
-    if(first.ctor == Type.New &&
-       typeof first.model == "string" && second.ctor == Type.New &&
-       typeof second.model == "string") {
-      return New(first.model + second.model);   
+    if(first.ctor == Type.New && second.ctor == Type.New) {
+      if(typeof first.model == "string" && typeof second.model == "string") {
+        return New(first.model + second.model);   
+      } else if(Array.isArray(first.model) && Array.isArray(second.model)) {
+        let newChildren = [];
+        let newModel = [];
+        let length = 0;
+        for(let k in first.model) {
+          newModel[k] = first.model[k];
+          length = Number(k) + 1;
+        }
+        for(let k in first.childEditActions) {
+          newChildren[k] = first.childEditActions[k];
+          length = Math.max(length, Number(k) + 1);
+        }
+        for(let k in second.model) {
+          newModel[k + length] = second.model[k];
+        }
+        for(let k in second.childEditActions) {
+          newChildren[Number(k) + length] = second.childEditActions[k];
+        }
+        return New(newChildren, newModel);
+      }
     }
     if(forkAt === undefined) {
       if(outLength(first) === 0) return second;

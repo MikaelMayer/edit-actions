@@ -1324,26 +1324,22 @@ shouldBeEqual(
   Remove(3, Keep(2, RemoveAll()))
 );
 
-e();
+shouldBeEqual(
+  merge(
+    Remove(3),
+    Remove(1, Keep(4, RemoveAll()))
+  ),
+  Remove(3, Keep(2, RemoveAll())),
+"merge remove portions 1");
 
-shouldBeEqual(
-  Remove.portions.merge([0, 1, 5], [0, 3]), [0, 3, 5],
-"merge remove portions 1");
-shouldBeEqual(
-  Remove.portions.merge([0, 3], [0, 1, 5]), [0, 3, 5],
-"merge remove portions 1");
-shouldBeEqual(
-  Remove.portions.merge([0, 3], [0, 1, 5]), [0, 3, 5],
-"merge remove portions 1");
 shouldBeEqual(
   Concat(3, New("abc"),New("de")), New("abcde")
 );
 
-shouldBeEqual(Concat(4, Reuse(Remove(0, 1, 5)), Reuse(Remove(0, 5,   8))), Reuse(Remove(0, 1, 8)), "optimize Concat")
-
 shouldBeEqual(
   Concat(3, New([1, 2, 3]),New([4, 5])), New([1, 2, 3, 4, 5])
 );
+e();
 
 shouldBeEqual(
   path(Remove(2), Remove(1)), path(Remove(1)), "remove #1"
