@@ -764,13 +764,15 @@ shouldBeEqual(
     d: New(1)}))
 );
 
-n();
 shouldBeEqual(
   merge(
     Fork(3, 2, New([1, Down(0)]), Reuse({0: New(1), 1: New(3)})),
     Down(Interval(1, 4))
   ),
-  Fork(3, 2, New([1, Down(0)]), Down(Offset(0, 1), Reuse({0: New(1)})))
+  Down(Interval(1, 4), Fork(2, 0,
+    RemoveAll(),
+    Reuse({
+      0: New(1)})))
 );
 
 shouldBeEqual(
@@ -812,7 +814,15 @@ shouldBeEqual(
     Insert(2, "ab"),
     Remove(3)
   ),
-  Insert(2, "ab", Remove(3))
+  Remove(3)
+);
+
+shouldBeEqual(
+  merge(
+    Keep(3, Insert(2, "ab")),
+    Remove(3)
+  ),
+  Remove(3, Insert(2, "ab"))
 );
 
 shouldBeEqual(
@@ -955,7 +965,7 @@ testBackPropagate(
   Reuse({c: Remove(3), x: Remove(2)}),
     Reuse({d: Concat(2, Up("d", Down("c", Remove(5))), Up("d", Down("x", Keep(7, Remove(3)))))}),
   Reuse({
-  d: Concat(2, Up("d", Down("c", Offset(8))), Up("d", Concat(7, Down("x",  Remove(2, Down(Offset(0, 7)))), Down("x", Offset(12)))))})
+  d: Concat(2, Up("d", Down("c", Interval(8))), Up("d", Concat(7, Down("x", Interval(2, 9)), Down("x", Interval(12)))))})
 );
 
 testBackPropagate(
@@ -987,13 +997,15 @@ testBackPropagate(
 
 testBackPropagate(
   Fork(3, 3, Reuse({0: Up(0, Down(1))}), Reuse({1: Up(1, Down(0))})),
-    Down(Offset(2, 1)),
+    RemoveExcept(Offset(2, 1)),
   Remove(2, Keep(1, RemoveAll()))
 );
 
 testBackPropagate(
-  Fork(3, 3, Reuse({0: Up(0, Down(1))}), Reuse({1: Up(1, Down(0))})),
-    Down(Offset(2, 2)),
+  Fork(3, 3,
+    Reuse({0: Up(0, Down(1))}),
+    Reuse({1: Up(1, Down(0))})),
+    RemoveExcept(Offset(2, 2)),
   Remove(2, Keep(2, RemoveAll()))
 );
 
@@ -1046,12 +1058,12 @@ testBackPropagate(
 
 testBackPropagate(
   Remove(2, Fork(4, 4, Reuse({2: Down(0)}), Up(Offset(2)))),
-    Fork(3, 3, Down(Offset(2, 1, 3), Reuse({0: New(7)})), Reuse()),
-  Keep(2, Remove(2, Fork(1, 1,
+  Fork(3, 3, RemoveExcept(Offset(2, 1, 3), Reuse({0: New(7)})), Reuse()),
+    Keep(2, Remove(2, Fork(1, 1,
       Reuse({
         0: Reuse({
           0: New(7)})}),
-      RemoveAll())))
+      Reuse())))
 )
 
 testBackPropagate(
@@ -1070,14 +1082,14 @@ testBackPropagate(
 
 testBackPropagate(
   Remove(5),
-  Down(Offset(0, 2)),
+  RemoveExcept(Offset(0, 2)),
   Keep(7, RemoveAll()),
   "slice back-propagation"
 );
 
 testBackPropagate(
   Remove(5),
-  Down(Offset(2, 4)),
+  RemoveExcept(Offset(2, 4)),
   Keep(5, Remove(2, Keep(4, RemoveAll()))),
   "slice back-propagation bis"
 );
@@ -1151,8 +1163,8 @@ testBackPropagate(
     Up("a", Down("b", Offset(2, 7-2))),
     Down(Offset(4, 6-4)))}),
   Reuse({a: Remove(3, Keep(3, RemoveAll()))}),
-  Reuse({b: Keep(2, Remove(5-2)),
-         a: Keep(5, Remove(6-5))}),
+  Reuse({a: Keep(5, Remove(6-5)),
+         b: Keep(2, Remove(5-2))}),
   "Case Concat Reuse Slice 1"
 );
 
@@ -1161,8 +1173,8 @@ testBackPropagate(
     Up("a", Down("b", Offset(2, 5))),
     Down(Offset(4, 2)))}),
   Reuse({a: Remove(3, Keep(3, RemoveAll()))}),
-  Reuse({b: Keep(2, Remove(3)),
-         a: Keep(5, Remove(1))}),
+  Reuse({a: Keep(5, Remove(1)),
+         b: Keep(2, Remove(3))}),
   "Case Concat Reuse Slice 1 strict"
 );
 testBackPropagate(
@@ -1174,7 +1186,7 @@ testBackPropagate(
 testBackPropagate(
   Reuse({a: Remove(4, Keep(2, RemoveAll()))}),
   Reuse({c: Up("c", Down("a", Offset(0, 1-0)))}),
-  Reuse({c: Up("c", Down("a", Remove(4, Down(Offset(0, 1)))))}),
+  Reuse({c: Up("c", Down("a", Interval(4, 5)))}),
   "Case Concat Reuse Slice 2 premise 2"
 );
 // In this case, we import another array, so we just need to find how to import the same array in the program.
@@ -1183,9 +1195,8 @@ testBackPropagate(
     Up("a", Down("b", Remove(2, Keep(5, RemoveAll())))),
     Remove(4, Keep(2, RemoveAll())))}),
   Reuse({c: Up("c", Down("a", Offset(3, 3)))}),
-  Reuse({c: Up("c", Down("a", Concat(2, Up("a", Down("b", Offset(5, 7-5))),
-                       Remove(4, Down(Offset(0, 1))))))
-         }),
+  Reuse({
+  c: Up("c", Down("a", Concat(2, Up("a", Down("b", Interval(5, 7))), Down(Interval(4, 5)))))}),
   "Case Concat Reuse Slice 2"
 );
 // Problem: Instead of keeping the "slice" from which we obtained "b" for "c", it instead back-propagates the Remove action to b (remove elements 2 to 5) and reuse b and apply the removal.
@@ -1203,19 +1214,19 @@ testBackPropagate(
 testBackPropagate(
   Concat(4, Down(Offset(0, 4-0)),
          Down(Offset(5))),
-  Down(Offset(6, 8-6)),
+  RemoveExcept(Offset(6, 8-6)),
   Remove(4, Keep(1, Remove(2, Keep(2, RemoveAll())))), "Shifted slice"
 );
 testBackPropagate(
   Concat(4, Down(Offset(0, 4-0)),
          Down(Offset(5))),
-  Down(Offset(2, 8-2)),
+  RemoveExcept(Offset(2, 8-2)),
   Remove(2, Keep(7, RemoveAll())), "Spanning slice"
 );
 testBackPropagate(
   Reuse({a: Concat(4, Up("a", Down("b", Offset(0, 4-0))),
     Down(Offset(5)))}),
-  Reuse({a: Down(Offset(6, 8-6))}),
+  Reuse({a: RemoveExcept(Offset(6, 8-6))}),
   Reuse({
     b: Remove(4),
     a: Keep(5, Remove(7-5, Keep(9-7, RemoveAll())))}),
@@ -1225,7 +1236,7 @@ testBackPropagate(
 testBackPropagate(
   Reuse({a: Concat(4, Concat(2, Up("a", Down("b", Offset(1, 3-1))), Up("a", Down("c", Offset(0, 2-0)))),
     Down(Offset(5)))}),
-  Reuse({a: Down(Offset(6, 8-6))}),
+  Reuse({a: RemoveExcept(Offset(6, 8-6))}),
   Reuse({
     b: Keep(1, Remove(3-1)),
     c: Remove(2),

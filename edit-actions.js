@@ -589,11 +589,11 @@ var editActions = {};
         }
       }
       let wrapped;
-      /*if(replaced === 0) {
+      if(replaced === 0) {
         wrapped = Remove(offset.newLength);
-      } else {**/
+      } else {
         wrapped = Fork(offset.newLength, replaced, subAction, Reuse());
-      /*}*/
+      }
       if(offset.count > 0) {
         wrapped = Keep(offset.count, wrapped);
       }
@@ -1807,7 +1807,7 @@ Assuming ?1 = apply(E0, r, rCtx)
   // Then
   // apply(Fork(inCount, outCount, left, right), r, rCtx) = apply(editAction, r, rCtx)
   function splitIn(n, editAction, contextCount = undefined) {
-//    printDebug("splitIn", n, editAction);
+    printDebug("splitIn", n, editAction);
     if(n == 0) {
       /** Proof:
             apply(Fork(0, 0, Reuse(), editAction), r, rCtx)
@@ -2074,7 +2074,10 @@ Assuming ?1 = apply(E0, r, rCtx)
     let [o2, l2, r2] = splitIn(count, editAction);
     if(r2 === undefined) { // Recovery mode
       let newEditAction = toSplitInCompatibleAt(editAction, count);
-      [o2, l2, r2] = splitIn(count, editAction);
+      printDebug("offsetIn", offset, editAction);
+      printDebug("Recoverty to split at ", offset, newEditAction);
+      [o2, l2, r2] = splitIn(count, newEditAction);
+      printDebug("Splitted", o2, l2, r2);
     }
     if(newLength !== undefined && r2 !== undefined) {
       let [o3, l3, r3] = splitIn(newLength, r2);
@@ -3601,6 +3604,9 @@ Assuming ?1 = apply(E0, r, rCtx)
   }
   
   function backPropagate(E, U, ECtx = undefined) {
+    if(typeof U !== "object") {
+      console.trace("non existent U");
+    }
     if(editActions.__debug) {
       console.log("backPropagate");
       console.log("  "+addPadding(stringOf(E), "  "));
@@ -3648,36 +3654,48 @@ Assuming ?1 = apply(E0, r, rCtx)
       return result;
     }
     // A hybrid possiblity is to have a first-level Down(Offset(m, n, o), R) where either o is known, or the edit action is a Concat, i.e. we are in a Fork. In this case, we want to remove [0, m] and [n, ...], and continue back-propagating in R, but not treat Forks are actions to rebuild something.
-    if(U.ctor == Type.Down && isOffset(U.keyOrOffset) && (U.keyOrOffset.oldLength !== undefined || E.ctor == Type.Concat)) {
-      let newU = U.subAction;
-      let did = false; 
-      if(U.keyOrOffset.newLength !== undefined && U.keyOrOffset.newLength > 0) {
-        //console.log("newLength rewrite");  
-        let o = outLength(U.subAction, U.keyOrOffset.newLength);
-        if(o !== undefined) {
-          newU = Fork(U.keyOrOffset.newLength, o, U.subAction, Down(Offset(0, 0)));
-          did = true;
+    if(isRemoveExcept(U)) {
+      printDebug("removeExcept case")
+      let {count, newLength, oldLength} = U.keyOrOffset;
+      // Base case where we remove everything from the array, possibly inserting something else at the given offset.
+      if(newLength === 0) {
+        printDebug("Empty")
+        if(E.ctor == Type.Concat) {
+          let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, E.count), E, ECtx);
+          let [ERight, ECtxright]= walkDownActionCtx(Offset(E.count), E, ECtx);
+          return merge(
+            backPropagate(ELeft, U, ECtxLeft),
+            backPropagate(ERight, U, ECtxright),
+          )
         }
+        printDebug("Solving sub-problem first", U)
+        let [EEmpty, ECtxEmpty] = walkDownActionCtx(U.keyOrOffset, E, ECtx);
+        let solution = backPropagate(EEmpty, U.subAction, ECtxEmpty);
+        if(E.ctor == Type.Reuse) {
+          printDebug("we prefix with a Reuse the RemoveAll")
+          solution = merge(solution, prefixReuse(ECtx, RemoveAll(Reuse(), oldLength)));
+        }
+        return solution;
       }
-      if(U.keyOrOffset.count > 0) {
-        newU = Fork(U.keyOrOffset.count, 0, Down(Offset(0, 0)), newU);
+      let [EMiddle, ECtxMiddle] = walkDownActionCtx(U.keyOrOffset, E, ECtx);
+      // We start by taking the change made below.
+      let finalResult = backPropagate(EMiddle, U.subAction, ECtxMiddle);
+      // If we removed the left part, we try to find what we removed.
+      if(count > 0) {
         did = true;
+        let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, count), E, ECtx);
+        finalResult = merge(finalResult,
+          backPropagate(ELeft, RemoveAll(Reuse(), count), ECtxLeft)
+        );
       }
-      if(did) {
-        U = newU;
-        if(editActions.__debug) {
-          console.log("Rewritten user action to \n"+stringOf(U));
-        }
-      } else { // (U.keyOrOffset.newLength == undefined || U.keyOrOffset.newLength == 0) && U.keyOrOffset.count  == 0
-        // and since Offset(0, undefined) are removed, we can expect newLength to be zero.
-        // In this particular case, if E is a Fork, we split the deletion to both sides as well.
-        if(U.keyOrOffset.newLength === 0 && E.ctor == Type.Concat) {
-          U = Remove(E.count, Down(Offset(0, 0, MinusUndefined(U.keyOrOffset.oldLength, E.count))));
-          if(editActions.__debug) {
-            console.log("Rewritten user action from Down to \n"+stringOf(U));
-          }
-        }
+      // If we removed the right part, we try to find what we removed.
+      // Careful, if count + newLength == 0
+      if(newLength !== undefined && LessThanUndefined(count + newLength, oldLength) && count + newLength > 0) {
+        let [ERight, ECtxRight] = walkDownActionCtx(Offset(count + newLength), E, ECtx);
+        finalResult = merge(finalResult,
+          backPropagate(ERight, RemoveAll(Reuse(), MinusUndefined(oldLength, count + newLength)), ECtxRight));
       }
+      return finalResult;
     }
     let [inCount, outCount, left, right] = argumentsIfFork(U);
     if(right !== undefined) {
@@ -5331,10 +5349,8 @@ Assuming ?1 = apply(E0, r, rCtx)
   
   function printDebug() {
     if(editActions.__debug) {
-      for(let arg of arguments) {
-        if(typeof arg === "string") console.log(arg);
-        else console.log(uneval(arg));
-      }
+      let lastWasEditAction = false;
+      console.log([...arguments].map((x, index) => isEditAction(x) ? (lastWasEditAction = true, "\n├┬") + addPadding(uneval(x), "│├") : (index == 0 ? "" : lastWasEditAction ? (lastWasEditAction=false, "\n├ ") : " ") + (typeof x == "string" ? x : uneval(x))).join(""));
     }
   }
   
