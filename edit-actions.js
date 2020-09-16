@@ -3677,7 +3677,9 @@ Assuming ?1 = apply(E0, r, rCtx)
         }
         return solution;
       }
+      printDebug("Walking down the context by ", U.keyOrOffset);
       let [EMiddle, ECtxMiddle] = walkDownActionCtx(U.keyOrOffset, E, ECtx);
+      printDebug("Recovering change below");
       // We start by taking the change made below.
       let finalResult = backPropagate(EMiddle, U.subAction, ECtxMiddle);
       // If we removed the left part, we try to find what we removed.

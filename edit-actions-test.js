@@ -1244,12 +1244,17 @@ testBackPropagate(
   "Shifted slice on separate branches"
 );
 
-n();
 testBackPropagate(
   Keep(4, Insert(1, New("X"))),
   Remove(6, Keep(2, RemoveAll())),
+  Remove(5, Keep(2, RemoveAll())), "Shifted slice again"
+);
+testBackPropagate(
+  Keep(4, Remove(1)),
+  Remove(6, Keep(2, RemoveAll())),
   Remove(4, Keep(1, Remove(2, Keep(2, RemoveAll())))), "Shifted slice again"
 );
+e();
 testBackPropagate(
   Keep(4, Remove(5-4)),
   Keep(1, Remove(2-1, Keep(3-2, RemoveAll()))),
