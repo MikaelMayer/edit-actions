@@ -1369,23 +1369,28 @@ shouldBeEqual(
     Remove(1, Fork(4, 4, Reuse({0: New(0), 3: New(2)}), RemoveAll()))),
   Remove(3, Fork(2, 2, Reuse({0: New(1), 1: New(2)}), RemoveAll())), "Merge two slices 2");
 
-e();
+shouldBeEqual(
+  merge(
+    Remove(1, Fork(4, 4, Reuse({0: New(0), 3: New(2)}), RemoveAll())),
+    Remove(3, Reuse({0: New(1), 4: New(3)}))),
+  Remove(3, Fork(2, 2, Reuse({0: New(1), 1: New(2)}), RemoveAll())), "Merge two slices 3");
 
 shouldBeEqual(
-  merge(Reuse(Remove(0,1,5), {0: New(0), 3: New(2)}), Reuse(Remove(0, 3), {0: New(1), 4: New(3)})),
-  Reuse(Remove(0, 3, 5), {0: New(1), 1: New(2)}), "Merge two slices 3");
-shouldBeEqual(
-  merge(Reuse(Remove(0, 3), {0: New(1), 4: New(3)}), Reuse(Remove(0, 1,5), {0: New(0), 3: New(2)})),
-  Reuse(Remove(0, 3, 5), {0: New(1), 1: New(2)}), "Merge two slices 4");
+  merge(
+    Remove(3, Reuse({0: New(1), 4: New(3)})),
+    Remove(1, Fork(4, 4, Reuse({0: New(0), 3: New(2)}), RemoveAll()))),
+  Remove(3, Fork(2, 2, Reuse({0: New(1), 1: New(2)}), RemoveAll())), "Merge two slices 4");
+
 testMergeAndReverse(
-  Reuse(Remove(0, 1,5)), Remove(6),
-  Reuse(Remove(0)), "Merge two slices 5");
+  Remove(1, Keep(4, RemoveAll())),
+  Remove(6),
+  RemoveExcept(Interval(6, 6)), "Merge two slices 5");
+
 testMergeAndReverse(
-  Remove(5), Reuse(Remove(0, 3, 7)),
-  Reuse(Remove(0, 5, 7)), "Merge two slices 7");
-testMergeAndReverse(
-  Reuse(Remove(0, 3, 7)), Remove(5),
-  Reuse(Remove(0, 5, 7)), "Merge two slices 8");
+  Remove(5),
+  Remove(3, Keep(4, RemoveAll())),
+  Remove(5, Keep(2, RemoveAll())), "Merge two slices 7");
+
 testMergeAndReverse(
   Remove(5), Remove(3),
   Remove(5), "Merge two slices 9");
@@ -1394,95 +1399,60 @@ testMergeAndReverse(
   Remove(5), "Merge two slices 10");
 
 testMergeAndReverse(
-  Remove(5), Concat(3, New("abc"), Remove(4)),
+  Remove(5), Fork(4, 3, New("abc"), Reuse()),
   Remove(5), "insertion removed");
-testMergeAndReverse(
-  Remove(5), Concat(3, New("abc"), Remove(5)),
-  Concat(3, New("abc"), Remove(5)), "insertion kept"
-);
-testMergeAndReverse(
-  Remove(5), Concat(3, New("abc"), Remove(7)),
-  Concat(3, New("abc"), Remove(7)), "insertion not removed"
-);
-testMergeAndReverse(
-  Concat(Reuse(Remove(0, 4, 10)),Reuse(Remove(0, 1, 3))),
-  Concat(3, New("abc"), Remove(4)),
-  Concat(New("abc"), Reuse(Remove(0, 4, 10))), "insertion removed");
 
 testMergeAndReverse(
-  Concat(8, New("inserted"), Remove(4)),
+  Remove(5),
+  Keep(5, Fork(0, 3, New("abc"), Reuse())),
+  Remove(5, Insert(3, New("abc"), Reuse())), "insertion kept"
+);
+testMergeAndReverse(
+  Remove(5),
+  Keep(7, Insert(3, "abc")),
+  Remove(5, Keep(2, Insert(3, "abc"))),
+"insertion not removed"
+);
+
+testMergeAndReverse(
+  Remove(4, Insert(8, New("inserted"))),
   Remove(3),
-  Concat(8, New("inserted"), Remove(4)), "merge concat Remove");
+  Remove(4, Insert(8, New("inserted"))), "merge concat Remove");
 
-shouldBeEqual(
-  merge(Concat(10, Reuse(Remove(10)), Reuse(Remove(10))),
-  Concat(5, Reuse(Remove(5)), 2, New("ab"), Remove(5))),
-  Concat(Concat(5, Reuse(Remove(5)), 2, New("ab"), Reuse(Remove(0, 5, 10))), Concat(5, Reuse(Remove(5)), 2, New("ab"), Reuse(Remove(0, 5, 10)))),
-  "insert and duplicate"
-);
-shouldBeEqual(
-  merge(Concat(New("abc"), Reuse()),
-            Concat(Down(Offset(3, 5-3)),Down(Offset(0, 3-0)))),
-  Concat(Down(Offset(3, 5-3)), Concat(New("abc"), Down(Offset(0, 3-0)))),
-  "Permutation and insertion 1");
-shouldBeEqual(
-  merge(Concat(Down(Offset(3, 5-3)),Down(Offset(0, 3-0))),
-            Concat(New("abc"), Reuse())),
-  Concat(Down(Offset(3, 5-3)), Concat(New("abc"), Down(Offset(0, 3-0)))),
-  "Permutation and insertion 2");
-
-s();
 testMergeAndReverse(
-    Concat(8, New("inserted"), Down(Offset(1))),
-    Concat(4, Down(Offset(0, 4-0)), 
-      Concat(9, New("inserted2"),
-                Down(Offset(4)))),
-  Concat(10, Concat(8, New("inserted"),
-                     Down(Offset(2, 4-2))),
-       9, New("inserted2"),
-          Down(Offset(4))), "merge concat concat 1");
-e();
+  Insert(3, New("abc")),
+  Concat(2, RemoveExcept(Offset(3, 2)),RemoveExcept(Offset(0, 3))),
+  Concat(2, RemoveExcept(Interval(3, 5)), RemoveExcept(Interval(0, 3), Insert(3, "abc"))),
+  "Permutation and insertion 1");
+
+testMergeAndReverse(
+    Insert(8, New("inserted"), Remove(1)),
+    Keep(4, Insert(9, New("inserted2"))),
+    Insert(8, New("inserted"), Remove(1, Keep(3, Insert(9, New("inserted2"))))), "merge concat concat 1");
+
 shouldBeEqual(
-  merge(Concat(5, Down(Offset(0, 5-0)), Down(Offset(7))),
-    Concat(2, Down(Offset(0, 2-0)), Down(Offset(4)))),
-  Concat(3, Concat(2, Down(Offset(0, 2-0)),
-                    Down(Offset(4, 5-4))),
-          Down(Offset(7))),
+  merge(
+    Keep(5, Remove(2)),
+    Keep(2, Remove(2))),
+  Keep(2, Remove(2, Keep(1, Remove(2)))),
   "Merge of two deletions"
 );
 
 testMergeAndReverse(
-  Concat(8, Down(Offset(0, 8-0)), New("abc")),
-  Concat(8, Down(Offset(1, 9-1)), Down(Offset(0, 1-0))),
-  Concat(10, Concat(7, Down(Offset(1, 8-1)),
-                     New("abc")),
-           Down(Offset(0, 1-0))),
+  Fork(8, 8, Reuse(), New("abc")),
+  Fork(9, 8, Remove(1), RemoveExcept(Offset(0, 1))),
+  Fork(8, 7,
+  RemoveExcept(Interval(1, 8)),
+  New("abc")),
   "Permutation and insertion again"
 );
+
 shouldBeEqual(
-  merge(Concat(5, Down(Offset(0, 5-0)), Down(Offset(8))),
-            Concat(7, Down(Offset(0, 7-0)), Concat(3, New("abc"), Down(Offset(7))))),
-  Concat(5, Down(Offset(0, 5-0)), Down(Offset(8)))
+  merge(Fork(5, 5, Reuse(), Remove(3)),
+        Fork(7, 7, Reuse(),
+          Insert(3, New("abc")))),
+  Keep(5, Remove(3))
 );
-
-shouldBeEqual(path(up("name", "body", "arg", "arg"), "arg", "body", "body", "arg"),
-  {up: List.fromArray(["name", "body", "arg"]), down: List.fromArray(["body", "body", "arg"])}, "pathupdown")
-shouldBeEqual(stringOf(New({a: New("1")})), "New({ a: \"1\"})");
-shouldBeEqual(display(New({a: New("1")})), "[START]{==>{a: \"1\"}}");
-shouldBeEqual(path(up("a"), "a"), Reuse(), "path1");
-shouldBeEqual(path(up("a"), path("a")), Reuse(), "path1");
-
-shouldBeEqual(display(Reuse()), "[START]{}");
-shouldBeEqual(display(Down("a")), "[START]{==>A1\n  a: A1={}}");
-shouldBeEqual(display(Up("a")), "A1={\n  a: [START]{==>A1}}");
-shouldBeEqual(display(Reuse({a: Up("a")})), "[START]A1={\n  a: {==>A1}}");
-shouldBeEqual(display(Up("a", Down("b"))), "{\n  a: [START]{==>A1},\n  b: A1={}}");
-shouldBeEqual(display(New("1")), "[START]{==>\"1\"}");
-shouldBeEqual(display(New({a: Down("b")})), "[START]{==>{a: A1}\n  b: A1={}}");
-shouldBeEqual(display(New({a: New({b: Down("b"), c: Up("x", Down("c"))})})),
-  "{\n  x: [START]{==>{a: {b: A1, c: A2}}\n    b: A1={}},\n  c: A2={}}");
-shouldBeEqual(display(New({a: Up("b")})), "A1={\n  b: [START]{==>{a: A1}}}");
-
 
 shouldBeEqual(Down("a", "b", Up("b", "a")), Reuse(), "path1");
 shouldBeEqual(Up("b", "a", Down("a", "b")), Reuse(), "path2");
@@ -1664,6 +1634,7 @@ var expectedExpAfterStep =
             fun: "a",
             arg: "w"}}}}}
 shouldBeEqual(expAfterStep, expectedExpAfterStep);
+
 var expAfterGlobalStep2 = apply(globalStep2, exp1);
 shouldBeEqual(expAfterGlobalStep2, expectedExpAfterStep);
 shouldBeEqual(
@@ -1671,6 +1642,7 @@ shouldBeEqual(
    step,
    globalStep1),
   globalStep2);
+
 shouldBeEqual(
   andThen(
     Reuse({body: Up("body")}),
@@ -1704,7 +1676,6 @@ shouldBeEqual(
       arg2: Down("d"),
       body: Reuse({fun: Reuse({ fun2: Up("fun2", "fun", Down("c"))})})})
 );
-
 
 shouldBeEqual(
   andThen(
@@ -1756,8 +1727,11 @@ shouldBeEqual(
 
 shouldBeEqual(
   andThen(
-    Reuse({body: Reuse({fun: Reuse({fun: Up("fun", "fun", "body", Down("arg")),
-                                    arg: Up("arg", "fun", "fun", Down("arg"))})})}),
+    Reuse({
+      body: Reuse({
+        fun: Reuse({
+          fun: Up("fun", "fun", "body", Down("arg")),
+          arg: Up("arg", "fun", "body", Down("arg"))})})}),
     New({ ctor: "let",
       argName: Down("fun", "argName"),
       arg: Down("arg", "arg"),
@@ -1766,9 +1740,12 @@ shouldBeEqual(
   New({ ctor: "let",
       argName: Down("fun", "argName"),
       arg: Down("arg", "arg"),
-      body: Down("fun", "body", Reuse({fun: Reuse({fun: Up("fun", "fun", "body", "fun", Down("arg", "arg")),
-                                              arg: Up("arg", "fun","body","fun", Down("arg", "arg"))})}))})
+      body: Down("fun", "body", Reuse({
+        fun: Reuse({
+          fun: Up("fun", "fun", "body", "fun", Down("arg", "arg")),
+          arg: Up("arg", "fun","body","fun", Down("arg", "arg"))})}))})
 );
+
 
 shouldBeEqual(
   andThen(
@@ -1779,12 +1756,7 @@ shouldBeEqual(
   Down("fun", "body", Reuse({fun: Reuse({fun: Up("fun", "fun", "body", "fun", Down("arg", "arg")),
                                     arg: Up("arg", "fun", "body", "fun", Down("arg", "arg"))})}))
 )
-
-shouldBeEqual(
-  Concat(0, New([]), Reuse()),
-  Reuse(),
-  "Concat simplify 1"
-);
+e();
 
 shouldBeEqual(
   apply(Down(Offset(3, 7-3)), [0, 1, 2, 3, 4, 5, 6, 7, 8]),
