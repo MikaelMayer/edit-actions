@@ -1845,7 +1845,6 @@ Assuming ?1 = apply(E0, r, rCtx)
       } else { // inCount > n
         let [outCount2, left1, left2] = splitIn(n, left, outCount); 
         if(left2 === undefined) return [];
-        
         /** Proof:
               apply(editAction, r, rCtx)
             = apply(Fork(i, o, L, R), r, rCtx)
@@ -1947,7 +1946,7 @@ Assuming ?1 = apply(E0, r, rCtx)
           QED
         */
         let [o1, l1, r1] = splitIn(n - c, editAction.subAction, contextCount);
-        return [o1, RemoveExcept(Offset(c, n - c, o), l1), RemoveExcept(Offset(0, l-(n-c), o), r1)];
+        return [o1, RemoveExcept(Offset(c, n - c, o), l1), RemoveExcept(Offset(0, MinusUndefined(l, (n-c)), o), r1)];
       }
     }
     // TODO: Deal with Choose. Change splitIn to a generator?
@@ -2070,21 +2069,25 @@ Assuming ?1 = apply(E0, r, rCtx)
   // apply(editAction, r, rCtx) =
   // apply(Down(before(offset), x), r, rctx) ++ apply(Down(offset, e), r, rCtx) ++ apply(Down(after(offset), Y), r, rCtx)
   function offsetIn(offset, editAction) {
+    printDebug("offsetIn", offset, editAction);
     let {count, newLength} = offset;
     let [o2, l2, r2] = splitIn(count, editAction);
     if(r2 === undefined) { // Recovery mode
+      printDebug("offsetIn recovery Left", count, editAction);
       let newEditAction = toSplitInCompatibleAt(editAction, count);
-      printDebug("offsetIn", offset, editAction);
-      printDebug("Recoverty to split at ", offset, newEditAction);
+      printDebug("Recoverty to split at ", newEditAction);
       [o2, l2, r2] = splitIn(count, newEditAction);
-      printDebug("Splitted", o2, l2, r2);
     }
+    printDebug("OffsetIn-Splitted Left", o2, l2, r2);
     if(newLength !== undefined && r2 !== undefined) {
       let [o3, l3, r3] = splitIn(newLength, r2);
       if(l3 === undefined) { // Recovery mode
+        printDebug("offsetIn recovery Right", newLength, r2);
         let newr2 = toSplitInCompatibleAt(r2, newLength);
+        printDebug("Recoverty to split at ", newr2);
         [o3, l3, r3] = splitIn(newLength, r2);
       }
+      printDebug("OffsetIn-Splitted Right", o3, l3, r3);
       /** Proof
         apply(editAction, r, rCtx)
        = apply(Fork(offset.count, o2, l2, r2), r, rCtx)
@@ -2349,8 +2352,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         /** Proof: Identical to Type.Up but in reverse */
         let o = editAction.keyOrOffset;
         let [left, right] = splitAt(count, editAction.subAction, isRemove);
-        return [SameDownAs(editAction)(o, left), SameDownAs(editAction)(o, right)];
-
+        return [SameDownAs(editAction.isRemove || isRemove)(o, left), SameDownAs(editAction.isRemove || isRemove)(o, right)];
       } else {
         /**
           Proof: Assume

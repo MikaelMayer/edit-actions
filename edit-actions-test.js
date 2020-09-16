@@ -1302,20 +1302,30 @@ testBackPropagate(
   Keep(7, Insert(1, New("\"")))
   , "Concat Iterated");
 
-e();
+testBackPropagate(
+  Remove(3, Keep(2, Remove(2))),
+  Keep(1, Remove(3, Keep(1, Remove(2)))),
+  Keep(4, Remove(1, Keep(2, Remove(2, Keep(1, Remove(2))))))
+);
 
 shouldBeEqual(
-  Remove.portions.backPropagate([0, 3, 5, 7], [1, 4, 5, 7]), [4, 5, 7, 9, 10, 12], "removePortionsBackPropagate3")
+  andThen(
+    Remove(2, Keep(1, RemoveAll())),
+    Remove(2, Keep(3, RemoveAll()))
+  ),
+  RemoveExcept(Interval(4, 5), Keep(1, RemoveAll()))
+);
+
 shouldBeEqual(
-  Remove.portions.andThen([0, 2, 3], [0, 2, 5]), [0, 4, 5], "andThenRemove1")
-shouldBeEqual(
-  Remove.portions.splitAt([0, 3, 5, 7], 4), [[0, 3], [1, 3], 1], "removePortionsSplitAt 1")
-shouldBeEqual(
-  Remove.portions.splitAt([0, 3, 5, 7], 2), [[0, 2], [0, 1, 3, 5], 0], "removePortionsSplitAt 2")
-shouldBeEqual(
-  Remove.portions.splitAt([1, 3, 5, 7], 2), [[1, 2], [0, 1, 3, 5], 1], "removePortionsSplitAt 3")
-shouldBeEqual(
-  Remove.portions.splitAt([0, 3, 5], 6), [[0, 3, 5, 6], [0], 2], "removePortionsSplitAt 1")
+  merge(
+    Remove(1, Keep(4, RemoveAll())),
+    Remove(3)
+  ),
+  Remove(3, Keep(2, RemoveAll()))
+);
+
+e();
+
 shouldBeEqual(
   Remove.portions.merge([0, 1, 5], [0, 3]), [0, 3, 5],
 "merge remove portions 1");
