@@ -1756,10 +1756,9 @@ shouldBeEqual(
   Down("fun", "body", Reuse({fun: Reuse({fun: Up("fun", "fun", "body", "fun", Down("arg", "arg")),
                                     arg: Up("arg", "fun", "body", "fun", Down("arg", "arg"))})}))
 )
-e();
 
 shouldBeEqual(
-  apply(Down(Offset(3, 7-3)), [0, 1, 2, 3, 4, 5, 6, 7, 8]),
+  apply(Down(Interval(3, 7)), [0, 1, 2, 3, 4, 5, 6, 7, 8]),
   [3, 4, 5, 6],
   "Slice"
 );
@@ -1771,53 +1770,39 @@ shouldBeEqual(
 )
 
 shouldBeEqual(
-  apply(Concat(3, Down(Offset(3, 5-3)), Down(Offset(6, 7-6))), [0, 1, 2, 3, 4, 5, 6, 7, 8]),
-  [3, 4, undefined, 6],
-  "Concat inflated without filler"
-)
-
-shouldBeEqual(
-  apply(Concat(3, Down(Offset(3, 5-3)), Down(Offset(6, 7-6)), 1), [0, 1, 2, 3, 4, 5, 6, 7, 8]),
-  [3, 4, 1, 6],
-  "Concat inflated with filler"
-)
-
-shouldBeEqual(
-  apply(Concat(1, Down(Offset(3, 5-3)), Down(Offset(6, 7-6))), [0, 1, 2, 3, 4, 5, 6, 7, 8]),
-  [3, 6],
-  "Concat deflated"
-)
-
-shouldBeEqual(
-  apply(Concat(2, Down(Offset(3, 5-3)), 1, Down(Offset(6, 7-6)), Down(Offset(0, 2-0))), [0, 1, 2, 3, 4, 5, 6, 7, 8]),
+  apply(Concat(2, Down(Offset(3, 5-3)), Concat(1, Down(Offset(6, 7-6)), Down(Offset(0, 2-0)))), [0, 1, 2, 3, 4, 5, 6, 7, 8]),
   [3, 4, 6, 0, 1],
   "Concat multiple"
 )
 
 shouldBeEqual(
   andThen(Concat(1, New([1]), Reuse()), Down(Offset(1))),
-  Concat(1, New([1]), Down(Offset(1))),
-  "Non-reversible Concat"
+  Down(Interval(1), Concat(1, New([1]), Reuse())),
+  "Insert Down"
 )
 
 shouldBeEqual(
   andThen(Down(Offset(1)), Concat(1, New([1]), Reuse())),
   Reuse(),
   "Reversible Concat"
-)
+);
 
 shouldBeEqual(
   andThen(Concat(3, Down(Offset(2, 5-2)), Down(Offset(0, 2-0))),
           Concat(2, Down(Offset(3, 5-3)), Down(Offset(0, 3-0)))),
   Down(Offset(0, 5-0)),
   "Simplification of two anti-permutations"
-)
+);
+
 shouldBeEqual(
   andThen(Concat(3, Down(Offset(2, 5-2)), Down(Offset(0, 2-0))),
           Concat(3, Down(Offset(2, 5-2)), Down(Offset(0, 2-0)))),
   Concat(1, Down(Offset(4, 5-4)), Down(Offset(0, 4-0))),
   "Simplification of permutations"
-)
+);
+
+e();
+
 
 editActions.__debug = true;       
 testBackPropagate(

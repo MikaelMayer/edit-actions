@@ -389,6 +389,23 @@ var editActions = {};
         return New(newChildren, newModel);
       }
     }
+    if(forkAt === undefined) { // We gather all concats to the right
+      if(first.ctor == Type.Concat && first.forkAt === undefined) {
+        second = Concat(count - first.count, first.second, second);
+        count = first.count;
+        first = first.first;
+      }
+    }
+    if(first.ctor == Type.Down && second.ctor == Type.Down && first.isRemove === second.isRemove) {
+      if(isOffset(first.keyOrOffset) && isOffset(second.keyOrOffset)) {
+        let {count: c1, newLength: n1, oldLength: o1} = first.keyOrOffset;
+        let {count: c2, newLength: n2, oldLength: o2} = second.keyOrOffset;
+        
+        if(n1 !== undefined && c1 + n1 == c2 && isIdentity(first.subAction) && isIdentity(second.subAction)) {
+          return SameDownAs(first)(Offset(c1, PlusUndefined(n1, n2), MinUndefined(o1, o2)));
+        }
+      }
+    }
     if(forkAt === undefined) {
       if(outLength(first) === 0) return second;
       if(outLength(second) === 0) return first;
