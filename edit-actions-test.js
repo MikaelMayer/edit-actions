@@ -1254,76 +1254,53 @@ testBackPropagate(
   Remove(6, Keep(2, RemoveAll())),
   Remove(4, Keep(1, Remove(2, Keep(2, RemoveAll())))), "Shifted slice again"
 );
-e();
 testBackPropagate(
   Keep(4, Remove(5-4)),
   Keep(1, Remove(2-1, Keep(3-2, RemoveAll()))),
-  Reuse(Remove(1,2,3,4,5)),
+  Keep(1,Remove(2-1,Keep(3-2,Remove(4-3,Keep(5-4, RemoveAll()))))),
   "right-aligned concat."
 );
-/*
-Concat(4, Down(Offset(0, 4-0)),
-          Down(Offset(5))),
-   <-- Concat(2, Down(Offset(0, 2-0)), Down(Offset(1, 3-1)))
-1) Concat(Down(Offset(0, 2-0)), Down(Offset(4, 5-4)))
-2) Concat(Down(Offset(1, 3-1)), Down(Offset(4, 5-4)))
-Result should be Concat(Down(Offset(0, 2-0)), Down(Offset(1, 3-1)), Down(Offset(4, 5-4)))
-We cannot just blindly concatenate these results.
-
-
-
-*/
 testBackPropagate(
   Concat(4, Down(Offset(0, 4-0)),
          Down(Offset(5))),
   Keep(2, Remove(6-2, Keep(8-6, RemoveAll()))),
-  Reuse(Remove(2,4,5,7,9)),
+  Keep(2,Remove(4-2,Keep(5-4,Remove(7-5,Keep(9-7, RemoveAll()))))),
   "back-Propagation of bigger concat"
 );
 
 testBackPropagate(
   Down(Offset(5)),
-  Down(Offset(2)),
+  RemoveExcept(Offset(2)),
   Keep(5, Remove(7-5)),
   "slice back-propagation"
 )
 
 testBackPropagate(
   Down(Offset(5, 9-5)),
-  Down(Offset(2)),
+  RemoveExcept(Offset(2)),
   Keep(5, Remove(7-5)),
   "slice back-propagation"
 )
 
-
 testBackPropagate(
   Concat(4, Down(Offset(0, 4-0)),
             Down(Offset(5))),
-  Down(Offset(0, 6-0)),
-  Down(Offset(0, 7-0)), "Concat to slice");
+  Down(Offset(0, 6)),
+  Concat(4, Down(Interval(0, 4)), Down(Interval(5, 7))), "Concat to slice");
 
-s();
 testBackPropagate(
-  Keep(4, Remove(5-4)),
-  Down(Offset(0, 6-0), {5: New(1)}),
-  Down(Offset(0, 7-0), {6: New(1)}), "Concat to slice");
-e();
+  Keep(4, Remove(1)),
+  RemoveExcept(Interval(0, 6), Reuse({5: New(1)})),
+  Keep(5, Fork(2, 2,
+    Reuse({
+      1: New(1)}),
+    RemoveAll())), "Concat to slice");
 
-
-
-editActions.__debug = true;       
 testBackPropagate(
-  Concat(4, Down(Offset(0, 4-0)),
-            Down(Offset(5))),
-  Concat(6, Down(Offset(0, 6-0)),
-         1, New("\""),
-         Down(Offset(6))),
-  Concat(7, Down(Offset(0, 7-0)),
-         1, New("\""),
-         Down(Offset(7)))
-, "Concat Iterated");
-finishTests(true);
-
+  Keep(4, Remove(1)),
+  Keep(6, Insert(1, New("\""))),
+  Keep(7, Insert(1, New("\"")))
+  , "Concat Iterated");
 
 e();
 

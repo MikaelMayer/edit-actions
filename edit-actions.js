@@ -5392,7 +5392,7 @@ Assuming ?1 = apply(E0, r, rCtx)
   function keyOrOffsetToString(keyOrOffset) {
     let str = "";
     if(isOffset(keyOrOffset)) {
-      if(keyOrOffset.oldLength === undefined && keyOrOffset.count > 0) {
+      if(keyOrOffset.oldLength === undefined && keyOrOffset.count >= 0) {
         str += "Interval(" + keyOrOffset.count;
         if(keyOrOffset.newLength !== undefined) {
           str += ", " + (keyOrOffset.count + keyOrOffset.newLength);
