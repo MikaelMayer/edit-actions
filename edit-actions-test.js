@@ -1801,62 +1801,69 @@ shouldBeEqual(
   "Simplification of permutations"
 );
 
+
+testBackPropagate(
+  Keep(4, Remove(1, Keep(2, Remove(2)))),
+  Keep(17, Remove(1, Insert(1, "\""))),
+  Keep(20, Remove(1, Insert(1, "\"")))
+, "Concat Multiple");
+
+// Until Insert is not encoded as a Concat where only the second element is reused, this test will fail.
+// merge(Insert(1, "\""), Remove(1)) == Remove(1) because the second Remove will remove the left part of the Fork of Insert
+/*n();
+testBackPropagate(
+  Keep(4, Remove(1, Keep(2, Remove(2)))),
+  Keep(17, Insert(1, "\"", Remove(1))),
+  Keep(20, Insert(1, "\"", Remove(1)))
+, "Concat Multiple 2");*/
+
+
+n();
+// It does not work because the second removes the character on which the first was inserted.
+// When Insert is a simple Concat, it should be easier.
+testMergeAndReverse(
+  Remove(1, Insert(1, New("\""))),
+  Keep(1, Remove(1, Insert(1, New("\"")))),
+  Remove(1, Insert(1, New("\""), Remove(1, Insert(1, New("\"")))))
+);
 e();
 
-
-editActions.__debug = true;       
-testBackPropagate(
-  Concat(4, Down(Offset(0, 4-0)),
-         2, Down(Offset(5, 7-5)),
-            Down(Offset(9))),
-  Concat(17, Down(Offset(0, 17-0)),
-         1, New("\""),
-         Down(Offset(18))),
-  Concat(20, Down(Offset(0, 20-0)),
-         1, New("\""),
-         Down(Offset(21)))
-, "Concat Multiple");
-finishTests(true);
-
-step = Reuse({1: Reuse({2: Concat(4, Down(Offset(0, 4-0)),
-                                  2, Down(Offset(5, 7-5)),
-                                     Down(Offset(9)))})});
-user = Reuse({1: Reuse({2: Concat(17, Down(Offset(0, 17-0)),
-                                  1, New("\""),
-                                  5, Down(Offset(18, 23-18)),
-                                  1, New("\""),
-                                  49, Concat(45, Down(Offset(24, 69-24)),
-                                            1, New("\""),
-                                            Down(Offset(70, 73-70))),
-                                  1, New("\""),
-                                  57, Down(Offset(73, 130-73)),
-                                  1, New("\""),
-                                  3, Down(Offset(131, 134-131)),
-                                  1, New("\""),
-                                  46, Down(Offset(135, 181-135)),
-                                  1, New("\""),
-                                  3, Down(Offset(182, 185-182)),
-                                  1, New("\""), Down(Offset(186)))})});
-editActions.__debug = true;
+step = Reuse({
+  1: Reuse({
+    2: Keep(4, Remove(1, Keep(2, Remove(2))))})});
+user = Reuse({
+  1: Reuse({
+      2: Keep(17,
+         Remove(1, Insert(1, New("\""),
+         Remove(1, Insert(1, New("\""),
+         Fork(49, 49, 
+           Keep(45, Insert(1, New("\""), Remove(1))),
+         Remove(1, Insert(1, New("\""),
+         Keep(57,
+         Remove(1, Insert(1, New("\""),
+         Keep(3,
+         Remove(1, Insert(1, New("\""),
+         Keep(46,
+         Remove(1, Insert(1, New("\""),
+         Keep(3,
+         Remove(1, Insert(1, New("\""),
+))))))))))))))))))))})});
+s();
 testBackPropagate(step, user,
-        Reuse({1: Reuse({2: Concat(20, Down(Offset(0, 20-0)),
-                                   
-                                   1, New("\""),
-                                   5, Down(Offset(21, 26-21)),
-                                   1, New("\n"),
-                                   49, Concat(45, Down(Offset(27, 72-27)),
-                                             1, New("\""),
-                                             Down(Offset(73, 76-73))),
-                                   1, New("\""),
-                                   57, Down(Offset(76, 133-76)),
-                                   1, New("\""),
-                                   3, Down(Offset(134, 137-134)),
-                                   1, New("\""),
-                                   46, Down(Offset(138, 184-138)),
-                                   1, New("\""),
-                                   3, Down(Offset(185, 188-185)),
-                                   1, New("\""), Down(Offset(189)))})}), "editActionOutLength == 0");
-finishTests(true);
+  Reuse({
+    1: Reuse({
+      2: Keep(20,
+         Remove(1, Insert(1, New("\""),
+         Remove(1, Insert(1, New("\""),
+         Fork(49, 49, 
+           Keep(45, Insert(1, New("\""), Remove(1))),
+         Remove(1, Insert(1, New("\""),
+         Remove(1, Insert(1, New("\""),
+         Remove(1, Insert(1, New("\""),
+         Remove(1, Insert(1, New("\""),
+         Remove(1, Insert(1, New("\"")
+))))))))))))))))})}), "editActionOutLength == 0");
+e();
 
 /*
 shouldBeEqual(
