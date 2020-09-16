@@ -308,6 +308,9 @@ var editActions = {};
   
   function DownLike(isRemove) {
     return function Down(keyOrOffset, subAction) {
+      if(isRemove && !isOffset(keyOrOffset)) {
+        console.trace("/!\\ warning, use of RemoveExcept on non-offset");
+      }
       if(arguments.length == 1) subAction = Reuse();
       //printDebug("Down", isRemove, arguments);
       let subActionIsPureEdit = isEditAction(subAction);
@@ -363,8 +366,8 @@ var editActions = {};
   editActions.RemoveExcept = RemoveExcept;
 
   function SameDownAs(editActionOrIsRemove) {
-    if(typeof editAction == "object" && editAction.ctor == Type.Down) {
-      return editAction.isRemove ? RemoveExcept : Down;
+    if(typeof editActionOrIsRemove == "object" && editActionOrIsRemove.ctor == Type.Down) {
+      return editActionOrIsRemove.isRemove ? RemoveExcept : Down;
     }
     return editActionOrIsRemove ? RemoveExcept : Down;
   }

@@ -320,7 +320,7 @@ shouldBeEqual(
 );
 
 shouldBeEqual(
-  stringOf(Up(1, Offset(2))), "Up(1, Offset(2))"
+  stringOf(Up(1, Offset(2))), "Up(1, Interval(2))"
 );
 
 shouldBeEqual(stringOf(Keep(10, Remove(5))), "Keep(10, Remove(5))");
@@ -328,7 +328,7 @@ shouldBeEqual(stringOf(Keep(10, Remove(5))), "Keep(10, Remove(5))");
 shouldBeEqual(stringOf(Keep(8, New("1"))), "Keep(8, New(\"1\"))");
 
 shouldBeEqual(stringOf(Fork(5, 0, RemoveAll(), Reuse())),
-"Remove(5)");
+"Fork(5, 0,\n  RemoveAll(),\n  Reuse())");
 
 shouldBeEqual(stringOf(Fork(3, 3, Reuse(), RemoveAll())), "Keep(3, RemoveAll())");
 
