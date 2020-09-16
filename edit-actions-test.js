@@ -1339,77 +1339,38 @@ shouldBeEqual(
 shouldBeEqual(
   Concat(3, New([1, 2, 3]),New([4, 5])), New([1, 2, 3, 4, 5])
 );
+
+shouldBeEqual(
+  Down(Offset(0, 2), Offset(0, 1)),
+  Down(Offset(0, 1))
+  , "remove #1"
+);
+
+
+shouldBeEqual(
+  Down(Offset(1), Offset(2)),
+  Down(Offset(3))
+  , "remove #2"
+);
+shouldBeEqual(
+  andThen(Keep(1, Remove(3)), Keep(2, Remove(2))), Fork(2, 1,
+  Keep(1, RemoveAll()),
+  Remove(4)), "remove #5"
+);
+
+shouldBeEqual(
+  merge(
+    Remove(1, Fork(4, 4, Reuse({0: New(0), 3: New(2)}), RemoveAll())),
+    Remove(3, Fork(5, 5, Reuse({0: New(1), 4: New(3)}), RemoveAll()))),
+    Remove(3, Fork(2, 2, Reuse({0: New(1), 1: New(2)}), RemoveAll())), "Merge two slices 1");
+
+shouldBeEqual(
+  merge(Remove(3, Fork(5, 5, Reuse({0: New(1), 4: New(3)}), RemoveAll())),
+    Remove(1, Fork(4, 4, Reuse({0: New(0), 3: New(2)}), RemoveAll()))),
+  Remove(3, Fork(2, 2, Reuse({0: New(1), 1: New(2)}), RemoveAll())), "Merge two slices 2");
+
 e();
 
-shouldBeEqual(
-  path(Remove(2), Remove(1)), path(Remove(1)), "remove #1"
-);
-shouldBeEqual(
-  path(Remove(0, 1), Remove(0, 2)), path(Remove(0, 3)), "remove #2"
-);
-shouldBeEqual(
-  path(Remove(0, 1), Remove(2, 7)), path(Remove(0, 1, 3, 8)), "remove #4"
-);
-shouldBeEqual(
-  path(Remove(2, 4), Remove(1, 4)), path(Remove(1, 6)), "remove #5"
-);
-shouldBeEqual(
-  path(Remove(1, 2, 5, 6), Remove(7)), path(Remove(1, 2, 5, 6, 9)), "remove #6"
-);
-shouldBeEqual(
-  path(Remove(3, 8, 9, 12), Remove(2)), path(Remove(2)), "remove #7"
-);
-shouldBeEqual(
-  path(Remove(7, 12), Remove(4, 6, 8, 10)), path(Remove(4, 6, 7, 12, 13, 15)), "remove #8"
-);
-shouldBeEqual(
-  path(Remove(7, 12), Remove(4, 7, 8, 10)), path(Remove(4, 12, 13, 15)), "remove #9"
-);
-shouldBeEqual(
-  path(Remove(1, 3), Remove(2)), path(Remove(1, 3, 4)), "remove first two elements"
-);
-shouldBeEqual(
-  path(Remove(1, 3), Remove(2, 5)), path(Remove(1, 3, 4, 7)), "remove first two elements"
-);
-shouldBeEqual(
-  path(Remove(1, 3, 5, 6), Remove(2, 5)), path(Remove(1, 3, 4, 8)), "remove first two elements"
-);
-
-shouldBeEqual(
-  path(Offset(3, 10-3), Offset(2, 4-2)),
-  path(Offset(5, 7-5)),
-  "Slice Concat 1"
-);
-
-shouldBeEqual(
-  path(Offset(3, 10-3), Offset(2)),
-  path(Offset(5, 10-5)),
-  "Slice Concat 2"
-)
-
-shouldBeEqual(
-  path(Offset(3), Offset(2, 4-2)),
-  path(Offset(5, 7-5)),
-  "Slice Concat 3"
-)
-
-shouldBeEqual(
-  path(Offset(3, 10-3), Offset(2, 14-2)),
-  path(Offset(5, 10-5)),
-  "Slice Concat 4"
-)
-
-shouldBeEqual(
-  path(Slice(3,), Offset(2)),
-  path(Offset(5)),
-  "Slice Concat 5"
-)
-shouldBeEqual(
-  merge(Reuse(Remove(0,1, 5), {0: New(0), 3: New(2)}), Reuse(Remove(0, 3, 8), {0: New(1), 4: New(3)})),
-  Reuse(Remove(0, 3, 5), {0: New(1), 1: New(2)}), "Merge two slices 1");
-shouldBeEqual(
-  merge(Reuse(Remove(0, 3,8), {0: New(1), 4: New(3)}), Reuse(Remove(0, 1, 5), {0: New(0), 3: New(2)})),
-  Reuse(Remove(0, 3, 5), {0: New(1), 1: New(2)}), "Merge two slices 2");
 shouldBeEqual(
   merge(Reuse(Remove(0,1,5), {0: New(0), 3: New(2)}), Reuse(Remove(0, 3), {0: New(1), 4: New(3)})),
   Reuse(Remove(0, 3, 5), {0: New(1), 1: New(2)}), "Merge two slices 3");
