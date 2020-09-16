@@ -48,7 +48,6 @@ shouldBeEqual(
   andThen(RemoveExcept(Offset(3, 2)), RemoveExcept(Offset(2, 7))),
   RemoveExcept(Offset(5, 2))
 );
-
 shouldBeEqual(
   merge(
     Fork(3, 3, New("abc"), Reuse()),
@@ -230,7 +229,7 @@ shouldBeEqual(
              [["x", ["p", "test"]], ["i", "hello"], "d", "blah"])),
   Fork(1, 1,
     Reuse({0: New(["x", Reuse()])}),
-    Insert(1, [["i", "hello"]],
+    Insert(1, [New(["i", "hello"])],
       Fork(2, 2, 
           Reuse({1:
             Keep(2, Remove(1, Insert(1, "a")))}),
@@ -334,7 +333,7 @@ shouldBeEqual(stringOf(Fork(3, 3, Reuse(), RemoveAll())), "Keep(3, RemoveAll())"
 
 shouldBeEqual(
   andThen(Down(Offset(3, 5)), Custom(Reuse(), {apply: x => "1"+ x, update: e => ReuseOffset(Offset(1), e), name: "append1"})),
-  Custom(Custom(Reuse(), {name: "append1"}), {name: "applyOffset(Offset(3, 5), _)"}))
+  Custom(Custom(Reuse(), {name: "append1"}), {name: "applyOffset(Interval(3, 8), _)"}))
 
 // This test is failing because Concat is not stored in the context when going down.
 testAndThen(
@@ -354,7 +353,7 @@ shouldBeEqual(andThen(Down("f"), Custom(Reuse(), x => x, y => y, "id")), Reuse()
 
 shouldBeEqual(Up(Offset(0, 2), Down(Offset(0, 2))), Down(Offset(0, 2, 2)));
 
-shouldBeEqual(stringOf(Up(Offset(2), Down(1))), "Up(Offset(2), Down(1))");
+shouldBeEqual(stringOf(Up(Offset(2), Down(1))), "Up(Interval(2), Down(1))");
 
 shouldBeEqual(apply(Reuse({ a: New(1) }), {a: 2}), {a: 1});
 
@@ -642,12 +641,13 @@ testAndThen(
     })),
 */
 
+// TODO: Once Insert becomes a Concat with a flag, remove the Down(Offset(0, 0))
 shouldBeEqual(
   andThen(
     Reuse({a: Keep(1, Insert(2, New([8, 9])))}),
     Reuse({a: Concat(0, Up("a", Down("b")), New([1, 2]))})),
     Reuse({
-  a: Concat(1,  Concat(0, Up("a", Down("b")), New([1])), Concat(2, New([8, 9]), New([2])))})
+  a: Concat(1,  Concat(0, Up("a", Down("b")), New([1])), Concat(2, Down(Offset(0, 0), New([8, 9])), New([2])))})
 );
 
 /* // Todo: make it work.
@@ -692,10 +692,10 @@ shouldBeEqual(
 
 shouldBeEqual(
   merge(
-    Down(Offset(2, 5), Reuse({4: New(1)})),
-    Down(Offset(3), Reuse({2: New(2), 5: New(3)})),
+    RemoveExcept(Offset(2, 5), Reuse({4: New(1)})),
+    RemoveExcept(Offset(3), Reuse({2: New(2), 5: New(3)})),
   ),
-  Down(Offset(3, 4), Reuse({2: New(2), 3: New(1)}))
+  RemoveExcept(Offset(3, 4), Reuse({2: New(2), 3: New(1)}))
 );
 
 shouldBeEqual(
@@ -751,7 +751,7 @@ shouldBeEqual(
     Fork(1, 2, New([1, Down(0)]), Reuse({2: Reuse({d: New(1)})})),
     Down(3)
   ),
-  Down(Offset(1), 2, Reuse({
+  Down(3, Reuse({
     d: New(1)}))
 );
 
@@ -760,14 +760,15 @@ shouldBeEqual(
     Down(3),
     Fork(1, 2, New([1, Down(0)]), Reuse({2: Reuse({d: New(1)})}))
   ),
-  Down(Offset(1), 2, Reuse({
-    d: New(1)})) // Until it can be simplified.
+  Down(3, Reuse({
+    d: New(1)}))
 );
 
+n();
 shouldBeEqual(
   merge(
     Fork(3, 2, New([1, Down(0)]), Reuse({0: New(1), 1: New(3)})),
-    Down(Offset(1, 3))
+    Down(Interval(1, 4))
   ),
   Fork(3, 2, New([1, Down(0)]), Down(Offset(0, 1), Reuse({0: New(1)})))
 );

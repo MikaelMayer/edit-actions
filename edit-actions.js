@@ -202,18 +202,7 @@ var editActions = {};
         model = Array.isArray(childEditActions) ? [] : {};
       }
     }
-    let outsideLevel = 0;
-    for(let k in childEditActions) {
-      let child = childEditActions[k];
-      if(typeof child == "string" || typeof child == "number" || typeof child == "undefined" || typeof child == "boolean" || typeof child == "object" && !isEditAction(child)) {
-        if(!(Array.isArray(child) && isEditAction(child[0]))) {
-          child = New(child);
-        }
-        childEditActions = {...childEditActions, [k]: child};
-      }
-      outsideLevel = Math.max(child.outsideLevel || 0, outsideLevel);
-    }
-    return { ctor: Type.New, model: model, childEditActions: childEditActions || {}, outsideLevel};
+    return { ctor: Type.New, model: model, childEditActions: childEditActions || {}};
   }
   editActions.New = New;
   
@@ -577,7 +566,7 @@ var editActions = {};
       oldLength = subAction;
       subAction = tmp;
       if(arguments.length === 1) {
-        subAction == Reuse();
+        subAction = Reuse();
       }
     }
     if(arguments.length == 0) {
@@ -1992,12 +1981,13 @@ Assuming ?1 = apply(E0, r, rCtx)
   // What did key through edit action become?
   /**
     if
-      apply(editAction, [...key: x...], ctx)
+      apply(editAction, r, ctx)
     is defined, then
       apply(Down(key, keyOrOffsetIn(key, editAction)), r, rCtx)
     is defined too.
   */
   function keyIn(key, editAction) {
+    printDebug("keyIn", key, editAction);
     if(isDown(editAction)) {
       if(isOffset(editAction.keyOrOffset)) {
         let {count, newLength, oldLength} = editAction.keyOrOffset;
@@ -2006,6 +1996,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         let c = count;
         let l = newLength;
         let o = oldLength;
+        let X = editAction.subAction;
         /** Proof
             apply(Down(Offset(c, l, o), X), r, rCtx) was defined.
             = apply(X, r[c..c+l], (Offset(c, l, o), r)::rCtx) was defined and key is in [c..c+l]
@@ -2020,9 +2011,9 @@ Assuming ?1 = apply(E0, r, rCtx)
             = apply(mapUpHere(keyIn(key-c, X), Offset(-m.c, m.o, m.n), Up(m.k+m.c)), r[key], (m.k+m.c, r)::rCtx)
             = apply(mapUpHere(keyIn(key-c, X), Offset(-c, o, l), Up(key)), r[key], (key, r)::rCtx)
             = apply(Down(key, mapUpHere(keyIn(key-c, X), Offset(-c, o, l), Up(key))), r, rCtx)
-            = apply(keyIn(key, Down(Offset(c, l, o), X)), r, rCtx) is defined
+            = apply(Down(key, keyIn(key, Down(Offset(c, l, o), X))), r, rCtx) is defined
         */
-        return Down(key, mapUpHere(keyIn(key-c, X), Offset(-c, o, l), Up(key)))
+        return mapUpHere(keyIn(key-c, X), Offset(-c, o, l), Up(key));
       } else {
         if(key == editAction.keyOrOffset) {
           /** Proof:
@@ -2037,7 +2028,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         }
       }
     }
-    if(editAction.ctor == Type.Reuse()) {
+    if(isReuse(editAction)) {
       /** Proof:
           apply(Reuse({key: E}), r, rCtx) =  [...key: apply(E, x, (key, r)::rCtx)...])
 
@@ -2080,9 +2071,17 @@ Assuming ?1 = apply(E0, r, rCtx)
   // apply(Down(before(offset), x), r, rctx) ++ apply(Down(offset, e), r, rCtx) ++ apply(Down(after(offset), Y), r, rCtx)
   function offsetIn(offset, editAction) {
     let {count, newLength} = offset;
-    let [o2, l2, r2] = splitIn(count, E1);
+    let [o2, l2, r2] = splitIn(count, editAction);
+    if(r2 === undefined) { // Recovery mode
+      let newEditAction = toSplitInCompatibleAt(editAction, count);
+      [o2, l2, r2] = splitIn(count, editAction);
+    }
     if(newLength !== undefined && r2 !== undefined) {
       let [o3, l3, r3] = splitIn(newLength, r2);
+      if(l3 === undefined) { // Recovery mode
+        let newr2 = toSplitInCompatibleAt(r2, newLength);
+        [o3, l3, r3] = splitIn(newLength, r2);
+      }
       /** Proof
         apply(editAction, r, rCtx)
        = apply(Fork(offset.count, o2, l2, r2), r, rCtx)
@@ -2112,7 +2111,7 @@ Assuming ?1 = apply(E0, r, rCtx)
       return Up(offset, editAction);
     }
   }
-  
+
   // if [left, right] = splitAt(count, editAction)
   // Then
   //
@@ -2677,6 +2676,8 @@ Assuming ?1 = apply(E0, r, rCtx)
       editActions.debug(E2);
       if(isFork(E2) && stringOf(E2).startsWith("Concat")) console.trace("Weird concat");
     }
+    if(typeof E1 !== "object") E1 = New(E1);
+    if(typeof E2 !== "object") E2 = New(E2);
     if(E1.ctor == Type.Choose) {
       return Choose(...Collection.map(E1.subActions, x => merge(x, E2, multiple)));
     }
@@ -2730,11 +2731,11 @@ Assuming ?1 = apply(E0, r, rCtx)
         }
       }
       // Everything that does not reuse overrides everything that does reuses.
-      if(E1.ctor == Type.New && !isReusingBelow(E1) && isReusingBelow(E2)) {
+      if(E1.ctor == Type.New && !isReusingBelow(E1) && isReusingBelow(E2) && E2.ctor != Type.New) {
         result.push(E1);
         break merge_cases;
       }
-      if(E2.ctor == Type.New && !isReusingBelow(E2) && isReusingBelow(E1)) {
+      if(E2.ctor == Type.New && !isReusingBelow(E2) && isReusingBelow(E1) && E1.ctor != Type.New) {
         result.push(E2);
         break merge_cases;
       }
@@ -2797,8 +2798,8 @@ Assuming ?1 = apply(E0, r, rCtx)
         }
         if(E2.ctor == Type.Down && !isRemoveExcept(E2)) {
           // Let's see if we can apply the key or offset to E2.
-          let E2changed = keyOrOffsetIn(E1.keyOrOffset, E2);
-          result.push(Down(E1.keyOrOffset, merge(E1.subAction, E2changed, multiple)));
+          let E1changed = keyOrOffsetIn(E2.keyOrOffset, E1);
+          result.push(Down(E2.keyOrOffset, merge(E1changed, E2.subAction, multiple)));
         }
       }
       if(E1.ctor == Type.Down && !isRemoveExcept(E1) ||
@@ -2870,6 +2871,15 @@ Assuming ?1 = apply(E0, r, rCtx)
         // E2 being a Reuse, offsetIn is always defined.
         result.push(RemoveExcept(E1.keyOrOffset, merge(E1.subAction, restricted, multiple)));
         // No more Reuse now.
+      } else if(isRemoveExcept(E1) && isRemoveExcept(E2)) {
+        let commonOffset = intersectOffsets(E1.keyOrOffset, E2.keyOrOffset);
+        printDebug("commonOffset", keyOrOffsetToString(commonOffset));
+        // We change the input. So we use offsetIn.
+        result.push(RemoveExcept(commonOffset, merge(offsetIn(commonOffset, E1), offsetIn(commonOffset, E2), multiple)));;
+      } else if(isRemoveExcept(E1) && isFork(E2)) {
+        result.push(RemoveExcept(E1.keyOrOffset, merge(E1.subAction, offsetIn(E1.keyOrOffset, E2), multiple)));
+      } else if(isFork(E1) && isRemoveExcept(E2)) {
+        result.push(RemoveExcept(E2.keyOrOffset, merge(offsetIn(E2.keyOrOffset, E1), E2.subAction, multiple)));
       } else if(isFork(E1) && isFork(E2)) {
         printDebug("Two forks");
         let [inCount1, outCount1, left1, right1] = argumentsIfFork(E1);
@@ -5311,6 +5321,13 @@ Assuming ?1 = apply(E0, r, rCtx)
     return false;
   }
   editActions.isIdentity = isIdentity;
+  function isDown(editAction) {
+    return typeof editAction === "object" && editAction.ctor == Type.Down;
+  }
+  function isReuse(editAction) {
+    return typeof editAction === "object" && editAction.ctor == Type.Reuse;
+  }
+  
   
   function printDebug() {
     if(editActions.__debug) {
@@ -5795,10 +5812,6 @@ Assuming ?1 = apply(E0, r, rCtx)
     }
     default: return editAction;
     }
-  }
-  
-  function isReuse(editAction) {
-    return typeof editAction == "object" && editAction.ctor == Type.Reuse;
   }
   
   // Like Up, but pushes Up to the nodes that reuse the original record.
