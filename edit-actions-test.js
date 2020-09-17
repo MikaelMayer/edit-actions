@@ -35,7 +35,6 @@ testMergeAndReverse(
   Keep(1, Remove(1, Insert(1, New("\"")))),
   Remove(1, Insert(1, New("\""), Remove(1, Insert(1, New("\"")))))
 );
-e();
 
 shouldBeEqual(
   stringOf(Down(Interval(3, 5))), "Down(Interval(3, 5))"
