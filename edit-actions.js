@@ -362,70 +362,77 @@ var editActions = {};
   }
 
   // apply(Concat(1, New([Down(5)]), Reuse()), [0, 1, 2, 3, 4, x]) = [x] ++ [0, 1, 2, 3, 4, x]
-  function Concat(count, first, second, forkAt) {
-    if(!isEditAction(first)) first = New(first);
-    if(!isEditAction(second)) second = New(second);
-    if(first.ctor == Type.New && second.ctor == Type.New) {
-      if(typeof first.model == "string" && typeof second.model == "string") {
-        return New(first.model + second.model);   
-      } else if(Array.isArray(first.model) && Array.isArray(second.model)) {
-        let newChildren = [];
-        let newModel = [];
-        let length = 0;
-        for(let k in first.model) {
-          newModel[k] = first.model[k];
-          length = Number(k) + 1;
-        }
-        for(let k in first.childEditActions) {
-          newChildren[k] = first.childEditActions[k];
-          length = Math.max(length, Number(k) + 1);
-        }
-        for(let k in second.model) {
-          newModel[k + length] = second.model[k];
-        }
-        for(let k in second.childEditActions) {
-          newChildren[Number(k) + length] = second.childEditActions[k];
-        }
-        return New(newChildren, newModel);
+  function Concat(count, first, second, forkAt, firstReuse, secondReuse) {
+    if(forkAt !== undefined) {
+      if(firstReuse !== undefined) {
+        console.trace("/!\\ Warning, unexpected firstReuse with a Fork");
+        firstReuse = undefined;
+      }
+      if(secondReuse !== undefined) {
+        console.trace("/!\\ Warning, unexpected secondReuse with a Fork")
+        secondReuse = undefined;
       }
     }
-    if(forkAt === undefined) { // We gather all concats to the right
+    if(!isEditAction(first)) first = New(first);
+    if(!isEditAction(second)) second = New(second);
+    if(forkAt === undefined && !firstReuse && !secondReuse) {
+      if(first.ctor == Type.New && second.ctor == Type.New) {
+        if(typeof first.model == "string" && typeof second.model == "string") {
+          return New(first.model + second.model);   
+        } else if(Array.isArray(first.model) && Array.isArray(second.model)) {
+          let newChildren = [];
+          let newModel = [];
+          let length = 0;
+          for(let k in first.model) {
+            newModel[k] = first.model[k];
+            length = Number(k) + 1;
+          }
+          for(let k in first.childEditActions) {
+            newChildren[k] = first.childEditActions[k];
+            length = Math.max(length, Number(k) + 1);
+          }
+          for(let k in second.model) {
+            newModel[k + length] = second.model[k];
+          }
+          for(let k in second.childEditActions) {
+            newChildren[Number(k) + length] = second.childEditActions[k];
+          }
+          return New(newChildren, newModel);
+        }
+      }
+      // We gather all concats to the right
       if(first.ctor == Type.Concat && first.forkAt === undefined) {
         second = Concat(count - first.count, first.second, second);
         count = first.count;
         first = first.first;
       }
-    }
-    if(first.ctor == Type.Down && second.ctor == Type.Down && first.isRemove === second.isRemove) {
-      if(isOffset(first.keyOrOffset) && isOffset(second.keyOrOffset)) {
-        let {count: c1, newLength: n1, oldLength: o1} = first.keyOrOffset;
-        let {count: c2, newLength: n2, oldLength: o2} = second.keyOrOffset;
-        
-        if(n1 !== undefined && c1 + n1 == c2 && isIdentity(first.subAction) && isIdentity(second.subAction)) {
-          return SameDownAs(first)(Offset(c1, PlusUndefined(n1, n2), MinUndefined(o1, o2)));
+      if(first.ctor == Type.Down && second.ctor == Type.Down && first.isRemove === second.isRemove && forkAt === undefined) {
+        if(isOffset(first.keyOrOffset) && isOffset(second.keyOrOffset)) {
+          let {count: c1, newLength: n1, oldLength: o1} = first.keyOrOffset;
+          let {count: c2, newLength: n2, oldLength: o2} = second.keyOrOffset;
+          
+          if(n1 !== undefined && c1 + n1 == c2 && isIdentity(first.subAction) && isIdentity(second.subAction)) {
+            return SameDownAs(first)(Offset(c1, PlusUndefined(n1, n2), MinUndefined(o1, o2)));
+          }
         }
       }
-    }
-    if(forkAt === undefined) {
       if(outLength(first) === 0) return second;
       if(outLength(second) === 0) return first;
     }
-    /*if(editActions.__debug && forkAt === undefined && first.ctor == Type.Down && keyOrOffsetToString(first.keyOrOffset) == "Offset(0, 2)" && second.ctor == Type.Down && keyOrOffsetToString(second.keyOrOffset) == "Offset(2)") {
-      console.trace("Weird, a contact without a Fork! Who is the traitor?")
-      throw "error";
-    }*/
-    let result = {ctor: Type.Concat, count: count, first: first, second: second, forkAt: forkAt};
-    let [inCount, outCount, left, right] = argumentsIfFork(result);
-    if(right !== undefined) {
-      let [keepCount, keepSub] = argumentsIfForkIsKeep(inCount, outCount, left, right);
-      if(keepSub !== undefined) {
-        let [keepCount2, keepSub2] = argumentsIfKeep(keepSub);
-        if(keepSub2 !== undefined) {
-          return Keep(keepCount + keepCount2, keepSub2);
+    let result = {ctor: Type.Concat, count, first, second, forkAt, firstReuse, secondReuse};
+    if(forkAt !== undefined) {
+      let [inCount, outCount, left, right] = argumentsIfFork(result);
+      if(right !== undefined) {
+        let [keepCount, keepSub] = argumentsIfForkIsKeep(inCount, outCount, left, right);
+        if(keepSub !== undefined) {
+          let [keepCount2, keepSub2] = argumentsIfKeep(keepSub);
+          if(keepSub2 !== undefined) {
+            return Keep(keepCount + keepCount2, keepSub2);
+          }
         }
       }
+      // TODO: Optimizations when first and second are just Reuse.
     }
-    // TODO: Optimizations when first and second are just Reuse.
     return result;
   }
   editActions.Concat = Concat;
@@ -568,16 +575,20 @@ var editActions = {};
   // first is the thing to insert (in the current context of the slice), second is the remaining (default is Reuse()).
   function Insert(count, first, second = Reuse()) {
     if(!isEditAction(first)) first = New(first);
-    return Fork(0, count, first, second);
-    /*return Fork(0, count, Up(Offset(0, 0, undefined), first), second || Reuse());
-    */
+    return Concat(count, first, second, undefined, false, true);
   }
   function InsertRight(count, first, second) {
-    return Concat(count, first, second);
-    /*return Fork(0, count, Up(Offset(0, 0, undefined), first), second || Reuse());
-    */
+    if(arguments.length == 2) {
+      second = first;
+      first = Reuse();
+    }
+    return Concat(count, first, second, undefined, true, false);
   }
   editActions.Insert = Insert;
+  editActions.Prepend = Insert;
+  editActions.InsertRight = InsertRight;
+  editActions.Append = InsertRight;
+  
   function Keep(count, subAction) {
     return Fork(count, count, Reuse(), subAction);
     // Concat(count, Down(Offset(0, count)), Down(Offset(count, subAction))
@@ -2805,20 +2816,20 @@ Assuming ?1 = apply(E0, r, rCtx)
       // A regular Concat is like a New.
       // We only merge children that have reuse in them. The other ones, we don't merge.
       if(E1.ctor == Type.Concat && !isFork(E1)) {
-        let newLeft = isReusingBelow(E1.first) ? merge(E1.first, E2, multiple) : E1.first;
+        let newLeft = E1.firstReuse || isReusingBelow(E1.first) ? merge(E1.first, E2, multiple) : E1.first;
         let newLeftLength = outLength(newLeft);
         if(newLeftLength === undefined) newLeftLength = E1.count;
         result.push(
           Concat(newLeftLength, newLeft,
-                 isReusingBelow(E1.second) ? merge(E1.second, E2, multiple) : E1.second));
+                 E1.secondReuse || isReusingBelow(E1.second) ? merge(E1.second, E2, multiple) : E1.second));
       }
       if(E2.ctor == Type.Concat && !isFork(E2)) {
-        let newLeft = isReusingBelow(E2.first) ? merge(E1, E2.first, multiple) : E2.first;
+        let newLeft = E2.firstReuse || isReusingBelow(E2.first) ? merge(E1, E2.first, multiple) : E2.first;
         let newLeftLength = outLength(newLeft);
         if(newLeftLength === undefined) newLeftLength = E2.count;
         result.push(
           Concat(newLeftLength, newLeft,
-                 isReusingBelow(E2.second) ? merge(E1, E2.second, multiple) : E2.second));
+                 E2.secondReuse || isReusingBelow(E2.second) ? merge(E1, E2.second, multiple) : E2.second));
       }
       if(E1.ctor == Type.Concat && !isFork(E1) || E2.ctor == Type.Concat && !isFork(E2)) {
         // At least one solution pushed.
@@ -5639,31 +5650,40 @@ Assuming ?1 = apply(E0, r, rCtx)
           str += addPadding(childStr, "  ");
           str += ")";
         } else {
-          let [nInsert, inserted, second] = argumentsIfForkIsInsert(inCount, outCount, left, right);
-          if(second !== undefined && editActions.__syntacticSugar) {
-            str += "Insert(" + nInsert + ", ";
-            let childStr = addPadding(childIsSimple(inserted) ? uneval(inserted.model) : stringOf(inserted), "  ");
-            str += childStr;
-            let extraSpace = childStr.indexOf("\n") >= 0 ? "\n " : "";
-            if(!isIdentity(second)) {
-              let secondStr = addPadding(stringOf(second), "  ");
-              extraSpace = extraSpace == "" && secondStr.indexOf("\n") >= 0 ? "\n " : extraSpace;
-              str += ","+extraSpace+" " + addPadding(stringOf(second), "  ");
-            }
-            str += ")"
-          } else {
-            str = "Fork(" + inCount + ", " + outCount + ",\n  ";
-            let leftStr = stringOf(left);
-            let rightStr = stringOf(right);
-            str += addPadding(leftStr, "  ") + ",\n  "
-            str += addPadding(rightStr, "  ") + ")";
-          }
+          str = "Fork(" + inCount + ", " + outCount + ",\n  ";
+          let leftStr = stringOf(left);
+          let rightStr = stringOf(right);
+          str += addPadding(leftStr, "  ") + ",\n  "
+          str += addPadding(rightStr, "  ") + ")";
         }
       } else {
-        let insertRight = isInsertRight(self);
-        str = (insertRight ? "InsertRight" : "Concat") + "(" + self.count + ", ";
-        str += addPadding(stringOf(self.first), "  ")
-        str += ", " + addPadding(stringOf(self.second), "  ") + (self.forkAt !== undefined ? ", " + self.forkAt : "") + ")";
+        if(self.secondReuse && !self.firstReuse && editActions.__syntacticSugar) {
+          let inserted = self.first;
+          let second = self.second;
+          str += "Insert(" + self.count + ", ";
+          let childStr = addPadding(childIsSimple(inserted) ? uneval(inserted.model) : stringOf(inserted), "  ");
+          str += childStr;
+          let extraSpace = childStr.indexOf("\n") >= 0 ? "\n " : "";
+          if(!isIdentity(second)) {
+            let secondStr = addPadding(stringOf(second), "  ");
+            extraSpace = extraSpace == "" && secondStr.indexOf("\n") >= 0 ? "\n " : extraSpace;
+            str += ","+extraSpace+" " + addPadding(stringOf(second), "  ");
+          }
+          str += ")";
+        } else if(!self.secondReuse && self.firstReuse && editActions.__syntacticSugar) {
+          let first = self.first;
+          let inserted = self.second;
+          str += "InsertRight(" + self.count + ", ";
+          if(!isIdentity(first)) {
+            str += addPadding("\n" + stringOf(first), "  ") + ",\n  ";
+          }
+          str += childIsSimple(inserted) ? uneval(inserted.model) : stringOf(inserted);
+          str += ")";
+        } else {
+          str = "Concat(" + self.count + ", ";
+          str += addPadding(stringOf(self.first), "  ")
+          str += ", " + addPadding(stringOf(self.second), "  ") + (self.forkAt !== undefined || self.firstReuse || self.secondReuse ? ", " + self.forkAt : "") + (self.firstReuse || self.secondReuse ? ", " + self.firstReuse + ", " + self.secondReuse : "" ) + ")";
+        }
       }
       return str;
     } else if(self.ctor == Type.Custom) { // Custom

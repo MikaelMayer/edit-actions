@@ -1,9 +1,26 @@
 var editActions = require("./edit-actions.js");
-var {List,Reuse,New,Concat,Keep,Insert,Remove,RemoveExcept,RemoveAll,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Fork, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, up, ReuseArray, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, isFinal, debug, Interval} = editActions;
+var {List,Reuse,New,Concat,Keep,Insert, InsertRight,Remove,RemoveExcept,RemoveAll,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Fork, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, up, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, isFinal, debug, Interval} = editActions;
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
+shouldBeEqual(
+  stringOf(InsertRight(3, "abc")), "InsertRight(3, \"abc\")" 
+);
+shouldBeEqual(
+  stringOf(InsertRight(3, Insert(1, "d"), New("abc"))), "InsertRight(3, \n  Insert(1, \"d\"),\n  \"abc\")" 
+);
+e();
+
+n();
+// It does not work because the second removes the character on which the first was inserted.
+// When Insert is a simple Concat, it should be easier.
+testMergeAndReverse(
+  Remove(1, Insert(1, New("\""))),
+  Keep(1, Remove(1, Insert(1, New("\"")))),
+  Remove(1, Insert(1, New("\""), Remove(1, Insert(1, New("\"")))))
+);
+e();
 
 shouldBeEqual(
   stringOf(Down(Interval(3, 5))), "Down(Interval(3, 5))"
@@ -1817,16 +1834,6 @@ testBackPropagate(
   Keep(20, Insert(1, "\"", Remove(1)))
 , "Concat Multiple 2");*/
 
-
-n();
-// It does not work because the second removes the character on which the first was inserted.
-// When Insert is a simple Concat, it should be easier.
-testMergeAndReverse(
-  Remove(1, Insert(1, New("\""))),
-  Keep(1, Remove(1, Insert(1, New("\"")))),
-  Remove(1, Insert(1, New("\""), Remove(1, Insert(1, New("\"")))))
-);
-e();
 
 step = Reuse({
   1: Reuse({
