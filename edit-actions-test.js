@@ -83,7 +83,7 @@ shouldBeEqual(
 shouldBeEqual(
   merge(
     Replace(3, 3, New("abc"), Reuse()),
-    Replace(2, 2, Reuse(), New("def"))      
+    Keep(2, New("def"))      
   ),
   Replace(2, 3,
     RemoveAll(Insert(3, "abc"), 3),
@@ -317,7 +317,7 @@ shouldBeEqual(
 shouldBeEqual(
   andThen(
     Reuse({9: Up(9, Down(0))}),
-    Replace(5, 5, Reuse({0: Up(0, Offset(0, 5), Down(2))}), Replace(3, 3, Reuse(), Reuse()))
+    Replace(5, 5, Reuse({0: Up(0, Offset(0, 5), Down(2))}), Keep(3, Reuse()))
   ),
   Replace(5, 5,
     Reuse({
@@ -361,7 +361,7 @@ shouldBeEqual(stringOf(Keep(8, New("1"))), "Keep(8, New(\"1\"))");
 shouldBeEqual(stringOf(Replace(5, 0, RemoveAll(), Reuse())),
 "Replace(5, 0,\n  RemoveAll())");
 
-shouldBeEqual(stringOf(Replace(3, 3, Reuse(), RemoveAll())), "Keep(3, RemoveAll())");
+shouldBeEqual(stringOf(Keep(3, RemoveAll())), "Keep(3, RemoveAll())");
 
 shouldBeEqual(
   andThen(Down(Offset(3, 5)), Custom(Reuse(), {apply: x => "1"+ x, update: e => ReuseOffset(Offset(1), e), name: "append1"})),
@@ -1473,7 +1473,7 @@ shouldBeEqual(
 );
 
 testMergeAndReverse(
-  Replace(8, 8, Reuse(), New("abc")),
+  Keep(8, New("abc")),
   Replace(9, 8, Remove(1), RemoveExcept(Offset(0, 1))),
   Replace(8, 7,
   RemoveExcept(Interval(1, 8)),
@@ -1482,8 +1482,8 @@ testMergeAndReverse(
 );
 
 shouldBeEqual(
-  merge(Replace(5, 5, Reuse(), Remove(3)),
-        Replace(7, 7, Reuse(),
+  merge(Keep(5, Remove(3)),
+        Keep(7,
           Insert(3, New("abc")))),
   Keep(5, Remove(3))
 );
