@@ -541,6 +541,7 @@ var editActions = {};
  
   // A Concat that operates on two non-overlapping places of an array or string
   function Fork(inCount, outCount, first, second) {
+    if(arguments.length == 3) second = Reuse();
     // TODO: Merge Reuse using mapUpHere
     if(isIdentity(first) && isIdentity(second)) {
       return second;
@@ -3615,6 +3616,7 @@ Assuming ?1 = apply(E0, r, rCtx)
       console.log("<="+addPadding(stringOf(U), "  "));
       console.log("-|"+addPadding(stringOf(ECtx), "  "));
     }
+    if(typeof U !== "object") U = New(U); 
     if(U.ctor == Type.Up) {
       if(ECtx === undefined) {
         console.trace("/!\\ Error, trying to go up " + keyOrOffsetToString(U.keyOrOffset) + " but empty context");
@@ -5727,7 +5729,7 @@ Assuming ?1 = apply(E0, r, rCtx)
           let extraSpace = parts.length > 1 && parts[0][1].indexOf("\n") >= 0 ? "\n" : "";
           str += "[" + extraSpace + parts.map(([k, s]) =>  addPadding(s, "  ")).join(", ") + "]";
         } else {
-          str += "{\n" + parts.map(([k, s]) =>  k + ": " + addPadding(s, "  ")).join(",") + "}, " + (model instanceof Map ? "new Map()" : uneval(model));
+          str += "{\n" + parts.map(([k, s]) =>  k + ": " + addPadding(s, "  ")).join(",") + "}" + (model instanceof Map ? ", new Map()" : typeof model == "object" && !hasAnyProps(model) ? "" : uneval(model));
         }
       }
       str += ")";
@@ -5745,9 +5747,13 @@ Assuming ?1 = apply(E0, r, rCtx)
         } else {
           str = "Fork(" + inCount + ", " + outCount + ",\n  ";
           let leftStr = stringOf(left);
-          let rightStr = stringOf(right);
-          str += addPadding(leftStr, "  ") + ",\n  "
-          str += addPadding(rightStr, "  ") + ")";
+          str += addPadding(leftStr, "  ");
+          if(!isIdentity(right)) {
+            str += ",\n  ";
+            let rightStr = stringOf(right);
+            str += addPadding(rightStr, "  ");
+          }
+          str += ")";
         }
       } else {
         if(self.secondReuse && !self.firstReuse && editActions.__syntacticSugar) {
