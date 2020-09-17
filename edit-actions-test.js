@@ -1,5 +1,5 @@
 var editActions = require("./edit-actions.js");
-var {List,Reuse,New,Concat,Keep,Insert, InsertRight,Remove,RemoveExcept,RemoveAll,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Replace, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, up, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, isFinal, debug, Interval} = editActions;
+var {List,Reuse,New,Concat,Keep,Insert, InsertRight,Remove,RemoveExcept,RemoveAll,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Replace, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, isFinal, debug, Interval} = editActions;
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
@@ -1997,8 +1997,8 @@ var d = Replace(14, New({ 0: Down(0)  ,
                        11: Down(12),
                        12: Down(13)}, []),
                        Reuse());
-var s = Reuse({13: Reuse({1: Keep(1, Insert(1, New("\n")))})})
-shouldBeEqual(backPropagate(s, d), d);
+var step = Reuse({13: Reuse({1: Keep(1, Insert(1, New("\n")))})})
+shouldBeEqual(backPropagate(step, d), d);
 var m1 = Remove(47, Insert(1, New("A")))
 var m2 = Keep(1,
            Insert(1, New(" "),
@@ -2108,9 +2108,15 @@ var defaultDiffOptions = {findNextSimilar, onlyReuse: true,
 
 testBackPropagate(
   Replace(3, 3, New([Down(1), Down(2), Down(0)]), Reuse()),
-  Keep(2, 0, New(["Inserted"]), Reuse()),
-  ReuseArray(0, New(["Inserted"]), Reuse()),
+  Keep(2, Insert(1, New(["Inserted"]))),
+  Insert(1, New(["Inserted"])),
   "Insert in array after reordering");
+
+testBackPropagate(
+  Insert(1, Down(Interval(2, 3)), RemoveExcept(Offset(0, 2))),
+  Keep(2, Insert(1, New(["Inserted"]))),
+  Keep(1, Insert(1, New(["Inserted"]))),
+  "Insert in array after reordering 2");
 
 /*
 shouldBeEqual(
@@ -2145,32 +2151,14 @@ Replace(1, 1, Reuse({0: Reuse({2: Keep(1, New.nested([["script", [], []]]))})}),
            0, New([New.nested(["TEXT", "\n"])]),
            1, Reuse({0: Reuse({2: New.nested([["script", [], []]])})}),
               New([])));*/
-function testMerge(edit1, edit2, expectedResult, name) {
-  shouldBeEqual(
-    merge(
-      edit1, edit2
-    ), expectedResult, name
-  );
-}
-function testMergeAndReverse(edit1, edit2, expectedResult, name) {
-  shouldBeEqual(
-    merge(
-      edit1, edit2
-    ), expectedResult, name + " [normal]"
-  );
-  shouldBeEqual(
-    merge(
-      edit2, edit1
-    ), expectedResult, name + " [reverse]"
-  );
-}
-
 testBackPropagate(
-    Reuse({heap: Reuse({1: Reuse({values: Keep(0,
-                                                     1, Reuse({0: Up("0", Offset(0, 1), "values", 1, "heap", Down("stack", "hd", "value"))}),
-                                                        Reuse())})}),
+    Reuse({
+ heap: Reuse({
+   1: Reuse({
+     values: Keep(0,
+       Replace(1, 1, Reuse({0: Up("0", Offset(0, 1), "values", 1, "heap", Down("stack", "hd", "value"))})))})}),
            stack: Reuse({hd: New({ ctor: "ComputationNode",
-                                   node: Up("node", Down( up, "heap", 1, "values", 1))}),
+                                   node: Up("hd", "stack", Down( "heap", 1, "values", 1))}),
                          tl: Reuse({hd: Reuse({resultIsSpread: New(false),
                                                indexToEval: New(1)})})})}),
     Reuse({heap: Reuse({1: Reuse({values: Keep(1,
@@ -2184,61 +2172,64 @@ testBackPropagate(
 , "heap update")
 
 testBackPropagate(
-    Down("heap", 1, "values", Reuse({0: Down("value"),
-                                    1: Down("value")})),
-    Keep(1,
-               0, New({ 0: New({ ctor: "Raw",
-                                 value: 2})}, []),
-                  Reuse()),
+    Down("heap", 1, "values",
+      Reuse({0: Down("value"),
+             1: Down("value")})),
+    Keep(1, Replace(0, 1, New([New({ ctor: "Raw",
+                                 value: 2})]))),
     Reuse({heap: Reuse({"1": Reuse({values: 
-      Keep(1, 0, New({ 0: New({ ctor: "Raw",
-                                 value: 2})}, []), Reuse())
-    })})}),
+      Keep(1, Replace(0, 1, New([New({ ctor: "Raw",
+                                 value: 2})]))
+    )})})}),
     "heap update X"
     );
 
 testBackPropagate(
     Reuse({0: Down("value")}),
-    ReuseArray(0, New([2]), Reuse())
-   ,ReuseArray(0, New([2]), Reuse()), "ReuseArray through Reuse");
+    Insert(1, New([2]))
+   ,Insert(1, New([2])), "ReuseArray through Reuse");
 
 
 // Same tests without 
 
 testBackPropagate(
-    Replace(2, 2, Reuse({1: Up("1", Down( up, 3))}), Reuse({1: Up("1", Down( up, 4))})),
-    Replace(2, 2, Reuse({1: New(3)}), Reuse({1: New(4)}))
-   ,Reuse({3: New(3), 4: New(4)}), "ReuseReuse");
+    Replace(2, 2,
+      Reuse({1: Up(1, Offset(0, 2), Down(3))}),
+      Reuse({1: Up(1, Offset(2), Down(4))})),
+    Replace(2, 2,
+      Reuse({1: New(3)}),
+      Reuse({1: New(4)}))
+   , Reuse({3: New(3), 4: New(4)}), "ReuseReuse");
 
 testBackPropagate(
-     ReuseArray(0, New([1]), Reuse()),
-     Keep(1, ReuseArray(0, New([2]), Reuse()))
-   , ReuseArray(0, New([2]), Reuse()), "Insertion Step");
+     Insert(1, New([1])),
+     Keep(1, Insert(1, New([2])))
+   , Insert(1, New([2])), "Insertion Step");
 
 testBackPropagate(
      Remove(1),
-     ReuseArray(0, New([2]), Reuse())
-  , Keep(1, 0, New([2]), Reuse()), "Insertion after deletion");
+     Insert(1, New([2]))
+  , Keep(1, Insert(1, New([2]))), "Insertion after deletion");
 
 testBackPropagate(
-     Keep(2, Reuse({0: Up("0", Down( up, 5))})),
+     Keep(2, Reuse({0: Up(0, Offset(2), Down(5))})),
      Replace(3, 3, Reuse({2: New(3)}), Reuse())
   , Reuse({5: New(3)}), "Split right backPropagateReuseArray");
 
 testBackPropagate(
-     Keep(2, New([Down(up, 5)])),
+     Keep(2, New([Up(Offset(2), Down(5))])),
      Replace(3, 3, Reuse({2: New(3)}), Reuse())
   , Reuse({5: New(3)}), "Split right backPropagateReuseArray");
 
 testBackPropagate(
-     Replace(2, 2, Reuse({1: Up("1", Down( up, 5))}), Reuse()),
+     Replace(2, 2, Reuse({1: Up(1, Offset(0, 2), Down(5))}), Reuse()),
      Keep(1, Reuse({0: New(3)}))
   , Reuse({5: New(3)}), "Split left backPropagateReuseArray");
 
 testBackPropagate(
     Down("a"),
-    ReuseArray(2, New([4]), Reuse())
-  ,Reuse({a: ReuseArray(2, New([4]), Reuse())}), "ReuseArray after reuse");
+    Replace(2, 1, New([4]))
+  ,Reuse({a: Replace(2, 1, New([4]))}), "ReuseArray after reuse");
 
 testBackPropagate(
     Remove(2),
@@ -2246,17 +2237,30 @@ testBackPropagate(
   ,Keep(2, Reuse({3: Reuse({1: Reuse({3: Reuse({1: New("style")})})})})), "Reuse after ReuseArray");
 
 testBackPropagate(
-    ReuseArray(0, New([1, 2]), Reuse()),
+    Insert(2, New([1, 2])),
     Reuse({5: Reuse({1: Reuse({3: Reuse({1: New("style")})})})})
   ,Reuse({3: Reuse({1: Reuse({3: Reuse({1: New("style")})})})}), "Reuse after ReuseArray 2");
 
-
-
-
 shouldBeEqual(andThen(
-     Keep(2, 1, New([]), Reuse()),
-     Keep(2, 0, New([1]), Reuse())
+     Keep(2, Replace(1, 0, New([]), Reuse())),
+     Keep(2, Replace(0, 1, New([1]), Reuse()))
  ),  Reuse(), "insertion followed by deletion");
+
+shouldBeEqual(
+  apply(diff([
+   "thisisoneelem"
+  ], []), ["thisisoneelem"]),
+  []);
+
+var array1 = [
+ "thisisoneelem"
+]
+var array2 = [
+ "thisisoneelem"
+, ["h2", [], [["TEXT", "Hello world"]]]
+];
+var array1to2 = diff(array1, array2);
+shouldBeEqual(apply(array1to2, array1), array2);
 
 var array1 = [
  ["TEXT", "\n"]
@@ -2278,9 +2282,11 @@ var array2 = [
 , ["TEXT", "\n"]
 , ["script", [], []]
 , ["TEXT", "\n"]
-]
+];
 var array1to2 = diff(array1, array2);
+debug(first(array1to2));
 shouldBeEqual(apply(array1to2, array1), array2);
+e();
 shouldBeEqual(
   diff(array1, array2),
   Keep(2,
@@ -3022,4 +3028,24 @@ function e(lastLine) {
 function n(count = 1) {
   s();
   testToStopAt = tests + count;
+}
+
+function testMerge(edit1, edit2, expectedResult, name) {
+  shouldBeEqual(
+    merge(
+      edit1, edit2
+    ), expectedResult, name
+  );
+}
+function testMergeAndReverse(edit1, edit2, expectedResult, name) {
+  shouldBeEqual(
+    merge(
+      edit1, edit2
+    ), expectedResult, name + " [normal]"
+  );
+  shouldBeEqual(
+    merge(
+      edit2, edit1
+    ), expectedResult, name + " [reverse]"
+  );
 }

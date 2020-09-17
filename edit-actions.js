@@ -167,6 +167,17 @@ var editActions = {};
         }
       }
     },
+    filter: function(c, callback) {
+      return {
+        *[Symbol.iterator]() {
+          for(let arg of c) {
+            if(callback(arg)) {
+              yield arg;
+            }
+          }
+        }
+      }
+    },
     // Forgiving flatMap
     flatMap: function(c, callback) {
       return {
@@ -555,6 +566,7 @@ var editActions = {};
         outCount = inCount;
       }
     }
+    if(inCount == 0 && outCount == 0) return second;
      // Optimization that is nice to remove empty first actions. But do we want to remove empty first actions?
     /*if(outCount == 0) {
       return RemoveExcept(Offset(inCount), second);
@@ -870,9 +882,11 @@ var editActions = {};
       return monoid.add(o1, o2);
     }
     if(editAction.ctor == Type.Choose) {
-      return Collection.map(editAction.subActions, subAction =>
+      // Just return the first one.
+      return apply(Collection.firstOrDefault(editAction.subActions, Reuse()), prog, ctx, resultCtx);
+      /*return Collection.map(editAction.subActions, subAction =>
         apply(subAction, prog, ctx, resultCtx)
-      );
+      );*/
     }
     let isNew = editAction.ctor == Type.New;
     let model = modelToCopy(editAction, prog);
@@ -4011,8 +4025,10 @@ Assuming ?1 = apply(E0, r, rCtx)
   */
   function allClonePaths_(complexVal, simpleVal, maxDepth) {
       //console.log("allClonePaths_", editActions.uneval({complexVal, simpleVal}));
-      let complexValStr = uneval(complexVal);
+      // We don't consider empty arrays to be clones.
+      if(Array.isArray(simpleVal) && simpleVal.length == 0) return [];
       let simpleValStr = uneval(simpleVal);
+      let complexValStr = uneval(complexVal);
       if(complexValStr.indexOf(simpleValStr) == -1) return [];
       if (complexValStr === simpleValStr) {
         /** Proof: apply(Reuse(), complexVal, ctx) = complexVal = simpleVal, QED. */
@@ -4072,6 +4088,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     // Considers the newVal as a thing to completely replace the old val.
     // Specification: apply(newObjectDiffs(), oldVal, oldValCtx) = newVal
     function newObjectDiffs() {
+      printDebug("newObjectDiffs", oldVal, newVal);
       let childDiffs = {};
       let isArray = Array.isArray(newVal);
       let model = isArray ? [] : {};
@@ -4084,12 +4101,12 @@ Assuming ?1 = apply(E0, r, rCtx)
         } else {
           // Diff the old value against the child of newValue at index key.
           let cd = editDiff(oldVal, newVal[key], options, oldValCtx);
+          printDebug("cd", cd);
           // Here we can assumbe by induction that
           // apply(cd, oldVal, oldValCtx) = newVal[key]
           if(cd.ctor == Type.Choose) { // Only filter and sorting here.
-            let onlySimpleChildClones = Collection.map(cd.subActions,
-              subAction => isSimpleChildClone(subAction)
-            );
+            let onlySimpleChildClones = Collection.filter(cd.subActions,
+              subAction => isSimpleChildClone(subAction));
             if(!Collection.isEmpty(onlySimpleChildClones)) {
               // Here we should remove everything else which is not a clone, as we are just moving children around the object.
               if(isArray) {
@@ -4102,6 +4119,7 @@ Assuming ?1 = apply(E0, r, rCtx)
                 });
                 lastClosestOffset = Number(onlySimpleChildClones[0].keyOrOffset) - nKey;
               }
+              printDebug(onlySimpleChildClones);
               cd = Choose(onlySimpleChildClones);
             }
           }
@@ -4125,7 +4143,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         If options are not set to only Reuse whenever possible, will add the newObjectDiffs();
         */
     function addNewObjectDiffs(diffs) {
-      printDebug("addNewObjectDiffs");
+      printDebug("addNewObjectDiffs", diffs);
       if(diffs.length && options.onlyReuse) {
         return Choose(diffs);
       }
@@ -4242,11 +4260,13 @@ Assuming ?1 = apply(E0, r, rCtx)
             newValStrElems = newValStr.split(sep);
             oldValStr = oldVal.map(x => uneval(x)).join(sep);
             oldValStrElems = oldValStr.split(sep);
-            if(oldValStrElems.length != oldVal.length || newValStrElems.length != newVal.length) {
+            if(oldValStrElems.length != oldVal.length && oldVal.length >= 1 || newValStrElems.length != newVal.length && newVal.length >= 1 ) {
               sep = makeNotFoundIn(sep, newValStr);
               sep = makeNotFoundIn(sep, oldValStr);
               continue;
             } else {
+              if(newVal.length == 0) newValStrElems = [];
+              if(oldVal.length == 0) oldValStrElems = [];
               break;
             }
           }
@@ -4410,6 +4430,18 @@ Assuming ?1 = apply(E0, r, rCtx)
                 }
               }
             }
+          }
+          if(oldActions.length === 0) { // Everything was inserted.
+            for(let index = 0; index < newActions.length; index++) {
+              newActions[index].isInserted = true;
+            }
+            aSepWasRemovedOrInserted = newActions.length > 0;
+          }
+          if(newActions.length === 0) { // Everything was removed
+            for(let index = 0; index < oldActions.length; index++) {
+              oldActions[index].isRemoved = true;
+            }
+            aSepWasRemovedOrInserted = oldActions.length > 0;
           }
           if(!aSepWasRemovedOrInserted && newActions.length == oldActions.length) { // Alignment decided that elements are the same.
             let o = {};
