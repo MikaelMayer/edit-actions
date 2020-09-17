@@ -1,9 +1,10 @@
 var editActions = require("./edit-actions.js");
-var {List,Reuse,New,Concat,Keep,Insert, InsertRight,Remove,RemoveExcept,RemoveAll,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Fork, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, up, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, isFinal, debug, Interval} = editActions;
+var {List,Reuse,New,Concat,Keep,Insert, InsertRight,Remove,RemoveExcept,RemoveAll,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Replace, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, up, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, isFinal, debug, Interval} = editActions;
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
+
 shouldBeEqual(
   stringOf(InsertRight(3, "abc")), "InsertRight(3, \"abc\")" 
 );
@@ -81,10 +82,10 @@ shouldBeEqual(
 );
 shouldBeEqual(
   merge(
-    Fork(3, 3, New("abc"), Reuse()),
-    Fork(2, 2, Reuse(), New("def"))      
+    Replace(3, 3, New("abc"), Reuse()),
+    Replace(2, 2, Reuse(), New("def"))      
   ),
-  Fork(2, 3,
+  Replace(2, 3,
     RemoveAll(Insert(3, "abc"), 3),
     New("def"))
 );
@@ -180,9 +181,9 @@ shouldBeEqual(
 
 shouldBeEqual(
   andThen(
-    Fork(4, 4, Reuse({1: New(2)}), Reuse({3: 0})),
-    Fork(2, 3, Reuse({2: New(1)}), Reuse())),
-  Fork(2, 3,
+    Replace(4, 4, Reuse({1: New(2)}), Reuse({3: 0})),
+    Replace(2, 3, Reuse({2: New(1)}), Reuse())),
+  Replace(2, 3,
   Reuse({
     1: New(2),
     2: New(1)}),
@@ -258,10 +259,10 @@ shouldBeEqual(
 shouldBeEqual(
   first(diff([["p", "test"], "d", "blih", "mk"],
              [["x", ["p", "test"]], ["i", "hello"], "d", "blah"])),
-  Fork(1, 1,
+  Replace(1, 1,
     Reuse({0: New(["x", Reuse()])}),
     Insert(1, [New(["i", "hello"])],
-      Fork(2, 2, 
+      Replace(2, 2, 
           Reuse({1:
             Keep(2, Remove(1, Insert(1, "a")))}),
             Remove(1))))
@@ -316,9 +317,9 @@ shouldBeEqual(
 shouldBeEqual(
   andThen(
     Reuse({9: Up(9, Down(0))}),
-    Fork(5, 5, Reuse({0: Up(0, Offset(0, 5), Down(2))}), Fork(3, 3, Reuse(), Reuse()))
+    Replace(5, 5, Reuse({0: Up(0, Offset(0, 5), Down(2))}), Replace(3, 3, Reuse(), Reuse()))
   ),
-  Fork(5, 5,
+  Replace(5, 5,
     Reuse({
       0: Up(0, Offset(0, 5), Down(2))}),
     Reuse({
@@ -357,10 +358,10 @@ shouldBeEqual(stringOf(Keep(10, Remove(5))), "Keep(10, Remove(5))");
 
 shouldBeEqual(stringOf(Keep(8, New("1"))), "Keep(8, New(\"1\"))");
 
-shouldBeEqual(stringOf(Fork(5, 0, RemoveAll(), Reuse())),
-"Fork(5, 0,\n  RemoveAll())");
+shouldBeEqual(stringOf(Replace(5, 0, RemoveAll(), Reuse())),
+"Replace(5, 0,\n  RemoveAll())");
 
-shouldBeEqual(stringOf(Fork(3, 3, Reuse(), RemoveAll())), "Keep(3, RemoveAll())");
+shouldBeEqual(stringOf(Replace(3, 3, Reuse(), RemoveAll())), "Keep(3, RemoveAll())");
 
 shouldBeEqual(
   andThen(Down(Offset(3, 5)), Custom(Reuse(), {apply: x => "1"+ x, update: e => ReuseOffset(Offset(1), e), name: "append1"})),
@@ -375,7 +376,7 @@ testAndThen(
 
 shouldBeEqual(
   stringOf(
-    Concat(3, Down(Offset(2, 5)), Down(Offset(8)), 8)),  "Fork(8, 3,\n  Down(Offset(2, 5, 8)))"
+    Concat(3, Down(Offset(2, 5)), Down(Offset(8)), 8)),  "Replace(8, 3,\n  Down(Offset(2, 5, 8)))"
 );
 
 /*
@@ -438,7 +439,7 @@ shouldBeEqual(x.x.x.x.x.a, 1);
 function testSplitAt(count, editAction, expected, recordToTestOn) {
   let [left, right, inCount] = splitAt(count, editAction);
   shouldBeEqual([left, right, inCount], expected, "result of splitAt");
-  let result1 = apply(Fork(expected[2], count, expected[0], expected[1]), recordToTestOn);
+  let result1 = apply(Replace(expected[2], count, expected[0], expected[1]), recordToTestOn);
   let result2 = apply(editAction, recordToTestOn);
   shouldBeEqual(result1, result2, "invariant of splitAt");
 }
@@ -461,17 +462,17 @@ testSplitAt(2, New({0: Down(1), 1: New("a"), 2: Down(0), 3: Down(2)}, []),
    2],
   [5, 4, 3, 2, 1, 0]);
 
-testSplitAt(2, Fork(3, 2, New("ab"), Reuse()),
+testSplitAt(2, Replace(3, 2, New("ab"), Reuse()),
   [New("ab"), Reuse(), 3], "");
 
-testSplitAt(2, Fork(3, 3, Reuse({0: Up(0, Down(4)), 1: Up(1, Down(2)), 2: Up(2, Down(3))}), Reuse({0: Up(3, Down(1)), 1: Up(4, Down(5))})),
+testSplitAt(2, Replace(3, 3, Reuse({0: Up(0, Down(4)), 1: Up(1, Down(2)), 2: Up(2, Down(3))}), Reuse({0: Up(3, Down(1)), 1: Up(4, Down(5))})),
   [ Reuse({0: Up(0, Down(4)), 1: Up(1, Down(2))}),
-    Fork(1, 1, Reuse({0: Up(2, Down(3))}), Reuse({0: Up(3, Down(1)), 1: Up(4, Down(5))})),
+    Replace(1, 1, Reuse({0: Up(2, Down(3))}), Reuse({0: Up(3, Down(1)), 1: Up(4, Down(5))})),
     2],
   [0, 1, 2, 3, 4, 5, 6, 7])
 
-testSplitAt(4, Fork(3, 3, Reuse({0: Up(0, Down(4)), 1: Up(1, Down(2)), 2: Up(2, Down(3))}), Reuse({0: Up(3, Down(1)), 1: Up(4, Down(5))})),
-  [ Fork(3, 3, Reuse({0: Up(0, Down(4)), 1: Up(1, Down(2)), 2: Up(2, Down(3))}), Reuse({0: Up(3, Down(1))})),
+testSplitAt(4, Replace(3, 3, Reuse({0: Up(0, Down(4)), 1: Up(1, Down(2)), 2: Up(2, Down(3))}), Reuse({0: Up(3, Down(1)), 1: Up(4, Down(5))})),
+  [ Replace(3, 3, Reuse({0: Up(0, Down(4)), 1: Up(1, Down(2)), 2: Up(2, Down(3))}), Reuse({0: Up(3, Down(1))})),
     Reuse({0: Up(4, Down(5))}),
     4],
   [0, 1, 2, 3, 4, 5, 6, 7])
@@ -496,7 +497,7 @@ shouldBeEqual(andThen(Down(1), Reuse({1: Up(1, Down(0))})),
   Down(0));
 
 shouldBeEqual(andThen(Keep(2, Up(Offset(2))), Reuse({1: New(1), 3: Up(3, Down(0)), 4: Up(4, Down(3))})),
-  Fork(2, 2, Reuse({1: New(1)}), Up(Offset(2), Reuse({1: New(1), 3: Up(3, Down(0)), 4: Up(4, Down(3))})))
+  Replace(2, 2, Reuse({1: New(1)}), Up(Offset(2), Reuse({1: New(1), 3: Up(3, Down(0)), 4: Up(4, Down(3))})))
   )
 
 shouldBeEqual(andThen(Reuse({x: Reuse({y: Up("y", "x", Down("c"))})}), Reuse({c: Up("c", Down("x", "y", "z", Reuse()))})),
@@ -523,11 +524,11 @@ shouldBeEqual(andThen(
     a: Up("a", Down("b", Down("c", Reuse({
       d: Up("d", Up("c", Up("b", Down("e"))))}))))}));
 
-shouldBeEqual(apply(Fork(0, 1, New([Up(Offset(0, 0), Down(2))]), Reuse()), ["a", "b", "c", "d", "e"]), ["c", "a", "b", "c", "d", "e"]);
+shouldBeEqual(apply(Replace(0, 1, New([Up(Offset(0, 0), Down(2))]), Reuse()), ["a", "b", "c", "d", "e"]), ["c", "a", "b", "c", "d", "e"]);
 
 testAndThen(
-  Fork(3, 1, Down(0), Reuse({1: New(5)})),
-  Fork(2, 2, Reuse({0: New([Up(0, Offset(0, 2), Down(3))])}), New([1, 2, 3])),
+  Replace(3, 1, Down(0), Reuse({1: New(5)})),
+  Replace(2, 2, Reuse({0: New([Up(0, Offset(0, 2), Down(3))])}), New([1, 2, 3])),
   ["A", "B", "C", "D", "E", "F", "G", "H"]
 );
 // ["A", "B", |in "C", "D", "E", "F", "G", "H"]
@@ -558,7 +559,7 @@ shouldBeEqual(
   // [[D],B, 1, 2, 3]
   // [D, 5, 3]
  
-// TODO, line 108, restore the Fork / Concat, no the inner Reuse
+// TODO, line 108, restore the Replace / Concat, no the inner Reuse
 // ["a", "b",| "c", "d"]
 // => ["d", "c",| "b", "a"]
 // => ["b", "c", "d", "a"]
@@ -570,13 +571,13 @@ apply(Down(Offset(2), Reuse({0: up(2 or 0?})), r, ctx)
 */
 shouldBeEqual(andThen(
   Reuse({0: Up(0, Down(2)), 2: Up(2, Down(0))}),
-  Fork(2, 2, Reuse(
+  Replace(2, 2, Reuse(
     {0: Up(0, Offset(0, 2), Down(3)),
      1: Up(1, Offset(0, 2), Down(2))}),
              Reuse(
     {0: Up(0, Offset(2), Down(1)),
      1: Up(1, Offset(2), Down(0))}))),
-  Fork(2, 2, Reuse(
+  Replace(2, 2, Reuse(
     {0: Up(0, Offset(0, 2), Down(1)),
      1: Up(1, Offset(0, 2), Down(2))}), Reuse(
     {0: Up(0, Offset(2), Down(3)),
@@ -585,16 +586,16 @@ shouldBeEqual(andThen(
 
 testAndThen(
   Reuse({0: Up(0, Down(2)), 2: Up(2, Down(0))}),
-  Fork(2, 1, New([Up(Offset(0, 2), Down(4))]),
+  Replace(2, 1, New([Up(Offset(0, 2), Down(4))]),
              Reuse({2: Up(2, Offset(2), Down(3))})),
   ["a", "b", "c", "d", "e"]);
-/*==Fork(2, 1, New([Up(Offset(-2, 2), Down(1))]),Reuse({
+/*==Replace(2, 1, New([Up(Offset(-2, 2), Down(1))]),Reuse({
     1: Up(1, Offset(2), Down(4)),
     2: Up(2, Offset(2), Down(3))}))
   */
   
 /*
-  Fork(2, 1, New([Up(Offset(0, 2), Down(3))]),
+  Replace(2, 1, New([Up(Offset(0, 2), Down(3))]),
              Reuse({1: Up(1, Offset(2), Down(4)),
                     2: Up(2, Offset(2), Down(3))
              })))
@@ -617,14 +618,14 @@ testAndThen(
 );
 
 testAndThen(
-  Keep(2, Fork(0, 1, New([Up(Offset(2, 0), Down(0))]), Reuse())),
-  Fork(0, 1, New([Up(Offset(0, 0), Down(5))]), Reuse()),
+  Keep(2, Replace(0, 1, New([Up(Offset(2, 0), Down(0))]), Reuse())),
+  Replace(0, 1, New([Up(Offset(0, 0), Down(5))]), Reuse()),
   ["A", "B", "C", "D", "E", "F", "G"]
 );
 
 testAndThen(
-  Keep(3, Fork(0, 1, New([Up(Offset(3, 0), Down(1))]), Reuse())),
-  Keep(1, Fork(0, 1, New([Up(Offset(1), Down(5))]), Reuse())),
+  Keep(3, Replace(0, 1, New([Up(Offset(3, 0), Down(1))]), Reuse())),
+  Keep(1, Replace(0, 1, New([Up(Offset(1), Down(5))]), Reuse())),
   ["A", "B", "C", "D", "E", "F", "G"]
 ); 
 
@@ -656,7 +657,7 @@ testAndThen(
          4: Up(4, Down(0))}),
   [0, 1, 2, 3, 4, 5, 6]);
 /*
-=Fork(3, 3,   --Concat(3, Down(Offset(0, 3), |), Down(Offset(3), |))
+=Replace(3, 3,   --Concat(3, Down(Offset(0, 3), |), Down(Offset(3), |))
   Reuse({
     0: Up(0, Offset(0, 3), Down(1))}),
   Reuse({
@@ -734,7 +735,7 @@ shouldBeEqual(
     Reuse({0: Up(0, Down(3))}),
     Keep(2, Remove(2))
   ),
-  Fork(2, 2, Reuse({0: Up(0, Offset(0, 2), Down(3))}), Remove(2))
+  Replace(2, 2, Reuse({0: Up(0, Offset(0, 2), Down(3))}), Remove(2))
 );
 
 shouldBeEqual(
@@ -742,7 +743,7 @@ shouldBeEqual(
     Keep(2, Remove(2)),
     Reuse({0: Up(0, Down(3))})
   ),
-  Fork(2, 2, Reuse({0: Up(0, Offset(0, 2), Down(3))}), Remove(2))
+  Replace(2, 2, Reuse({0: Up(0, Offset(0, 2), Down(3))}), Remove(2))
 );
 
 shouldBeEqual(
@@ -779,7 +780,7 @@ shouldBeEqual(
 
 shouldBeEqual(
   merge(
-    Fork(1, 2, New([1, Down(0)]), Reuse({2: Reuse({d: New(1)})})),
+    Replace(1, 2, New([1, Down(0)]), Reuse({2: Reuse({d: New(1)})})),
     Down(3)
   ),
   Down(3, Reuse({
@@ -789,7 +790,7 @@ shouldBeEqual(
 shouldBeEqual(
   merge(
     Down(3),
-    Fork(1, 2, New([1, Down(0)]), Reuse({2: Reuse({d: New(1)})}))
+    Replace(1, 2, New([1, Down(0)]), Reuse({2: Reuse({d: New(1)})}))
   ),
   Down(3, Reuse({
     d: New(1)}))
@@ -797,10 +798,10 @@ shouldBeEqual(
 
 shouldBeEqual(
   merge(
-    Fork(3, 2, New([1, Down(0)]), Reuse({0: New(1), 1: New(3)})),
+    Replace(3, 2, New([1, Down(0)]), Reuse({0: New(1), 1: New(3)})),
     Down(Interval(1, 4))
   ),
-  Down(Interval(1, 4), Fork(2, 0,
+  Down(Interval(1, 4), Replace(2, 0,
     RemoveAll(),
     Reuse({
       0: New(1)})))
@@ -808,7 +809,7 @@ shouldBeEqual(
 
 shouldBeEqual(
   merge(
-    Fork(3, 2, New([1, Down(0)]), Reuse({0: New(1), 1: New(3)})),
+    Replace(3, 2, New([1, Down(0)]), Reuse({0: New(1), 1: New(3)})),
     Down(Offset(3, 1))
   ),
   Down(Offset(3, 1), Reuse({0: New(1)}))
@@ -817,10 +818,10 @@ shouldBeEqual(
 shouldBeEqual(
   merge(
     Remove(1, Insert(2, New([1, 2]), Reuse({1: Reuse({b: New(5)})}))),
-    Fork(3, 3, Reuse({2: Reuse({c: New(6)})}), Insert(1, New([2]), RemoveAll()))
+    Replace(3, 3, Reuse({2: Reuse({c: New(6)})}), Insert(1, New([2]), RemoveAll()))
   ),
   Remove(1, Insert(2, New([1, 2]),
-    Fork(2, 2,
+    Replace(2, 2,
       Reuse({
         1: Reuse({
           b: New(5),
@@ -830,12 +831,12 @@ shouldBeEqual(
 
 shouldBeEqual(
   merge(
-    Fork(3, 3, Reuse({2: Reuse({c: New(6)})}), New([2])),
+    Replace(3, 3, Reuse({2: Reuse({c: New(6)})}), New([2])),
     Remove(1, Insert(2, New([1, 2]), Reuse({1: Reuse({b: New(5)})})))
   ),
   Remove(1,
   Insert(2, New([1, 2]),
-  Fork(2, 2,
+  Replace(2, 2,
     Reuse({1: Reuse({c: New(6), b: New(5)})}),
   New([2]))))
 );
@@ -1021,19 +1022,19 @@ testBackPropagate(
 
 testBackPropagate(
   Keep(2, Remove(2)),
-  Fork(2, 5, Keep(2, Insert(3, "abc")), Reuse()),
+  Replace(2, 5, Keep(2, Insert(3, "abc")), Reuse()),
   Keep(2, Insert(3, "abc")),
   "Insertion to the left of a deletion"
 );
 
 testBackPropagate(
-  Fork(3, 3, Reuse({0: Up(0, Down(1))}), Reuse({1: Up(1, Down(0))})),
+  Replace(3, 3, Reuse({0: Up(0, Down(1))}), Reuse({1: Up(1, Down(0))})),
     RemoveExcept(Offset(2, 1)),
   Remove(2, Keep(1, RemoveAll()))
 );
 
 testBackPropagate(
-  Fork(3, 3,
+  Replace(3, 3,
     Reuse({0: Up(0, Down(1))}),
     Reuse({1: Up(1, Down(0))})),
     RemoveExcept(Offset(2, 2)),
@@ -1056,12 +1057,12 @@ testBackPropagate(
 // -> ["c", "d", "e", "f",|out "a",|in "b"]
 // =>           [7,    2,      "a"]
 // ==> Removed["c","d"], replaced "e" by 7 and "f" by 2, removed ["g"]
-// => Keep(2, Remove(2, Fork(2, 2, Reuse({0: Reuse({0: New(7)}), 1: New(2)}), RemoveAll())))
+// => Keep(2, Remove(2, Replace(2, 2, Reuse({0: Reuse({0: New(7)}), 1: New(2)}), RemoveAll())))
 testBackPropagate(
-  Remove(2, Fork(4, 4, Reuse({2: Down(0)}), Up(Offset(6), Down(Offset(0, 2))))),
-    Remove(2, Fork(3, 3, Reuse({0: New(7), 1: New(2)}), RemoveAll())),
+  Remove(2, Replace(4, 4, Reuse({2: Down(0)}), Up(Offset(6), Down(Offset(0, 2))))),
+    Remove(2, Replace(3, 3, Reuse({0: New(7), 1: New(2)}), RemoveAll())),
   Keep(1, Remove(3,
-    Fork(2, 2,
+    Replace(2, 2,
       Reuse({
         0: Reuse({
           0: New(7)}),
@@ -1088,9 +1089,9 @@ testBackPropagate(
 );
 
 testBackPropagate(
-  Remove(2, Fork(4, 4, Reuse({2: Down(0)}), Up(Offset(2)))),
-  Fork(3, 3, RemoveExcept(Offset(2, 1, 3), Reuse({0: New(7)})), Reuse()),
-    Keep(2, Remove(2, Fork(1, 1,
+  Remove(2, Replace(4, 4, Reuse({2: Down(0)}), Up(Offset(2)))),
+  Replace(3, 3, RemoveExcept(Offset(2, 1, 3), Reuse({0: New(7)})), Reuse()),
+    Keep(2, Remove(2, Replace(1, 1,
       Reuse({
         0: Reuse({
           0: New(7)})}),
@@ -1104,7 +1105,7 @@ testBackPropagate(
 )
 
 // TODO: It won't work with strings
-// That's because the Remove makes it so it thinks he has to recover the value of the Fork, instead of trying to back-propagate the Fork. Here, the Fork should be like Reuse and stop the building of the edit action, and give it back to back-propagation.
+// That's because the Remove makes it so it thinks he has to recover the value of the Replace, instead of trying to back-propagate the Replace. Here, the Replace should be like Reuse and stop the building of the edit action, and give it back to back-propagation.
 testBackPropagate(
   Remove(3, Keep(2, Remove(2))),
     Keep(1, Remove(3, Keep(1, Remove(2)))),
@@ -1132,7 +1133,7 @@ testBackPropagate(
 );
 
 step = Keep(5,  // "Hello"
-      Fork(6, 22,                      // " world"
+      Replace(6, 22,                      // " world"
         Insert(16,
           New(" big world, nice"),   // insertion
           Reuse()                    // " world"
@@ -1145,7 +1146,7 @@ shouldBeEqual(apply(step, "Hello world! ?"), "Hello big world, nice world! ??")
 testBackPropagate(
   Down(Offset(5, 4)),
   Down(Offset(0, 2)),
-  Keep(5, Fork(4, 2,
+  Keep(5, Replace(4, 2,
     Down(Offset(0, 2, 4)),
     Reuse())),
   "slice back-propagation 2"
@@ -1154,7 +1155,7 @@ testBackPropagate(
 testBackPropagate(
   Down(Offset(5, 4)),
   Down(Offset(2)),
-  Keep(5, Fork(4, 2,
+  Keep(5, Replace(4, 2,
     Down(Offset(2, 2, 4)),
     Reuse())),
   "slice back-propagation 3"
@@ -1175,7 +1176,7 @@ testBackPropagate(
   Down("b", Offset(2, 5)),
   Down(Offset(3, 2)),
   Reuse({
-  b: Keep(2, Fork(5, 2,
+  b: Keep(2, Replace(5, 2,
       Down(Offset(3, 2, 5)),
       Reuse()))}),
   "Slice backprop with one down"
@@ -1322,7 +1323,7 @@ testBackPropagate(
 testBackPropagate(
   Keep(4, Remove(1)),
   RemoveExcept(Interval(0, 6), Reuse({5: New(1)})),
-  Keep(5, Fork(2, 2,
+  Keep(5, Replace(2, 2,
     Reuse({
       1: New(1)}),
     RemoveAll())), "Concat to slice");
@@ -1384,33 +1385,33 @@ shouldBeEqual(
   , "remove #2"
 );
 shouldBeEqual(
-  andThen(Keep(1, Remove(3)), Keep(2, Remove(2))), Fork(2, 1,
+  andThen(Keep(1, Remove(3)), Keep(2, Remove(2))), Replace(2, 1,
   Keep(1, RemoveAll()),
   Remove(4)), "remove #5"
 );
 
 shouldBeEqual(
   merge(
-    Remove(1, Fork(4, 4, Reuse({0: New(0), 3: New(2)}), RemoveAll())),
-    Remove(3, Fork(5, 5, Reuse({0: New(1), 4: New(3)}), RemoveAll()))),
-    Remove(3, Fork(2, 2, Reuse({0: New(1), 1: New(2)}), RemoveAll())), "Merge two slices 1");
+    Remove(1, Replace(4, 4, Reuse({0: New(0), 3: New(2)}), RemoveAll())),
+    Remove(3, Replace(5, 5, Reuse({0: New(1), 4: New(3)}), RemoveAll()))),
+    Remove(3, Replace(2, 2, Reuse({0: New(1), 1: New(2)}), RemoveAll())), "Merge two slices 1");
 
 shouldBeEqual(
-  merge(Remove(3, Fork(5, 5, Reuse({0: New(1), 4: New(3)}), RemoveAll())),
-    Remove(1, Fork(4, 4, Reuse({0: New(0), 3: New(2)}), RemoveAll()))),
-  Remove(3, Fork(2, 2, Reuse({0: New(1), 1: New(2)}), RemoveAll())), "Merge two slices 2");
+  merge(Remove(3, Replace(5, 5, Reuse({0: New(1), 4: New(3)}), RemoveAll())),
+    Remove(1, Replace(4, 4, Reuse({0: New(0), 3: New(2)}), RemoveAll()))),
+  Remove(3, Replace(2, 2, Reuse({0: New(1), 1: New(2)}), RemoveAll())), "Merge two slices 2");
 
 shouldBeEqual(
   merge(
-    Remove(1, Fork(4, 4, Reuse({0: New(0), 3: New(2)}), RemoveAll())),
+    Remove(1, Replace(4, 4, Reuse({0: New(0), 3: New(2)}), RemoveAll())),
     Remove(3, Reuse({0: New(1), 4: New(3)}))),
-  Remove(3, Fork(2, 2, Reuse({0: New(1), 1: New(2)}), RemoveAll())), "Merge two slices 3");
+  Remove(3, Replace(2, 2, Reuse({0: New(1), 1: New(2)}), RemoveAll())), "Merge two slices 3");
 
 shouldBeEqual(
   merge(
     Remove(3, Reuse({0: New(1), 4: New(3)})),
-    Remove(1, Fork(4, 4, Reuse({0: New(0), 3: New(2)}), RemoveAll()))),
-  Remove(3, Fork(2, 2, Reuse({0: New(1), 1: New(2)}), RemoveAll())), "Merge two slices 4");
+    Remove(1, Replace(4, 4, Reuse({0: New(0), 3: New(2)}), RemoveAll()))),
+  Remove(3, Replace(2, 2, Reuse({0: New(1), 1: New(2)}), RemoveAll())), "Merge two slices 4");
 
 testMergeAndReverse(
   Remove(1, Keep(4, RemoveAll())),
@@ -1430,13 +1431,13 @@ testMergeAndReverse(
   Remove(5), "Merge two slices 10");
 
 testMergeAndReverse(
-  Remove(5), Fork(4, 3, New("abc"), Reuse()),
+  Remove(5), Replace(4, 3, New("abc"), Reuse()),
   Remove(5), "insertion removed");
 
 testMergeAndReverse(
   Remove(5),
-  Keep(5, Fork(0, 3, New("abc"), Reuse())),
-  Remove(5, Fork(0, 3, New("abc"), Reuse())), "insertion kept"
+  Keep(5, Replace(0, 3, New("abc"), Reuse())),
+  Remove(5, Replace(0, 3, New("abc"), Reuse())), "insertion kept"
 );
 testMergeAndReverse(
   Remove(5),
@@ -1472,17 +1473,17 @@ shouldBeEqual(
 );
 
 testMergeAndReverse(
-  Fork(8, 8, Reuse(), New("abc")),
-  Fork(9, 8, Remove(1), RemoveExcept(Offset(0, 1))),
-  Fork(8, 7,
+  Replace(8, 8, Reuse(), New("abc")),
+  Replace(9, 8, Remove(1), RemoveExcept(Offset(0, 1))),
+  Replace(8, 7,
   RemoveExcept(Interval(1, 8)),
   New("abc")),
   "Permutation and insertion again"
 );
 
 shouldBeEqual(
-  merge(Fork(5, 5, Reuse(), Remove(3)),
-        Fork(7, 7, Reuse(),
+  merge(Replace(5, 5, Reuse(), Remove(3)),
+        Replace(7, 7, Reuse(),
           Insert(3, New("abc")))),
   Keep(5, Remove(3))
 );
@@ -1856,7 +1857,7 @@ user = Reuse({
       2: Keep(17,
          Remove(1, Insert(1, New("\""),
          Remove(1, Insert(1, New("\""),
-         Fork(49, 49, 
+         Replace(49, 49, 
            Keep(45, Insert(1, New("\""), Remove(1))),
          Remove(1, Insert(1, New("\""),
          Keep(57,
@@ -1880,15 +1881,15 @@ shouldBeEqual(
   Reuse({array:
     Keep(2, Insert(5, Up(Offset(2), "array", Down("array2", 3)), RemoveAll()))})),
   Reuse({
-    array: Fork(2, 1,
+    array: Replace(2, 1,
       Keep(1, RemoveAll()),
       Insert(4, Up(Interval(2), "array", Down("array2", 3, Remove(1))), RemoveAll()))})
 );
 
-var editStep = Fork(5, 2, Custom(Reuse(),
+var editStep = Replace(5, 2, Custom(Reuse(),
     {name: "test",
      apply: x=>x.slice(0, 2),
-     update: outEdit => Fork(2, 2, outEdit, Reuse())}), Reuse());
+     update: outEdit => Replace(2, 2, outEdit, Reuse())}), Reuse());
 var applied = apply(editStep, [1, 2, 3, 4, 5, 6, 7]);
 
 testBackPropagate(
@@ -1916,7 +1917,7 @@ testBackPropagate(
 
 testBackPropagate(
   Reuse({2: Reuse({1: Keep(1, Insert(1, "\n"))})}),
-  Fork(3, 7, Keep(1, Insert(3, New([ "section",
+  Replace(3, 7, Keep(1, Insert(3, New([ "section",
                                  New([]),
                                  New([])]))),
                  Reuse()),
@@ -1928,7 +1929,7 @@ shouldBeEqual(editActions.diff(undefined, 1), New(1));
 shouldBeEqual(editActions.diff(undefined, [undefined], {maxCloneDown: 1}), New([Reuse()]))
 
 var step =
-  Fork(2, 2, New([Down(0),
+  Replace(2, 2, New([Down(0),
                   Down(1)]),
                 Reuse())
 
@@ -1936,7 +1937,7 @@ var edit =
   Reuse({0: New(42),
          1: New(54)});
 
-testBackPropagate(step, edit, Fork(2, 2, Reuse({0: New(42), 1: New(54)}), Reuse()));
+testBackPropagate(step, edit, Replace(2, 2, Reuse({0: New(42), 1: New(54)}), Reuse()));
 
 shouldBeEqual(merge(
              Insert(2, New([1, 2])),
@@ -1962,27 +1963,27 @@ shouldBeEqual(merge(
              Keep(2, New([1]))),
            Remove(1, Keep(1, New([1]))));
 shouldBeEqual(merge(
-             Fork(3, 3, Reuse({1: New(2)}), Reuse()),
-             Fork(2, 2, Reuse({0: New(1)}), Reuse())),
-           Fork(2, 2, Reuse({0: New(1), 1: New(2)}), Keep(1, Reuse())));
+             Replace(3, 3, Reuse({1: New(2)}), Reuse()),
+             Replace(2, 2, Reuse({0: New(1)}), Reuse())),
+           Replace(2, 2, Reuse({0: New(1), 1: New(2)}), Keep(1, Reuse())));
 shouldBeEqual(merge(
-             Fork(2, 2, Reuse({0: New(1)}), Reuse()),
-             Fork(3, 3, Reuse({1: New(2)}), Reuse())),
-           Fork(2, 2, Reuse({0: New(1), 1: New(2)}), Keep(1, Reuse())));
+             Replace(2, 2, Reuse({0: New(1)}), Reuse()),
+             Replace(3, 3, Reuse({1: New(2)}), Reuse())),
+           Replace(2, 2, Reuse({0: New(1), 1: New(2)}), Keep(1, Reuse())));
 
 var a = 
-  Fork(2, 2, Keep(1,
+  Replace(2, 2, Keep(1,
                 New("1")),
              Reuse());
 var b = 
   Keep(1,
-             Fork(1, 1, New("0"),
+             Replace(1, 1, New("0"),
              Reuse()));
 shouldBeEqual(andThen(b, a),
-  Fork(2, 2, Keep(1, New("0")), Reuse()));
+  Replace(2, 2, Keep(1, New("0")), Reuse()));
 
 // Weird test, hopefully we will NEVER have a New like that.
-var d = Fork(14, New({ 0: Down(0)  ,
+var d = Replace(14, New({ 0: Down(0)  ,
                        1: Down(1),
                        2: Down(2),
                        3: Down(4),
@@ -2009,7 +2010,7 @@ var m4 = Keep(3,
 var m5 = Keep(2,
            Remove(1, Insert(1, New("G"))));
 var m45 = andThen(m5, m4);
-shouldBeEqual(m45, Fork(3, 2,
+shouldBeEqual(m45, Replace(3, 2,
   Keep(2, RemoveAll()),
   Insert(2, "Gr")), "m45");
 var m345 = andThen(m45, m3);
@@ -2024,11 +2025,11 @@ var m6b = Keep(4, Remove(1, Insert(2, New(" w"))))
 var m7b = Keep(6, Insert(1, New("o")));
 var m8b = Keep(2, Remove(1, Insert(1, New("G"))));
 var m7b8b = andThen(m8b, m7b);
-shouldBeEqual(m7b8b, Fork(6, 6,
+shouldBeEqual(m7b8b, Replace(6, 6,
   Keep(2, RemoveExcept(Interval(1, 4), Insert(1, "G"))),
   Insert(1, "o")), "m7b8b");
 var m6b7b8b = andThen(m7b8b, m6b);
-shouldBeEqual(m6b7b8b, Fork(4, 4,
+shouldBeEqual(m6b7b8b, Replace(4, 4,
   Keep(2, RemoveExcept(Interval(1, 2), Insert(1, "G"))),
   Remove(1, Insert(3, " wo"))), "m6b7b8b");
 
@@ -2106,7 +2107,7 @@ var defaultDiffOptions = {findNextSimilar, onlyReuse: true,
    isCompatibleForReuseArray: (oldValue, newValue) => !editActions.isNode(oldValue) && !editActions.isNode(newValue)};
 
 testBackPropagate(
-  Fork(3, 3, New([Down(1), Down(2), Down(0)]), Reuse()),
+  Replace(3, 3, New([Down(1), Down(2), Down(0)]), Reuse()),
   Keep(2, 0, New(["Inserted"]), Reuse()),
   ReuseArray(0, New(["Inserted"]), Reuse()),
   "Insert in array after reordering");
@@ -2140,7 +2141,7 @@ diff(
   [["head", [], [["TEXT", "\n"],["script", [], []]]], ["TEXT", "\n"], ["body", [], [["script", [], []]]]],
   defaultDiffOptions
 ),
-Fork(1, 1, Reuse({0: Reuse({2: Keep(1, New.nested([["script", [], []]]))})}),
+Replace(1, 1, Reuse({0: Reuse({2: Keep(1, New.nested([["script", [], []]]))})}),
            0, New([New.nested(["TEXT", "\n"])]),
            1, Reuse({0: Reuse({2: New.nested([["script", [], []]])})}),
               New([])));*/
@@ -2205,8 +2206,8 @@ testBackPropagate(
 // Same tests without 
 
 testBackPropagate(
-    Fork(2, 2, Reuse({1: Up("1", Down( up, 3))}), Reuse({1: Up("1", Down( up, 4))})),
-    Fork(2, 2, Reuse({1: New(3)}), Reuse({1: New(4)}))
+    Replace(2, 2, Reuse({1: Up("1", Down( up, 3))}), Reuse({1: Up("1", Down( up, 4))})),
+    Replace(2, 2, Reuse({1: New(3)}), Reuse({1: New(4)}))
    ,Reuse({3: New(3), 4: New(4)}), "ReuseReuse");
 
 testBackPropagate(
@@ -2221,16 +2222,16 @@ testBackPropagate(
 
 testBackPropagate(
      Keep(2, Reuse({0: Up("0", Down( up, 5))})),
-     Fork(3, 3, Reuse({2: New(3)}), Reuse())
+     Replace(3, 3, Reuse({2: New(3)}), Reuse())
   , Reuse({5: New(3)}), "Split right backPropagateReuseArray");
 
 testBackPropagate(
      Keep(2, New([Down(up, 5)])),
-     Fork(3, 3, Reuse({2: New(3)}), Reuse())
+     Replace(3, 3, Reuse({2: New(3)}), Reuse())
   , Reuse({5: New(3)}), "Split right backPropagateReuseArray");
 
 testBackPropagate(
-     Fork(2, 2, Reuse({1: Up("1", Down( up, 5))}), Reuse()),
+     Replace(2, 2, Reuse({1: Up("1", Down( up, 5))}), Reuse()),
      Keep(1, Reuse({0: New(3)}))
   , Reuse({5: New(3)}), "Split left backPropagateReuseArray");
 
@@ -2296,38 +2297,38 @@ shouldBeEqual(andThen(
 // First cut before second cut, no overlap, only reuse
 shouldBeEqual(andThen(
      Keep(10, Reuse({1: New(3)})),
-     Fork(6, 6, Reuse({1: New(2)}), Reuse())
-  ), Fork(6, 6, Reuse({1: New(2)}), Keep(4, Reuse({1: New(3)}))), "andThen_ReuseArray2");
+     Replace(6, 6, Reuse({1: New(2)}), Reuse())
+  ), Replace(6, 6, Reuse({1: New(2)}), Keep(4, Reuse({1: New(3)}))), "andThen_ReuseArray2");
 
 
 // First cut after second cut, no overlap, only reuse
 shouldBeEqual(andThen(
-     Fork(6, 6, Reuse({1: New(3)}), Reuse()),
+     Replace(6, 6, Reuse({1: New(3)}), Reuse()),
      Keep(10, Reuse({1: New(2)}))
-  ), Fork(10, 10, ReuseArray(6, Reuse({1: New(3)}), Reuse()), Reuse({1: New(2)})), "andThen_ReuseArray3");
+  ), Replace(10, 10, ReuseArray(6, Reuse({1: New(3)}), Reuse()), Reuse({1: New(2)})), "andThen_ReuseArray3");
 
 // First cut before second cut, small overlap, only reuse
 shouldBeEqual(andThen(
-     Fork(10, 10, Reuse({9: New(3)}), Reuse()),
+     Replace(10, 10, Reuse({9: New(3)}), Reuse()),
      Keep(6, Reuse({1: New(2)}))
-  ), Keep(6, Fork(4, 4, Reuse({1: New(2), 3: New(3)}), Reuse())), "andThen_ReuseArray4");
+  ), Keep(6, Replace(4, 4, Reuse({1: New(2), 3: New(3)}), Reuse())), "andThen_ReuseArray4");
 
 // First cut after second cut, small overlap, only reuse
 shouldBeEqual(andThen(
      Keep(6, Reuse({1: New(2)})),
-     Fork(10, 10, Reuse({9: New(3)}), Reuse())
+     Replace(10, 10, Reuse({9: New(3)}), Reuse())
   ), ReuseArray(10, Keep(6, Reuse({1: New(2), 3: New(3)})), Reuse()), "andThen_ReuseArray5");
 
 // First cut before second cut, full overlap, only reuse
 shouldBeEqual(andThen(
-     Fork(10, 10, Reuse({7: Reuse({b: Up("b", Down( "a"))})}), Reuse()),
+     Replace(10, 10, Reuse({7: Reuse({b: Up("b", Down( "a"))})}), Reuse()),
      Keep(6, Reuse({1: New({a: New(2), b: New(3)})}))
-  ), Keep(6, Fork(4, 4, Reuse({1: New({a: New(2), b: New(2)})}), Reuse())), "andThen_ReuseArray6");
+  ), Keep(6, Replace(4, 4, Reuse({1: New({a: New(2), b: New(2)})}), Reuse())), "andThen_ReuseArray6");
 
 // First cut after second cut, full overlap, only reuse
 shouldBeEqual(andThen(
      Keep(6, Reuse({1: Reuse({b: Up("b", Down( "a"))})})),
-     Fork(10, 10, Reuse({7: New({a: New(2), b: New(3)})}), Reuse())
+     Replace(10, 10, Reuse({7: New({a: New(2), b: New(3)})}), Reuse())
   ), ReuseArray(10, Keep(6, Reuse({1: New({ a: 2, b: 2})})), Reuse()), "andThen_ReuseArray7");
 
 // Reaching outside of ReuseArray after deletion
@@ -2355,8 +2356,8 @@ shouldBeEqual(andThen(
 
 shouldBeEqual(andThen(
      Keep(5, Remove(1)), // 2. Keep first 5 els, remove 6th
-     Fork(1, 1, Reuse({0: New(1)}), Reuse())               // 1. Replace first element
-  ), Fork(1, 1, Reuse({0: New(1)}), Keep(4, Remove(1))), "andThen_ReuseArrayRemove4");
+     Replace(1, 1, Reuse({0: New(1)}), Reuse())               // 1. Replace first element
+  ), Replace(1, 1, Reuse({0: New(1)}), Keep(4, Remove(1))), "andThen_ReuseArrayRemove4");
 
 // If first action is a New, then result should be the computation of applying the edit action
 shouldBeEqual(andThen(
@@ -2367,7 +2368,7 @@ shouldBeEqual(andThen(
 // If second action is a New, then result should be a New as well
 shouldBeEqual(andThen(
      New([Down(3)]),
-     Keep(3, Fork(1, 1, Reuse({0: Up("0", Down( 1))}), Reuse()))
+     Keep(3, Replace(1, 1, Reuse({0: Up("0", Down( 1))}), Reuse()))
   ), New([Down(1)]));
 //--------------------
 
