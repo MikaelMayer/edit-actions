@@ -518,7 +518,7 @@ var editActions = {};
       case Type.Reuse:
         return Reuse(mapChildren(editAction.childEditActions, (k, c) => first(c)));
       case Type.Concat:
-        return Concat(editAction.count, first(editAction.first), first(editAction.second), editAction.forkAt);
+        return Concat(editAction.count, first(editAction.first), first(editAction.second), editAction.forkAt, editAction.firstReuse, editAction.secondReuse);
       case Type.Up:
         return Up(editAction.keyOrOffset, first(editAction.subAction));
       case Type.Down:
@@ -2892,29 +2892,47 @@ Assuming ?1 = apply(E0, r, rCtx)
         break merge_cases;
       }
       
+      let E1IsContactNotFork = E1.ctor == Type.Concat && !isFork(E1);
+      let E2IsContactNotFork = E2.ctor == Type.Concat && !isFork(E2);
+      if(E1IsContactNotFork && E2IsContactNotFork) {
+        if(!E1.firstReuse && !E1.secondReuse && !E2.firstReuse && !E2.secondReuse) {
+          result.push(E1);
+          result.push(E2);
+          break merge_cases;
+        }
+      }
       // A regular Concat is like a New.
       // We only merge children that have reuse in them. The other ones, we don't merge.
-      if(E1.ctor == Type.Concat && !isFork(E1)) {
-        let newLeft = E1.firstReuse || isReusingBelow(E1.first) ? merge(E1.first, E2, multiple) : E1.first;
+      let E1IsConcatReuse = E1IsContactNotFork && (E1.firstReuse || E1.secondReuse);
+      if(E1IsConcatReuse) {
+        let newLeft = E1.firstReuse ? merge(E1.first, E2, multiple) : E1.first;
         let newLeftLength = outLength(newLeft);
         if(newLeftLength === undefined) newLeftLength = E1.count;
         result.push(
           Concat(newLeftLength, newLeft,
-                 E1.secondReuse || isReusingBelow(E1.second) ? merge(E1.second, E2, multiple) : E1.second, undefined, E1.firstReuse, E1.secondReuse));
+                 E1.secondReuse ? merge(E1.second, E2, multiple) : E1.second, undefined, E1.firstReuse, E1.secondReuse));
       }
-      if(E2.ctor == Type.Concat && !isFork(E2)) {
-        let newLeft = E2.firstReuse || isReusingBelow(E2.first) ? merge(E1, E2.first, multiple) : E2.first;
+      let E2IsConcatReuse = E2IsContactNotFork && (E2.firstReuse || E2.secondReuse);
+      if(E2IsConcatReuse) {
+        let newLeft = E2.firstReuse ? merge(E1, E2.first, multiple) : E2.first;
         let newLeftLength = outLength(newLeft);
         if(newLeftLength === undefined) newLeftLength = E2.count;
         result.push(
           Concat(newLeftLength, newLeft,
-                 E2.secondReuse || isReusingBelow(E2.second) ? merge(E1, E2.second, multiple) : E2.second, undefined, E2.firstReuse, E2.secondReuse));
+                 E2.secondReuse ? merge(E1, E2.second, multiple) : E2.second, undefined, E2.firstReuse, E2.secondReuse));
       }
-      if(E1.ctor == Type.Concat && !isFork(E1) || E2.ctor == Type.Concat && !isFork(E2)) {
-        // At least one solution pushed.
-        break merge_cases;
+      if(!E1IsConcatReuse && !E2IsConcatReuse) {
+        if(E1IsContactNotFork) {
+          result.push(E1);
+        }
+        if(E2IsContactNotFork) {
+          result.push(E2);
+        }
+        if(E1IsContactNotFork || E2IsContactNotFork) {
+          break merge_cases;
+        }
       }
-      // Ok so no more New or Concat.
+      // If nothing was added, it means that:
       
       // We will deal with RemoveExcept later. Let's deal with regular Down
       // For now, it looks like
@@ -3786,7 +3804,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         printDebug("Empty")
         if(E.ctor == Type.Concat) {
           let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, E.count), E, ECtx);
-          let [ERight, ECtxright]= walkDownActionCtx(Offset(E.count), E, ECtx);
+          let [ERight, ECtxRight]= walkDownActionCtx(Offset(E.count), E, ECtx);
           solution = Reuse();
           subProblems.push([ELeft, U, ECtxLeft]);
           subProblems.push([ERight, U, ECtxRight]);
@@ -3837,7 +3855,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, inCount), E, ECtx);
         subProblems.push([ELeft, left, ECtxLeft]);
         let [ERight, ECtxRight] = walkDownActionCtx(Offset(inCount), E, ECtx);
-        subProblems.push(ERight, right, ECtxRight);
+        subProblems.push([ERight, right, ECtxRight]);
       }
     } else {
     // At this point, we have New, Up, Down, and Concats.
@@ -3849,6 +3867,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     if(editActions.__debug && !isIdentity(solution)) {
       console.log("intermediate solution:\n"+stringOf(solution));
     }
+    printDebug("subProblems:", subProblems);
     for(let [E, U, ECtx] of subProblems) {
       solution = merge(solution, backPropagate(E, U, ECtx));
     }

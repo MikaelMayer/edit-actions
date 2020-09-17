@@ -604,15 +604,15 @@ testAndThen(
 // => [d, c, e, d]
   
 testAndThen(
-  Insert(1, New([Up(Offset(0, 0), Down(0))]), Reuse()),
-  Insert(1, New([Up(Offset(0, 0), Down(5))]), Reuse()),
+  Insert(1, New([Down(0)])),
+  Insert(1, New([Down(5)])),
   ["a", "b", "c", "d", "e", "f"]
 );
 // = Insert(1, New([Down(5)]),Insert(1, Down(Offset(0, 0), New([Up(Offset(0, 0), Down(5))])),Reuse()))
 
 testAndThen(
-  Keep(2, Insert(1, New([Up(Offset(2, 0), Down(0))]), Reuse())),
-  Insert(1, New([Up(Offset(0, 0), Down(5))]), Reuse()),
+  Keep(2, Insert(1, New([Up(Offset(2), Down(0))]), Reuse())),
+  Insert(1, New([Down(5)]), Reuse()),
   ["A", "B", "C", "D", "E", "F", "G"]
 );
 
@@ -678,7 +678,7 @@ shouldBeEqual(
     Reuse({a: Keep(1, Insert(2, New([8, 9])))}),
     Reuse({a: Concat(0, Up("a", Down("b")), New([1, 2]))})),
     Reuse({
-  a: Concat(1,  Concat(0, Up("a", Down("b")), New([1])), Concat(2, Down(Offset(0, 0), New([8, 9])), New([2])))})
+  a: Concat(1,  Concat(0, Up("a", Down("b")), New([1, 8, 9, 2])))})
 );
 
 /* // Todo: make it work.
@@ -845,7 +845,7 @@ shouldBeEqual(
     Insert(2, "ab"),
     Remove(3)
   ),
-  Remove(3)
+  Insert(2, "ab", Remove(3))
 );
 
 shouldBeEqual(
@@ -973,10 +973,10 @@ testBackPropagate(
 )
 
 testBackPropagate(
-  Insert(1, New("a"), Reuse()),
+  Insert(1, New("a")),
     Keep(2, Insert(3, New("abc"))),
   Keep(1, Insert(3, New("abc")))
-)
+);
 
 testBackPropagate(
   Reuse({c: Down(Offset(10))}),
@@ -1436,7 +1436,7 @@ testMergeAndReverse(
 testMergeAndReverse(
   Remove(5),
   Keep(5, Fork(0, 3, New("abc"), Reuse())),
-  Remove(5, Insert(3, New("abc"), Reuse())), "insertion kept"
+  Remove(5, Fork(0, 3, New("abc"), Reuse())), "insertion kept"
 );
 testMergeAndReverse(
   Remove(5),
@@ -1450,10 +1450,12 @@ testMergeAndReverse(
   Remove(3),
   Remove(4, Insert(8, New("inserted"))), "merge concat Remove");
 
-testMergeAndReverse(
+testMerge(
   Insert(3, New("abc")),
-  Concat(2, RemoveExcept(Offset(3, 2)),RemoveExcept(Offset(0, 3))),
-  Concat(2, RemoveExcept(Interval(3, 5)), RemoveExcept(Interval(0, 3), Insert(3, "abc"))),
+  Insert(2, Down(Offset(3, 2)), RemoveExcept(Offset(0, 3))),
+  Choose(
+    Insert(3, "abc", Insert(2, Down(Interval(3, 5)), RemoveExcept(Interval(0, 3)))),
+    Insert(2, Down(Interval(3, 5)), Insert(3, "abc", RemoveExcept(Interval(0, 3))))),
   "Permutation and insertion 1");
 
 testMergeAndReverse(
@@ -1839,14 +1841,11 @@ testBackPropagate(
   Keep(20, Remove(1, Insert(1, "\"")))
 , "Concat Multiple");
 
-// Until Insert is not encoded as a Concat where only the second element is reused, this test will fail.
-// merge(Insert(1, "\""), Remove(1)) == Remove(1) because the second Remove will remove the left part of the Fork of Insert
-/*n();
 testBackPropagate(
   Keep(4, Remove(1, Keep(2, Remove(2)))),
   Keep(17, Insert(1, "\"", Remove(1))),
   Keep(20, Insert(1, "\"", Remove(1)))
-, "Concat Multiple 2");*/
+, "Concat Multiple 2");
 
 
 step = Reuse({
@@ -1869,21 +1868,11 @@ user = Reuse({
          Keep(3,
          Remove(1, Insert(1, New("\""),
 ))))))))))))))))))))})});
-s();
+
 testBackPropagate(step, user,
   Reuse({
     1: Reuse({
-      2: Keep(20,
-         Remove(1, Insert(1, New("\""),
-         Remove(1, Insert(1, New("\""),
-         Fork(49, 49, 
-           Keep(45, Insert(1, New("\""), Remove(1))),
-         Remove(1, Insert(1, New("\""),
-         Remove(1, Insert(1, New("\""),
-         Remove(1, Insert(1, New("\""),
-         Remove(1, Insert(1, New("\""),
-         Remove(1, Insert(1, New("\"")
-))))))))))))))))})}), "editActionOutLength == 0");
+      2: Keep(20, Remove(1, Insert(1, "\"", Remove(1, Insert(1, "\"", Keep(45, Insert(1, "\"", Remove(1, Keep(3, Remove(1, Insert(1, "\"", Keep(57, Remove(1, Insert(1, "\"", Keep(3, Remove(1, Insert(1, "\"", Keep(46, Remove(1, Insert(1, "\"", Keep(3, Remove(1, Insert(1, "\"")))))))))))))))))))))))})}), "editActionOutLength == 0");
 e();
 
 /*
@@ -2252,7 +2241,13 @@ ReuseArray(1, Reuse({0: Reuse({2: ReuseArray(1, Reuse(), New.nested([["script", 
            0, New([New.nested(["TEXT", "\n"])]),
            1, Reuse({0: Reuse({2: New.nested([["script", [], []]])})}),
               New([])));*/
-
+function testMerge(edit1, edit2, expectedResult, name) {
+  shouldBeEqual(
+    merge(
+      edit1, edit2
+    ), expectedResult, name
+  );
+}
 function testMergeAndReverse(edit1, edit2, expectedResult, name) {
   shouldBeEqual(
     merge(
