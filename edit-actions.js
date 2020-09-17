@@ -2821,7 +2821,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         if(newLeftLength === undefined) newLeftLength = E1.count;
         result.push(
           Concat(newLeftLength, newLeft,
-                 E1.secondReuse || isReusingBelow(E1.second) ? merge(E1.second, E2, multiple) : E1.second));
+                 E1.secondReuse || isReusingBelow(E1.second) ? merge(E1.second, E2, multiple) : E1.second, undefined, E1.firstReuse, E1.secondReuse));
       }
       if(E2.ctor == Type.Concat && !isFork(E2)) {
         let newLeft = E2.firstReuse || isReusingBelow(E2.first) ? merge(E1, E2.first, multiple) : E2.first;
@@ -2829,7 +2829,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         if(newLeftLength === undefined) newLeftLength = E2.count;
         result.push(
           Concat(newLeftLength, newLeft,
-                 E2.secondReuse || isReusingBelow(E2.second) ? merge(E1, E2.second, multiple) : E2.second));
+                 E2.secondReuse || isReusingBelow(E2.second) ? merge(E1, E2.second, multiple) : E2.second, E2.firstReuse, E2.secondReuse));
       }
       if(E1.ctor == Type.Concat && !isFork(E1) || E2.ctor == Type.Concat && !isFork(E2)) {
         // At least one solution pushed.

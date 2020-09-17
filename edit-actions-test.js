@@ -10,7 +10,6 @@ shouldBeEqual(
 shouldBeEqual(
   stringOf(InsertRight(3, Insert(1, "d"), New("abc"))), "InsertRight(3, \n  Insert(1, \"d\"),\n  \"abc\")" 
 );
-e();
 
 n();
 // It does not work because the second removes the character on which the first was inserted.
