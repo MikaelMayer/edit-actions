@@ -10,8 +10,24 @@ shouldBeEqual(
 shouldBeEqual(
   stringOf(InsertRight(3, Insert(1, "d"), New("abc"))), "InsertRight(3, \n  Insert(1, \"d\"),\n  \"abc\")" 
 );
+shouldBeEqual(
+  andThen(
+    Insert(3, New("abc")),
+    Insert(2, New("de"))
+  ),
+  Insert(3, New("abc"), Insert(2, "de"))
+);
+shouldBeEqual(
+  andThen(
+    Reuse({
+      0: New(1),
+      3: New(2)
+    }),
+    Insert(2, New([New(0), New(3)]))
+  ),
+  Insert(2, New([New(1), New(3)]), Reuse({1: New(2)}))
+);
 
-n();
 // It does not work because the second removes the character on which the first was inserted.
 // When Insert is a simple Concat, it should be easier.
 testMergeAndReverse(

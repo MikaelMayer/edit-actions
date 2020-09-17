@@ -663,22 +663,19 @@ var editActions = {};
   editActions.ReuseKeyOrOffset = ReuseKeyOrOffset;
   
   function isKeepInsertRemove(editAction) {
-    return isRemove(editAction) ||
+    return isRemoveExcept(editAction) ||
       isInsert(editAction) ||
       isKeep(editAction) ||
       isIdentity(editAction);
   }
   function isRemove(editAction) {
-    let [inCount, outCount, first, second] = argumentsIfFork(editAction);
-    return second !== undefined && outCount == 0 && inCount != 0;
+    return isRemoveExcept(editAction) && editAction.keyOrOffset.newLength === undefined;
   }
   function isInsert(editAction) {
-    let [inCount, outCount, first, second] = argumentsIfFork(editAction);
-    return second !== undefined && inCount == 0 && outCount > 0;
+    return typeof editAction == "object" && editAction.ctor == Type.Concat && editAction.secondReuse && !editAction.firstReuse && editAction.forkAt === undefined;
   }
   function isInsertRight(editAction) {
-    return editAction.ctor == Type.Concat &&
-    isKeepInsertRemove(editAction.first);
+    return typeof editAction == "object" && editAction.ctor == Type.Concat && editAction.firstReuse && !editAction.secondReuse && editAction.forkAt === undefined;
   }
   function isKeep(editAction) {
     let [inCount, subAction] = argumentsIfKeep(editAction);
@@ -1179,7 +1176,7 @@ var editActions = {};
         console.log("Filling Concat("+secondAction.count+", ... , |)", secondAction.count);
       }
       let newSecondSecond = recurse(secondAction.second, firstAction, firstActionContext);
-      return Concat(secondAction.count, newSecondFirst, newSecondSecond);
+      return Concat(secondAction.count, newSecondFirst, newSecondSecond, undefined, secondAction.firstReuse, secondAction.secondReuse);
       // firstAction is Reuse, New, Custom, Concat, UseResult or Sequence
       // secondAction is Up, Down, Reuse, New, UseResult or Sequence
     } else if(firstAction.ctor == Type.Sequence) {
@@ -1494,7 +1491,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         }
         let newSecond = recurse(Reuse(rightChildren), firstAction.second, AddContext(Offset(firstAction.count), firstAction, firstActionContext));
         
-        return Concat(firstAction.count, newFirst, newSecond, firstAction.forkAt);
+        return Concat(firstAction.count, newFirst, newSecond, firstAction.forkAt, firstAction.firstReuse, firstAction.secondReuse);
       } else {
         // Anything else, we could use Custom.
         /** Proof 
@@ -1832,9 +1829,15 @@ Assuming ?1 = apply(E0, r, rCtx)
         if(inCount1 == n) return editAction;
         if(inCount1 < n) return Fork(inCount1, outCount1, left1, makeSplitInCompatibleAt(n-inCount1, right1));
         if(inCount1 > n) return Fork(inCount1, outCount1, makeSplitInCompatibleAt(n, left1), right1);
-      } else { // Not a Fork, just a concat. We look for if one side is reusing like New
-        result.push(Insert(outCount1, Up(Offset(0, 0), editAction.first), makeSplitInCompatibleAt(editAction.second)));
-        return result;
+      } else if(editAction.firstReuse || editAction.secondReuse) { // An insertRight or and insertLeft
+        if(editAction.secondReuse) {
+          return Insert(editAction.count, editAction.first, makeSplitInCompatibleAt(editAction.second));
+        } else if(editAction.firstReuse) {
+          return InsertRight(editAction.count, makeSplitInCompatibleAt(editAction.first), editAction.second);
+        }
+      } else {
+        // Not a Fork, nor an insert or an insertRight. We just treat it like an insert.
+        return Insert(outCount1, editAction.first, makeSplitInCompatibleAt(editAction.second));
       }
     } else if(isRemoveExcept(editAction)) {
       let {keyOrOffset: {offset, newLength, oldLength}, subAction: e} = editAction;
@@ -1914,6 +1917,18 @@ Assuming ?1 = apply(E0, r, rCtx)
             QED;
         */
         return [outCount2, left1, Fork(inCount - n, outCount-outCount2, left2, right)];
+      }
+    }
+    if(isInsert(editAction)) {
+      let [o2, l2, r2] = splitIn(count, editAction.second);
+      if(r2 !== undefined) {
+        return [o2 + editAction.count, Insert(editAction.count, UpIfNecessary(Offset(0, 0), editAction.first), l2), r2];
+      }
+    }
+    if(isInsertRight(editAction)) {
+      let [o2, l2, r2] = splitIn(count, editAction.first);
+      if(r2 !== undefined) {
+        return [o2, l2, InsertRight(editAction.count, UpIfNecessary(Offset(0, 0), r2), editAction.second)]
       }
     }
     if(editAction.ctor == Type.Reuse) {
@@ -2829,7 +2844,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         if(newLeftLength === undefined) newLeftLength = E2.count;
         result.push(
           Concat(newLeftLength, newLeft,
-                 E2.secondReuse || isReusingBelow(E2.second) ? merge(E1, E2.second, multiple) : E2.second, E2.firstReuse, E2.secondReuse));
+                 E2.secondReuse || isReusingBelow(E2.second) ? merge(E1, E2.second, multiple) : E2.second, undefined, E2.firstReuse, E2.secondReuse));
       }
       if(E1.ctor == Type.Concat && !isFork(E1) || E2.ctor == Type.Concat && !isFork(E2)) {
         // At least one solution pushed.
@@ -3507,14 +3522,9 @@ Assuming ?1 = apply(E0, r, rCtx)
     return action;
   }
   
-  function ActionContextWithInitUp(ECtx = undefined, initUp = Reuse()) {
-    return {ctx: ECtx, initUp: initUp};
-  }
-  
   /* Returns [e', subs, initUp] where
-     e' is an edit built from U suitable to apply onthe entire array.
+     e' is an edit built from U suitable to apply on the given context.
      subs are the sub back-propagation problems to solve and merge to the final result
-     initUp is the path to apply ReuseUp on
      */
   function partitionEdit(E, U, ECtx) {
     if(editActions.__debug) {
@@ -3597,7 +3607,7 @@ Assuming ?1 = apply(E0, r, rCtx)
       }
       let [F1, next1] = partitionEdit(E, U.first, ECtx);
       
-      return [Concat(U.count, F1, F2), next1.concat(next2), ECtx];
+      return [Concat(U.count, F1, F2, undefined, U.firstReuse, U.secondReuse), next1.concat(next2), ECtx];
     }
     throw "Case not supported in partitionEdit: " + stringOf(U);
   }
@@ -3702,6 +3712,7 @@ Assuming ?1 = apply(E0, r, rCtx)
       }
       return result;
     }
+    let solution = Reuse(), subProblems = [];
     // A hybrid possiblity is to have a first-level Down(Offset(m, n, o), R) where either o is known, or the edit action is a Concat, i.e. we are in a Fork. In this case, we want to remove [0, m] and [n, ...], and continue back-propagating in R, but not treat Forks are actions to rebuild something.
     if(isRemoveExcept(U)) {
       printDebug("removeExcept case")
@@ -3712,70 +3723,66 @@ Assuming ?1 = apply(E0, r, rCtx)
         if(E.ctor == Type.Concat) {
           let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, E.count), E, ECtx);
           let [ERight, ECtxright]= walkDownActionCtx(Offset(E.count), E, ECtx);
-          return merge(
-            backPropagate(ELeft, U, ECtxLeft),
-            backPropagate(ERight, U, ECtxright),
-          )
+          solution = Reuse();
+          subProblems.push([ELeft, U, ECtxLeft]);
+          subProblems.push([ERight, U, ECtxRight]);
+        } else {
+          printDebug("Solving sub-problem first", U)
+          let [EEmpty, ECtxEmpty] = walkDownActionCtx(U.keyOrOffset, E, ECtx);
+          subProblems.push([EEmpty, U.subAction, ECtxEmpty]);
+          if(E.ctor == Type.Reuse) {
+            printDebug("we prefix with a Reuse the RemoveAll");
+            solution = prefixReuse(ECtx, RemoveAll(Reuse(), oldLength));
+          }
         }
-        printDebug("Solving sub-problem first", U)
-        let [EEmpty, ECtxEmpty] = walkDownActionCtx(U.keyOrOffset, E, ECtx);
-        let solution = backPropagate(EEmpty, U.subAction, ECtxEmpty);
-        if(E.ctor == Type.Reuse) {
-          printDebug("we prefix with a Reuse the RemoveAll")
-          solution = merge(solution, prefixReuse(ECtx, RemoveAll(Reuse(), oldLength)));
+      } else {
+        printDebug("Walking down the context by ", U.keyOrOffset);
+        let [EMiddle, ECtxMiddle] = walkDownActionCtx(U.keyOrOffset, E, ECtx);
+        subProblems.push([EMiddle, U.subAction, ECtxMiddle]);
+        // We start by taking the change made below.
+        let finalResult = backPropagate(EMiddle, U.subAction, ECtxMiddle);
+        // If we removed the left part, we try to find what we removed.
+        if(count > 0) {
+          let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, count), E, ECtx);
+          subProblems.push([ELeft, RemoveAll(Reuse(), count), ECtxLeft]);
         }
-        return solution;
+        // If we removed the right part, we try to find what we removed.
+        // Careful, if count + newLength == 0
+        if(newLength !== undefined && LessThanUndefined(count + newLength, oldLength) && count + newLength > 0) {
+          let [ERight, ECtxRight] = walkDownActionCtx(Offset(count + newLength), E, ECtx);
+          subProblems.push([ERight, RemoveAll(Reuse(), MinusUndefined(oldLength, count + newLength)), ECtxRight]);
+        }
       }
-      printDebug("Walking down the context by ", U.keyOrOffset);
-      let [EMiddle, ECtxMiddle] = walkDownActionCtx(U.keyOrOffset, E, ECtx);
-      printDebug("Recovering change below");
-      // We start by taking the change made below.
-      let finalResult = backPropagate(EMiddle, U.subAction, ECtxMiddle);
-      // If we removed the left part, we try to find what we removed.
-      if(count > 0) {
-        did = true;
-        let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, count), E, ECtx);
-        finalResult = merge(finalResult,
-          backPropagate(ELeft, RemoveAll(Reuse(), count), ECtxLeft)
-        );
-      }
-      // If we removed the right part, we try to find what we removed.
-      // Careful, if count + newLength == 0
-      if(newLength !== undefined && LessThanUndefined(count + newLength, oldLength) && count + newLength > 0) {
-        let [ERight, ECtxRight] = walkDownActionCtx(Offset(count + newLength), E, ECtx);
-        finalResult = merge(finalResult,
-          backPropagate(ERight, RemoveAll(Reuse(), MinusUndefined(oldLength, count + newLength)), ECtxRight));
-      }
-      return finalResult;
-    }
-    let [inCount, outCount, left, right] = argumentsIfFork(U);
-    if(right !== undefined) {
+    } else if(isInsert(U)) {
+      let [s, probs, newECtx] = partitionEdit(E, U.first, ECtx);
+      // Now we prefix action with the Reuse and ReuseOffset from the context and call it a solution.
+      solution = prefixReuse(newECtx, Insert(U.count, s));
+      subProblems.push([E, U.second, ECtx], ...probs);
+    } else if(isInsertRight(U)) {
+      let [s, probs, newECtx] = partitionEdit(E, U.second, ECtx);
+      solution = prefixReuse(newECtx, InsertRight(U.count, s));
+      subProblems.push([E, U.first, ECtx], ...probs);
+      // Now we prefix action with the Reuse and ReuseOffset from the context and call it a solution.
+    } else if(isFork(U)) {
+      let [inCount, outCount, left, right] = argumentsIfFork(U);
       let [inCountE, outCountE, leftE, rightE] = argumentsIfFork(E);
       if(rightE !== undefined && outCountE == 0) {
         // Whatever the fork of the user, it does not touch the left portion.
-        return backPropagate(E.second, U, ECtx);
+        subProblems.push([E.second, U, ECtx]);
+      } else {
+        let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, inCount), E, ECtx);
+        subProblems.push([ELeft, left, ECtxLeft]);
+        let [ERight, ECtxRight] = walkDownActionCtx(Offset(inCount), E, ECtx);
+        subProblems.push(ERight, right, ECtxRight);
       }
-      // Let's try to split the user's action, if possible.
-      /*let [outCountU, leftU, rightU] = splitIn(outCountE, U);
-      if(rightU !== undefined && false && editActions.__debug) {
-        let resultLeft = backPropagate(leftE, leftU, Up(Offset(0, inCountE), ECtx));
-        let resultRight = backPropagate(rightE, rightU, Up(Offset(inCountE), ECtx));
-        return merge(resultLeft, resultRight);
-      } else {*/
-      let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, inCount), E, ECtx);
-      let resultLeft = backPropagate(ELeft, left, ECtxLeft);
-      let [ERight, ECtxRight] = walkDownActionCtx(Offset(inCount), E, ECtx);
-      let resultRight = backPropagate(ERight, right, ECtxRight);
-      return merge(resultLeft, resultRight);
-      //}
-    }
-    
-    // TODO: If edit action is Up or Down, we walk it before continuing. When we wrap something, we wrap it where it is directly.
+    } else {
     // At this point, we have New, Up, Down, and Concats.
-    let [solution, subProblems, newECtx] = partitionEdit(E, U, ECtx);
+      [s, probs, newECtx] = partitionEdit(E, U, ECtx);
+      solution = prefixReuse(newECtx, s);
+      subProblems = probs;
+    }
     // Now we prefix action with the Reuse and ReuseOffset from the context and call it a solution.
-    solution = prefixReuse(newECtx, solution);
-    if(editActions.__debug) {
+    if(editActions.__debug && !isIdentity(solution)) {
       console.log("intermediate solution:\n"+stringOf(solution));
     }
     for(let [E, U, ECtx] of subProblems) {
