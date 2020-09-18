@@ -2881,6 +2881,8 @@ shouldBeEqual(
   )
 )
 
+finishTests();
+
 function finishTests(temp) {
   if(incompleteLines.length > 0) {
     console.log("These tests were reduced for easier debug, please expand them for full test:")

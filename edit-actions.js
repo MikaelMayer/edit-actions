@@ -2733,8 +2733,8 @@ Assuming ?1 = apply(E0, r, rCtx)
   
   // Merge function, but with logs of outputs
   function addLogMerge(fun) {
-    return function(E1, E2, multiple = false) {
-      let res = fun(E1, E2, multiple);
+    return function(E1, E2) {
+      let res = fun(E1, E2);
       if(editActions.__debug) {
         console.log("  merge returns");
         console.log(addPadding("  " + stringOf(E1), "  "));
@@ -2816,7 +2816,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     UR: UseResult
   */
   // Action resulting if we applied E1 and E2 in parallel and merged the result.
-  var merge = addLogMerge(function mergeRaw(E1, E2, multiple = false) {
+  var merge = addLogMerge(function mergeRaw(E1, E2) {
     if(editActions.__debug) {
       console.log("merge");
       editActions.debug(E1);
@@ -2826,10 +2826,10 @@ Assuming ?1 = apply(E0, r, rCtx)
     if(typeof E1 !== "object") E1 = New(E1);
     if(typeof E2 !== "object") E2 = New(E2);
     if(E1.ctor == Type.Choose) {
-      return Choose(...Collection.map(E1.subActions, x => merge(x, E2, multiple)));
+      return Choose(...Collection.map(E1.subActions, x => merge(x, E2)));
     }
     if(E2.ctor == Type.Choose) {
-      return Choose(...Collection.map(E2.subActions, x => merge(E1, x, multiple)));
+      return Choose(...Collection.map(E2.subActions, x => merge(E1, x)));
     }
     let result = [];
     merge_cases: {
@@ -2869,12 +2869,12 @@ Assuming ?1 = apply(E0, r, rCtx)
       // We only merge children that have reuse in them. The other ones, we don't merge.
       if(E1.ctor == Type.New) {
         if(isReusingBelow(E1)) {
-          result.push(New(mapChildren(E1.childEditActions, (k, c) => isReusingBelow(c) ? merge(c, E2, multiple) : c), E1.model));
+          result.push(New(mapChildren(E1.childEditActions, (k, c) => isReusingBelow(c) ? merge(c, E2) : c), E1.model));
         }
       }
       if(E2.ctor == Type.New) {
         if(isReusingBelow(E2)) {
-          result.push(New(mapChildren(E2.childEditActions, (k, c) => isReusingBelow(c) ? merge(E1, c, multiple) : c), E2.model));
+          result.push(New(mapChildren(E2.childEditActions, (k, c) => isReusingBelow(c) ? merge(E1, c) : c), E2.model));
         }
       }
       // Everything that does not reuse overrides everything that does reuses.
@@ -2921,21 +2921,21 @@ Assuming ?1 = apply(E0, r, rCtx)
       // We only merge children that have reuse in them. The other ones, we don't merge.
       let E1IsConcatReuse = E1IsContactNotReplace && (E1.firstReuse || E1.secondReuse);
       if(E1IsConcatReuse) {
-        let newLeft = E1.firstReuse ? merge(E1.first, E2, multiple) : E1.first;
+        let newLeft = E1.firstReuse ? merge(E1.first, E2) : E1.first;
         let newLeftLength = outLength(newLeft);
         if(newLeftLength === undefined) newLeftLength = E1.count;
         result.push(
           Concat(newLeftLength, newLeft,
-                 E1.secondReuse ? merge(E1.second, E2, multiple) : E1.second, undefined, E1.firstReuse, E1.secondReuse));
+                 E1.secondReuse ? merge(E1.second, E2) : E1.second, undefined, E1.firstReuse, E1.secondReuse));
       }
       let E2IsConcatReuse = E2IsContactNotReplace && (E2.firstReuse || E2.secondReuse);
       if(E2IsConcatReuse) {
-        let newLeft = E2.firstReuse ? merge(E1, E2.first, multiple) : E2.first;
+        let newLeft = E2.firstReuse ? merge(E1, E2.first) : E2.first;
         let newLeftLength = outLength(newLeft);
         if(newLeftLength === undefined) newLeftLength = E2.count;
         result.push(
           Concat(newLeftLength, newLeft,
-                 E2.secondReuse ? merge(E1, E2.second, multiple) : E2.second, undefined, E2.firstReuse, E2.secondReuse));
+                 E2.secondReuse ? merge(E1, E2.second) : E2.second, undefined, E2.firstReuse, E2.secondReuse));
       }
       if(!E1IsConcatReuse && !E2IsConcatReuse) {
         if(E1IsContactNotReplace) {
@@ -2953,18 +2953,18 @@ Assuming ?1 = apply(E0, r, rCtx)
       // We will deal with RemoveExcept later. Let's deal with regular Down
       // For now, it looks like
       if(E1.ctor == Type.Down && E2.ctor == Type.Down && keyOrOffsetAreEqual(E1.keyOrOffset) && (isRemoveExcept(E1) == isRemoveExcept(E2))) {
-        result.push((SameDownAs(E1))(E1.keyOrOffset, merge(E1.subAction, E2.subAction, multiple)));
+        result.push((SameDownAs(E1))(E1.keyOrOffset, merge(E1.subAction, E2.subAction)));
       } else {
         // Not the same keys or offsets.
         if(E1.ctor == Type.Down && !isRemoveExcept(E1)) {
           // Let's see if we can apply the key or offset to E2.
           let E2changed = keyOrOffsetIn(E1.keyOrOffset, E2);
-          result.push(Down(E1.keyOrOffset, merge(E1.subAction, E2changed, multiple)));
+          result.push(Down(E1.keyOrOffset, merge(E1.subAction, E2changed)));
         }
         if(E2.ctor == Type.Down && !isRemoveExcept(E2)) {
           // Let's see if we can apply the key or offset to E2.
           let E1changed = keyOrOffsetIn(E2.keyOrOffset, E1);
-          result.push(Down(E2.keyOrOffset, merge(E1changed, E2.subAction, multiple)));
+          result.push(Down(E2.keyOrOffset, merge(E1changed, E2.subAction)));
         }
       }
       if(E1.ctor == Type.Down && !isRemoveExcept(E1) ||
@@ -2974,7 +2974,7 @@ Assuming ?1 = apply(E0, r, rCtx)
       // No more pure Down now.
       
       if(E1.ctor == Type.Up && E2.ctor == Type.Up && keyOrOffsetAreEqual(E1.keyOrOffset, E2.keyOrOffset)) {
-        result.push(Up(E1.keyOrOffset, merge(E1.subAction, E2.subAction, multiple)));
+        result.push(Up(E1.keyOrOffset, merge(E1.subAction, E2.subAction)));
       } else { // If they are both Up and not equal, it means they are different offsets.
         if(E1.ctor == Type.Up) {
         // We just dismiss E2
@@ -2999,7 +2999,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         // Merge key by key.
         let o = mapChildren(E1.childEditActions, (k, c) => {
           if(k in E2.childEditActions) {
-            return merge(c, E2.childEditActions[k], multiple);
+            return merge(c, E2.childEditActions[k]);
           } else {
             return c;
           }
@@ -3014,46 +3014,46 @@ Assuming ?1 = apply(E0, r, rCtx)
       } else if(E1.ctor == Type.Reuse && isReplace(E2)) {
         let [inCount, outCount, left, right] = argumentsIfReplace(E2);
         let [o1, l1, r1] = splitIn(inCount, E1);
-        let newFirst = merge(l1, left, multiple);
-        let newSecond = merge(r1, right, multiple);
+        let newFirst = merge(l1, left);
+        let newSecond = merge(r1, right);
         let newCount = outLength(newFirst);
         if(newCount === undefined) newCount = outCount;
         result.push(Replace(inCount, outCount, newFirst, newSecond));
       } else if(E2.ctor == Type.Reuse && isReplace(E1)) {
         let [inCount, outCount, left, right] = argumentsIfReplace(E1);
         let [o2, l2, r2] = splitIn(inCount, E2);
-        let newFirst = merge(left, l2, multiple);
-        let newSecond = merge(right, r2, multiple);
+        let newFirst = merge(left, l2);
+        let newSecond = merge(right, r2);
         let newCount = outLength(newFirst);
         if(newCount === undefined) newCount = outCount;
         result.push(Replace(inCount, outCount, newFirst, newSecond));
       } else if(E1.ctor == Type.Reuse && isRemoveExcept(E2)) {
         // E1 being a Reuse, offsetIn is always defined.
         let restricted = offsetIn(E2.keyOrOffset, E1);
-        result.push(RemoveExcept(E2.keyOrOffset, merge(restricted, E2.subAction, multiple)));
+        result.push(RemoveExcept(E2.keyOrOffset, merge(restricted, E2.subAction)));
       } else if(E2.ctor == Type.Reuse && isRemoveExcept(E1)) {
         let restricted = offsetIn(E1.keyOrOffset, E2);
         // E2 being a Reuse, offsetIn is always defined.
-        result.push(RemoveExcept(E1.keyOrOffset, merge(E1.subAction, restricted, multiple)));
+        result.push(RemoveExcept(E1.keyOrOffset, merge(E1.subAction, restricted)));
         // No more Reuse now.
       } else if(isRemoveExcept(E1) && isRemoveExcept(E2)) {
         let commonOffset = intersectOffsets(E1.keyOrOffset, E2.keyOrOffset);
         printDebug("commonOffset", keyOrOffsetToString(commonOffset));
         // We change the input. So we use offsetIn.
-        result.push(RemoveExcept(commonOffset, merge(offsetIn(commonOffset, E1), offsetIn(commonOffset, E2), multiple)));;
+        result.push(RemoveExcept(commonOffset, merge(offsetIn(commonOffset, E1), offsetIn(commonOffset, E2))));;
       } else if(isRemoveExcept(E1) && isReplace(E2)) {
-        result.push(RemoveExcept(E1.keyOrOffset, merge(E1.subAction, offsetIn(E1.keyOrOffset, E2), multiple)));
+        result.push(RemoveExcept(E1.keyOrOffset, merge(E1.subAction, offsetIn(E1.keyOrOffset, E2))));
       } else if(isReplace(E1) && isRemoveExcept(E2)) {
-        result.push(RemoveExcept(E2.keyOrOffset, merge(offsetIn(E2.keyOrOffset, E1), E2.subAction, multiple)));
+        result.push(RemoveExcept(E2.keyOrOffset, merge(offsetIn(E2.keyOrOffset, E1), E2.subAction)));
       } else if(isReplace(E1) && isReplace(E2)) {
         printDebug("Two replaces");
         let [inCount1, outCount1, left1, right1] = argumentsIfReplace(E1);
         let [inCount2, outCount2, left2, right2] = argumentsIfReplace(E2);
         if(inCount1 == 0) { // First is an insertion
-          result.push(Insert(outCount1, left1, merge(right1, E2, multiple)));
+          result.push(Insert(outCount1, left1, merge(right1, E2)));
         }
         if(inCount2 == 0) { // Second is an insertion
-          result.push(Insert(outCount2, left2, merge(E1, right2, multiple)));
+          result.push(Insert(outCount2, left2, merge(E1, right2)));
         }
         if(inCount1 == 0 || inCount2 == 0) { // done inserting
           break merge_cases;
@@ -3068,14 +3068,14 @@ Assuming ?1 = apply(E0, r, rCtx)
           )));
         // We are left with non-Inserts which are not both deletions.
         } else if(inCount1 == inCount2) { // Aligned replaces
-          let newLeft = merge(left1, left2, multiple);
+          let newLeft = merge(left1, left2);
           let newLeftCount = MinUndefined(outLength(newLeft, inCount1), outCount1 + outCount2);
-          result.push(Replace(inCount1, newLeftCount, newLeft, merge(right1, right2, multiple)));
+          result.push(Replace(inCount1, newLeftCount, newLeft, merge(right1, right2)));
         } else if(inCount1 < inCount2) {
           let [o2, l2, r2] = splitIn(inCount1, E2); // We split the bigger left if possible.
           if(r2 !== undefined) {
-            let newLeft = merge(left1, l2, multiple);
-            let newRight = merge(right1, r2, multiple);
+            let newLeft = merge(left1, l2);
+            let newRight = merge(right1, r2);
             let newLeftCount = MinUndefined(outLength(newLeft, inCount1), outCount1 + outCount2);
             result.push(Replace(inCount1, newLeftCount, newLeft, newRight));
           } else {
@@ -3084,13 +3084,13 @@ Assuming ?1 = apply(E0, r, rCtx)
             // We split the right if possible
             let [o1, l1, r1] = splitIn(inCount2, E1);
             if(r1 !== undefined) {
-              let newLeft = merge(l1, left2, multiple);
-              let newRight = merge(r1, right2, multiple);
+              let newLeft = merge(l1, left2);
+              let newRight = merge(r1, right2);
               let newLeftCount = MinUndefined(outLength(newLeft, inCount2), outCount1 + outCount2);
               result.push(Replace(inCount2, newLeftCount, newLeft, newRight));
             } else {
-              result.push(merge(E1, toSplitInCompatibleAt(E2, inCount1), multiple));
-              //result.push(merge(toSplitInCompatibleAt(E1, inCount2), E2, multiple));
+              result.push(merge(E1, toSplitInCompatibleAt(E2, inCount1)));
+              //result.push(merge(toSplitInCompatibleAt(E1, inCount2), E2));
             }
           }
         } else { // inCount1 > inCount2
@@ -3098,8 +3098,8 @@ Assuming ?1 = apply(E0, r, rCtx)
           // [  inCount2   ][     .... ]
           let [o1, l1, r1] = splitIn(inCount2, E1);
           if(r1 !== undefined) {
-            let newLeft = merge(l1, left2, multiple);
-            let newRight = merge(r1, right2, multiple);
+            let newLeft = merge(l1, left2);
+            let newRight = merge(r1, right2);
             let newLeftCount = outLength(newLeft, inCount2);
             printDebug("newLeftCount", newLeftCount);
             newLeftCount = MinUndefined(newLeftCount, outCount1 + outCount2);
@@ -3107,501 +3107,19 @@ Assuming ?1 = apply(E0, r, rCtx)
           } else {
             let [o2, l2, r2] = splitIn(inCount1, E2); // We split the bigger left first if possible.
             if(r2 !== undefined) {
-              let newLeft = merge(left1, l2, multiple);
-              let newRight = merge(right1, r2, multiple);
+              let newLeft = merge(left1, l2);
+              let newRight = merge(right1, r2);
               let newLeftCount = MinUndefined(outLength(newLeft, inCount1), outCount1 + outCount2);
               result.push(Replace(inCount1, newLeftCount, newLeft, newRight));
             } else {
-              result.push(merge(toSplitInCompatibleAt(E1, inCount2), E2, multiple));
-              //result.push(merge(E1, toSplitInCompatibleAt(E2, inCount1), multiple)); // Not always possible, since we don't know the output length of the right of E2
+              result.push(merge(toSplitInCompatibleAt(E1, inCount2), E2));
+              //result.push(merge(E1, toSplitInCompatibleAt(E2, inCount1))); // Not always possible, since we don't know the output length of the right of E2
             }
           }
         }
       }
-      
-      // Replace / Replace
-      // Replace / RemoveExcept
-      // RemoveExcept / RemoveExcept
-      
-      
-      // (E1, E2) is [R*, F, C, U, D, UR] x [R*, F, C, U, D, UR]      
-      // Cases where we can merge because we are reusing
-      /*if(E1.ctor == Type.Reuse && E2.ctor == Type.Concat) {
-        let [inCount, outCount, left, right] = argumentsIfReplace(E2);
-        if(!right) { // This concat is not a replace, no point merging first. We just merge second.
-          let newSecond = merge(E1, E2.second, multiple);
-          result.push(Concat(E2.count, E2.first, newSecond));
-        } else { // This is a replace. Hence, we split E1 so that we can merge with each side. Careful: we need to call mapUpHere so that E1's paths are correct.
-          let [o1, l1, r1] = splitIn(inCount, E1);
-          //let [left, right] = splitAt(inCount, E1);
-          // E1 ~= Concat(outCount, left, right)
-          // and left and right are supposed to be the same.
-          let newFirst = merge(l1, left, multiple);
-          let newSecond = merge(r1, right, multiple);
-          result.push(Replace(inCount, outCount, newFirst, newSecond));
-        }
-      // (E1, E2) is [R*, F, C, U, D, UR] x [R*, F, C, U, D, UR] \ R* x [R*, C]
-      } else if(E2.ctor == Type.Reuse && E1.ctor == Type.Concat) {
-        let [inCount, outCount, left, right] = argumentsIfReplace(E1);
-        if(!right) { // This concat is an Insert, not a replace, no point merging first. We just merge second.
-          let newSecond = merge(E1.second, E2, multiple);
-          result.push(Concat(E1.count, E1.first, newSecond));
-        } else { // This is a replace. Hence, we split E1 so that we can merge with each side. Careful: we need to call mapUpHere so that E1's paths are correct.
-          let [o2, l2, r2] = splitIn(inCount, E2);
-          let newFirst = merge(left, l2, multiple);
-          let newSecond = merge(right, r2, multiple);
-          result.push(Replace(inCount, outCount, newFirst, newSecond));
-        }
-      // (E1, E2) is [R*, F, C, U, D, UR] x [R*, F, C, U, D, UR] \ R* x [R*, C] \ C x R*
-      } else if(E1.ctor == Type.Concat && E2.ctor == Type.Concat) {
-        // (E1, E2)  is  F x F  U  F x C  U  C x F  U  C x C
-        let [inCount1, outCount1, left1, right1] = argumentsIfReplace(E1);
-        let [inCount2, outCount2, left2, right2] = argumentsIfReplace(E2);
-        if(right1 && right2) {
-          if(inCount1 == 0 && outCount1 > 0) { // First is an insertion
-            result.push(Insert(outCount1, left1, merge(right1, E2, multiple)));
-          }
-          if(inCount2 == 0 && outCount2 > 0) { // Second is an insertion
-            result.push(Insert(outCount2, left2, merge(E1, right2, multiple)));
-          }
-          if((inCount1 == 0 && outCount1 > 0) || (inCount2 == 0 && outCount2 > 0)) {
-            break merge_cases; // We are done with insertions.
-          }
-          if(outCount1 == 0 && outCount2 == 0 && inCount1 > 0 && inCount2 > 0) {
-            // Two removes. We factor out the smaller remove and continue.
-            let minRemove = Math.min(inCount1, inCount2);
-            result.push(Remove(minRemove, merge(
-              inCount1 == minRemove ? right1 : Remove(inCount1 - minRemove, right1),
-              inCount2 == minRemove ? right2 : Remove(inCount2 - minRemove, right2),
-              multiple
-            )));
-          // Ok, two reuse of arrays, we just align them and merge them. We need to adjust where to split
-          } else if(inCount1 == inCount2) {
-            let newLeft = merge(left1, left2, multiple);
-            let newLeftCount = MinUndefined(outLength(newLeft, inCount1), outCount1 + outCount2);
-            result.push(Replace(inCount1, newLeftCount, newLeft, merge(right1, right2, multiple)));
-
-          } else if(inCount1 < inCount2) {
-          // It might be better to choose where to split the first if the left has a Reuse() that we can split, or the second.
-          // But usually, the biggest first action indicates a Reuse of it.
-            // [ inCount1   ][     .... ]
-            // [  inCount2   |   ] [.....]
-            let [o2, l2, r2] = splitIn(inCount1, E2); // We split the bigger left first if possible.
-            if(r2 !== undefined) {
-              let newLeft = merge(left1, l2, multiple);
-              let newRight = merge(right1, r2, multiple);
-              let newLeftCount = MinUndefined(outLength(newLeft, inCount1), outCount1 + outCount2);
-              result.push(Replace(inCount1, newLeftCount, newLeft, newRight));
-            } else {
-              let [o1, l1, r1] = splitIn(inCount2, E1);
-              if(r1 !== undefined) {
-                let newLeft = merge(l1, left2, multiple);
-                let newRight = merge(r1, right2, multiple);
-                let newLeftCount = MinUndefined(outLength(newLeft, inCount2), outCount1 + outCount2);
-                result.push(Replace(inCount2, newLeftCount, newLeft, newRight));
-              } else {
-                // A generic action, I'm not sure it's working well.
-                if(editActions.__debug) console.log("inCount1 = ", inCount1);
-                let newE2Left = restrictInput(Offset(0, inCount1), E2);
-                let newE2Right = restrictInput(Offset(inCount1), E2);
-                let leftPart = merge(
-                  left1, newE2Left, multiple)
-                let rightPart = merge(
-                  right1, newE2Right, multiple)
-                let newLeftCount = MinUndefined(outCount1, outLength(leftPart));
-                result.push(Concat(newLeftCount, Down(Offset(0, inCount1), leftPart), Down(Offset(inCount1), rightPart)));
-              }
-            }
-          } else { // inCount1 > inCount2
-            // [  inCount1   |   ] [.....]
-            // [  inCount2   ][     .... ]
-            let [o1, l1, r1] = splitIn(inCount2, E1);
-            if(r1 !== undefined) {
-              let newLeft = merge(l1, left2, multiple);
-              let newRight = merge(r1, right2, multiple);
-              let newLeftCount = MinUndefined(outLength(newLeft, inCount2), outCount1 + outCount2);
-              result.push(Replace(inCount2, newLeftCount, newLeft, newRight));
-            } else {
-              let [o2, l2, r2] = splitIn(inCount1, E2); // We split the bigger left first if possible.
-              if(r2 !== undefined) {
-                let newLeft = merge(left1, l2, multiple);
-                let newRight = merge(right1, r2, multiple);
-                let newLeftCount = MinUndefined(outLength(newLeft, inCount1), outCount1 + outCount2);
-                result.push(Replace(inCount1, newLeftCount, newLeft, newRight));
-              } else {
-                // A generic action, I'm not sure it's working well.
-                if(editActions.__debug) console.log("inCount2 = ", inCount2);
-                
-                let newE1Left = restrictInput(Offset(0, inCount2), E1);
-                let newE1Right = restrictInput(Offset(inCount2), E1);
-                let leftPart = merge(
-                  newE1Left, left2, multiple)
-                let rightPart = merge(
-                  newE1Right, right2, multiple)
-                let newLeftCount = MinUndefined(outCount2, outLength(leftPart, inCount2));
-                result.push(Replace(inCount1, newLeftCount, leftPart, rightPart));
-                
-            //    let newOutPosition = Math.max(0, adaptInBoundTo(E1, inCount2));
-            //    if(editActions.__debug) console.log("newOutPosition = ", stringOf(newOutPosition));
-            //    let [left11, left12] = splitAt(newOutPosition, Down(Offset(0, inCount1), left1));
-            //    // left1 = Concat(, left11, left12)
-            //    if(editActions.__debug) console.log("left11 = ", stringOf(left11));
-            //    if(editActions.__debug) console.log("left12 = ", stringOf(left12)); 
-            //    
-            //    let leftPart = merge(
-            //      left11,
-            //      Down(Offset(0, inCount2), left2),
-            //      multiple);
-            //    
-            //    let rightPart = merge(
-            //      Down(Offset(inCount2), Concat(outCount1-newOutPosition,
-            //        Up(Offset(inCount2), left12),
-            //        Up(Offset(inCount2), Down(Offset(inCount1), right1)))),
-            //      Down(Offset(inCount2), right2), multiple);
-            //    let newLeftCount = MinUndefined(outCount2, outLength(leftPart));
-            //    result.push(Concat(newLeftCount, leftPart, rightPart));
-              }
-            }
-          }
-        } else {
-          result.push(E1);
-          result.push(E2);
-        }
-        // (E1, E2)  is  F x C  U  C x F  U  C x C
-      
-      // (E1, E2) is [R*, F, C, U, D, UR] x [R*, F, C, U, D, UR] \ [R*, C] x [R*, C]
-      } else if((E1.ctor == Type.Reuse || isReplace(E1)) && E2.ctor == Type.Down) {
-        let ko = E2.keyOrOffset;
-        if(isOffset(ko)) {
-          ko = adaptInOffsetAt(E1, ko);
-          let newE1 = offsetAt(ko, E1);
-          result.push(merge(newE1, E2.subAction, multiple));
-        } else {
-          ko = adaptInBoundTo(E1, ko);
-          let newE1 = downAt(ko, E1);
-          result.push(merge(newE1, E2.subAction, multiple));
-        }
-      // (E1, E2) is [R*, F, C, U, D, UR] x [R*, F, C, U, D, UR] \ [R*, C] x [R*, C] \ [R*, F] x D
-      } else if((E2.ctor == Type.Reuse || isReplace(E2)) && E1.ctor == Type.Down) {
-        let ko = E1.keyOrOffset;
-        if(isOffset(ko)) {
-          ko = adaptInOffsetAt(E2, ko);
-          let newE2 = offsetAt(ko, E2);
-          result.push(merge(E1.subAction, newE2, multiple));
-        } else {
-          ko = adaptInBoundTo(E2, ko);
-          let newE2 = downAt(ko, E2);
-          result.push(merge(E1.subAction, newE2, multiple));
-        }
-      // (E1, E2) is [R*, F, C, U, D, UR] x [R*, F, C, U, D, UR] \ [R*, C] x [R*, C] \ [R*, F] x D \ D x [R*, F]
-
-      // Beyond this point, there are changes immediately made to the tree.
-      } else if(E1.ctor == Type.Up && E2.ctor == Type.Up && keyOrOffsetAreEqual(E1.keyOrOffset, E2.keyOrOffset)) {
-        result.push(Up(E1.keyOrOffset, merge(E1.subAction, E2.subAction, multiple)));
-      
-      // (E1, E2) is [R*, F, C, U, D, UR] x [R*, F, C, U, D, UR] \ [R*, C] x [R*, C] \ [R*, F] x D \ D x [R*, F] \ U x U
-      } else if(E1.ctor == Type.Up && (isReplace(E2) || E2.ctor == Type.Reuse)) {
-        // We just dismiss E2
-        result.push(E1);
-      } else if(E2.ctor == Type.Up && (isReplace(E1) || E1.ctor == Type.Reuse)) {
-        // We just dismiss E1
-        result.push(E2);
-      } else if(E1.ctor == Type.Down && E2.ctor == Type.Down) {
-        if(keyOrOffsetAreEqual(E1.keyOrOffset, E2.keyOrOffset)) {
-          result.push(Down(E1.keyOrOffset, merge(E1.subAction, E2.subAction, multiple)));
-        } else if(isOffset(E1.keyOrOffset) && isOffset(E2.keyOrOffset)) {
-          // E1.keyOrOffset.oldLength == E2.keyOrOffset.oldLength 
-          if(E2.keyOrOffset.count < E1.keyOrOffset.count && E2.keyOrOffset.count > 0) {
-            //   [c2       c2+n2]
-            //       [c1,     c1+n1]
-            //   [c2         c2+n2]
-            //       [c1,  c1+n1]
-            // The idea is to first factor out Down(c2)
-            // We merge the common deletions so that at least one pops up the Down
-            // 
-            // Down(O(c1, n1, o))
-            // = Down(O(c2, o, o), O(c1-c2, n1, o-c2)
-            // Down(O(c2, n2, o))
-            // = Down(O(c2, o, o), O(0, n2, o - c2))
-            result.push(
-              Down(
-                Offset(E2.keyOrOffset.count,
-                  E2.keyOrOffset.oldLength,
-                  E2.keyOrOffset.oldLength
-                ),
-              merge(
-                Down(
-                  Offset(
-                    E1.keyOrOffset.count - E2.keyOrOffset.count,
-                    E1.keyOrOffset.newLength, MinusUndefined(E1.keyOrOffset.oldLength, E2.keyOrOffset.count)), E1.subAction),
-                Down(
-                  Offset(0, E2.keyOrOffset.newLength, MinusUndefined(E2.keyOrOffset.oldLength, E2.keyOrOffset.count)), E2.subAction),
-                multiple))
-            );
-          } else if(E1.keyOrOffset.count < E2.keyOrOffset.count && E1.keyOrOffset.count > 0) {
-            result.push(
-              Down(
-                Offset(E1.keyOrOffset.count,
-                  E1.keyOrOffset.oldLength,
-                  E1.keyOrOffset.oldLength
-                ),
-              merge(
-                Down(
-                  Offset(0, E1.keyOrOffset.newLength, MinusUndefined(E1.keyOrOffset.oldLength, E1.keyOrOffset.count)), E1.subAction),
-                Down(
-                  Offset(
-                    E2.keyOrOffset.count - E1.keyOrOffset.count,
-                    E2.keyOrOffset.newLength, MinusUndefined(E2.keyOrOffset.oldLength, E1.keyOrOffset.count)), E2.subAction),
-                multiple))
-            );
-          } else {
-            // Now at least one offset starts at zero.
-            // [0,    n1]
-            //    [c2, c2+n2]
-            // etc.
-            // We take the intersection of the two offsets. TODO: This is wrong. We take an offsetAt assuming newOffset1 on the output, not the input.
-            let newOffset = intersectOffsets(E1.keyOrOffset, E2.keyOrOffset);
-            if(editActions.__debug) {
-              console.log("newOffset:"+keyOrOffsetToString(newOffset))
-            }
-            if(newOffset.newLength <= 0) {
-              result.push(Down(newOffset));
-            } else if(false) {
-              
-              // We take the offset relative to the previous offsets.
-              let newOffset1 = diffOffset(E1.keyOrOffset, newOffset);
-              let newOffset2 = diffOffset(E2.keyOrOffset, newOffset);
-              if(editActions.__debug) {
-                console.log("newOffset1:"+keyOrOffsetToString(newOffset1))
-                console.log("newOffset2:"+keyOrOffsetToString(newOffset2))
-              }
-              //newOffset1 = adaptInOffsetAt(E1.subAction, newOffset1);
-              //newOffset2 = adaptInOffsetAt(E2.subAction, newOffset2);
-              if(editActions.__debug) {
-                console.log("Adapted newOffset1:"+keyOrOffsetToString(newOffset1))
-                console.log("Adapted newOffset2:"+keyOrOffsetToString(newOffset2))
-              }
-              let newE1 = restrictInput(newOffset1, E1);
-              let newE2 = restrictInput(newOffset2, E2);
-              result.push(merge(newE1, newE2, multiple));
-            } else {
-              result.push(Down(newOffset, merge(restrictInput(newOffset, E1), restrictInput(newOffset, E2), multiple)))
-            }
-          }
-        } else {
-          result.push(E1);
-          result.push(E2);
-        }
-        // (E1, E2) is [R*, F, C, U, D, UR] x [R*, F, C, U, D, UR] \ [R*, F, C] x [R*, F, C] \ [R*, F, D] x [R*, F, D] \ U x U
-      } else if(isInsert(E1)) {
-        result.push(Concat(E1.count, E1.first, merge(E1.second, E2, multiple)));
-      } else if(isInsert(E2)) {
-        result.push(Concat(E2.count, E2.first, merge(E1, E2.second, multiple)));
-      } else {
-        result.push(E1);
-        result.push(E2);
-      }
-      
-      /*
-      if(E1.ctor == Type.Concat) {
-        // We test if it's a Replace
-        // TODO: Merge continue here
-        
-        let firstOfDiff1 = Collection.onlyElemOrDefault(E1.first);
-        if(firstOfDiff1 && firstOfDiff1.ctor == Type.New) {
-          let mergeSecond = merge2DDiffs(E1.second, E2);
-          result.push(insertLeftWhenSameLeftBound(mergeSecond, E1.second, E1.first));
-          continue;
-        }
-        let secondOfDiff1 = Collection.onlyElemOrDefault(E1.second);
-        if(secondOfDiff1 && secondOfDiff1.ctor == Type.New) {
-          let mergeFirst = merge2DDiffs(E1.first, E2);
-          result.push(insertRightWhenSameRightBound(mergeFirst, E1.first, E1.second));
-          continue;
-        }
-      }
-      if(E2.ctor == Type.Insert) {
-        let firstOfDiff2 = Collection.onlyElemOrDefault(E2.first);
-        if(firstOfDiff2 && firstOfDiff2.ctor == Type.New) {
-          let mergeSecond = merge2DDiffs(E1, E2.second);
-          result.push(insertLeftWhenSameLeftBound(mergeSecond, E2.second, E2.first));
-          continue;
-        }
-        let secondOfDiff2 = Collection.onlyElemOrDefault(E2.second);
-        if(secondOfDiff2 && secondOfDiff2.ctor == Type.New) {
-          let mergeFirst = merge2DDiffs(E1, E2.first);
-          result.push(insertRightWhenSameRightBound(mergeFirst, E2.first, E2.second));
-          continue;
-        }
-      }
-      if(E1.ctor == Type.Insert) {
-          let newFirst = merge2DDiffs(E1.first, E2);
-          let newSecond = merge2DDiffs(E1.second, E2);
-          let newCount = outLength(newFirst) || E1.count;
-          result.push(Insert(newCount, newFirst, newSecond));
-      }
-      if(E2.ctor == Type.Insert) {
-          let newFirst = merge2DDiffs(E1, E2.first);
-          let newSecond = merge2DDiffs(E1, E2.second);
-          let newCount = outLength(newFirst) || E2.count;
-          result.push(Insert(newCount, newFirst, newSecond));
-      }
-      if(E1.ctor == Type.Insert || E2.ctor == Type.Insert) {
-        continue;
-      }
-      if(E1.ctor == Type.Reuse) {
-        let [relPath1, s1] = splitLastRemove(E1.path);
-        if(E2.ctor == Type.Reuse) {
-          let [relPath2, s2] = splitLastRemove(E2.path);
-          if(pathInfoToString(relPath1) == pathInfoToString(relPath2)) { // Clone the same thing.
-            // Merge removals, and shift keys of sub edit actions accordingly.
-            // For each key, we want to find 1) the absolute key in the original array, 2) The relative key in the second array.
-            let finalChildEditActions = {};
-            let finalStrict = s1 && s2 ? s1.strict || s2.strict : s1 ? s1.strict : s2 ? s2.strict : false;
-            let finalRemove = s1 && s2 ? Remove.portions.merge(s1.portions, s2.portions, finalStrict) : s1 ? s1.portions : s2 ? s2.portions : undefined;
-            if(editActions.__debug) {
-              console.log("s1 portions: ", s1 ? s1.portions : undefined);
-              console.log("s2 portions: ", s2 ? s2.portions : undefined);
-              console.log("final portions: ", finalRemove);
-              console.log("final strict", finalStrict);
-            }
-            let step = 0;
-            while(true) { // Let's do this for E1 and E2.
-              let iFR = 0;
-              let i1 = 0;
-              let portions = s1 ? s1.portions : undefined;
-              let fromK1ToAbs = 0;
-              let fromAbsToFinalK = 0;
-              let lastK1 = 0;
-              let i2 = 0;
-              let portions2 = s2 ? s2.portions : undefined;
-              let fromAbsToK2 = 0;
-              for(let k1 in E1.childEditActions) {
-                if(portions) {
-                  while(i1 < portions.length && Number(k1) + fromK1ToAbs >= portions[i1]) {
-                    if(i1 + 1 < portions.length) {
-                      fromK1ToAbs += portions[i1 + 1] - portions[i1];
-                    }
-                    i1 += 2;
-                  }
-                }
-                let kAbs = portions ? Number(k1) + fromK1ToAbs : k1;
-                if(editActions.__debug) {
-                  console.log("k1", k1, "kAbs", kAbs);
-                }
-                if(finalRemove) {
-                  while(iFR < finalRemove.length && Number(kAbs) >= finalRemove[iFR]) {
-                    if(editActions.__debug) console.log("iFR", iFR, "fromAbsToFinalK", fromAbsToFinalK);
-                    if(iFR+1 < finalRemove.length) {
-                      fromAbsToFinalK -= finalRemove[iFR + 1] - finalRemove[iFR];
-                    } else {
-                      fromAbsToFinalK = undefined; // We should disregard this element.
-                    }
-                    iFR += 2;
-                  }
-                  if(editActions.__debug) console.log("iFR", iFR, "fromAbsToFinalK", fromAbsToFinalK);
-                }
-                if(portions2) {
-                  while(i2 < portions2.length && Number(kAbs) >= portions2[i2]) {
-                    if(editActions.__debug) console.log("i2", i2, "fromAbsToK2", fromAbsToK2);
-                    if(i2+1 < portions2.length) {
-                      fromAbsToK2 -= portions2[i2 + 1] - portions2[i2];
-                    } else {
-                      fromAbsToK2 = undefined; // We should disregard this element.
-                    }
-                    i2 += 2;
-                  }
-                  if(editActions.__debug) console.log("i2", i2, "fromAbsToK2", fromAbsToK2);
-                }
-                
-                let finalK = finalRemove !== undefined ? kAbs + fromAbsToFinalK : kAbs;
-                if(fromAbsToFinalK === undefined || finalK < 0) {
-                  continue;
-                }
-                let k2 = portions2 !== undefined ? kAbs + fromAbsToK2 : kAbs;
-                if(editActions.__debug) {
-                  console.log("finalK", finalK, "k2", k2);
-                }
-                if(step == 0 && fromAbsToK2 !== undefined && k2 in E2.childEditActions) {
-                  finalChildEditActions[finalK] = merge2DDiffs(E1.childEditActions[k1], E2.childEditActions[k2]);
-                } else {
-                  finalChildEditActions[finalK] = E1.childEditActions[k1];
-                }
-              }
-              if(step == 0) {
-                // Ok, so now let's revert the role of E1 and E2
-                if(editActions.__debug) console.log("merging on the other way.")
-                let tmp = E1; E1 = E2; E2 = tmp;
-                tmp = s1; s1 = s2; s2 = tmp;
-                step++;
-              } else {
-                break;
-              }
-            }
-            result.push(Reuse(relPath1, finalRemove ? Remove(finalRemove, finalStrict) : undefined, finalChildEditActions));
-            continue;
-          }
-        } else if(E1.ctor == Type.Replace && E2.ctor == Type.Replace) {
-          if(E1.count == E2.count) {
-            if(E1.count == 0) { // Pure insertions, they can 
-              let nextActionMerged = merge2DDiffs(E1.nextAction, E2.nextAction);
-              result.push(Replace(0, E1.subAction, 0, E2.subAction, nextActionMerged));
-              if(E1.toString() != E2.toString()) {
-                result.push(Replace(0, E2.subAction, 0, E1.subAction, nextActionMerged));
-              }
-            } else {
-              result.push(Replace(E1.count, merge2DDiffs(E1.subAction, E2.subAction), merge2DDiffs(E1.nextAction, E2.nextAction)))
-            }
-          } else if(E1.count < E2.count) {
-            if(E1.count === 0) { // Insertion
-              result.push(Replace(E1.count, E1.subAction, merge2DDiffs(E1.nextAction, E2)));
-            } else if(E2.subAction.ctor == Type.New && (
-                            (Array.isArray(E2.subAction.model) && lengthOfArray(E2.subAction.childEditActions) == 0) || 
-                            (typeof E2.subAction.model == "string" && E2.subAction.model.length == 0))) { // deletion.
-              result.push(Replace(E1.count, E2.subAction, merge2DDiffs(E1.nextAction, Replace(E2.count - E1.count, E2.subAction, E2.nextAction))));
-            } else if(isDSame(E2.subAction)) { // Replacement while other identity
-              result.push(Replace(E1.count, E1.subAction, merge2DDiffs(E1.nextAction, Replace(E2.count - E1.count, E2.subAction, E2.nextAction))));
-            } else {
-              let [diff2Left, diff2Right] = splitArrayActionAt(E1.count, E2.subAction);
-              result.push(Replace(E1.count,
-                merge2DDiffs(E1.subAction, diff2Left),
-                merge2DDiffs(E1.nextAction, Replace(E2.count - E1.count, diff2Right, E2.nextAction))))
-            }
-          } else { // E2.count < E1.count
-            if(E2.count === 0) { // Insertion
-              result.push(Replace(E2.count, E2.subAction, merge2DDiffs(E1, E2.nextAction)));
-            } else if(E1.subAction.ctor == Type.New && (
-                            (Array.isArray(E1.subAction.model) && lengthOfArray(E1.subAction.childEditActions) == 0) || 
-                            (typeof E1.subAction.model == "string" && E1.subAction.model.length == 0))) { // deletion.
-              result.push(Replace(E2.count, E1.subAction, merge2DDiffs(Replace(E1.count - E2.count, E1.subAction, E1.nextAction), E2.nextAction)));
-            } else if(isDSame(E1.subAction)) { // Replacement while other identity
-              result.push(Replace(E2.count, E2.subAction, merge2DDiffs(Replace(E1.count - E2.count, E1.subAction, E1.nextAction), E2.nextAction)));
-            } else {
-              let [diff1Left, diff1Right] = splitArrayActionAt(E2.count, E1.subAction);
-              result.push(Replace(E2.count,
-                merge2DDiffs(diff1Left, E2.subAction),
-                merge2DDiffs(Replace(E1.count - E2.count, diff1Right, E1.nextAction), E2.nextAction)))
-            }
-          }
-        }
-      } else {
-        result.push(E1);
-        result.push(E2);
-      }*/
     }
     return Choose(...result);
-    if(multiple) {
-      return Choose(...result);
-    } else {
-      if(result.length === 0) {
-        console.log("Problem merging two edit actions, got empty result");
-        debug(E1);
-        debug(E2);
-        console.log("returning second only");
-        return E2;
-      }
-      return result[0];
-    }
   });
   editActions.merge = merge;
   
