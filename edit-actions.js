@@ -3604,34 +3604,117 @@ Assuming ?1 = apply(E0, r, rCtx)
     }
   });
   editActions.merge = merge;
-  /**/
   
-  // ReuseUp(Up("a", Up("b")), New(1))
-  // = Reuse({b: Reuse({a: New(1)})})
-  // TODO: Prove this function, especially the optimization.
-  /**
-     apply(ReuseUp(Up("a", X), E), r, rCtx)
-   = apply(ReuseUp(X, Reuse({a: E})), r, rCtx);
+  function walkDownPath(downPath, r, rCtx) {
+    if(isIdentity(downPath)) return [r, rCtx];
+    let [r2, rCtx2] = walkDownCtx(downPath.keyOrOffset, r, rCtx);
+    return walkDownPath(downPath.subAction, r2, rCtx2);
+  }
+  // Function never called. Just here to prove something.
+  function InvariantHelper(upPath, acc, E, r, rCtx) {
+    if(isIdentity(upPath)) return undefined;
+    return AddContext(upPath.keyOrOffset, applyZ(ReuseKeyOrOffset(upPath.keyOrOffset, E), walkDownPath(reversePath(upPath.subAction), r, rCtx)), InvariantHelper(upPath.subAction, Down(upPath.keyOrOffset, acc), ReuseKeyOrOffset(upPath.keyOrOffset, E), r, rCtx));
+  }
+  
+  //"If I follow the reverse path given to ReuseUp in the original record context, and then the path given to acc, and then I apply the edit action on this context, it's the same as if I followed applied the result of ReuseUp and then followed the reverse path given to Reuse Up and then the acc.
+  /* Specification:
+   apply(rev(upPath, acc),
+     apply(ReuseUp(upPath, editAction), r, rCtx), [])
+   = apply(acc,
+       applyZ(editAction, walkDownPath(rev(upPath, Reuse()), r, rCtx)), InvariantHelper(upPath, acc, editAction, r, rCtx))
   */
+  /* Another form but i don't know what value to give to ?
+   apply(andThen(rev(upPath, acc), ReuseUp(upPath, editAction), []), r, rCtx)
+   = applyZ(andThen(acc, editAction, ?), walkDownPath(rev(upPath, Reuse()), r, rCtx))
+  */
+  // Spec A: initUp is only a path made of Up and Reuse().
+  // Spec B: 
+  //   applyZ(andThen(reversePath(path, acc), ReuseUp(path, editAction)), <r, rCtx>)
+  // = applyZ(andThen(acc, editAction), walkDownPath(acc, <r, rCtx>))
   function ReuseUp(initUp, action) {
     let finalUp = initUp;
-    while(!isIdentity(finalUp) && finalUp !== undefined) {
+    while(!isIdentity(finalUp)) {
       printDebug("ReuseUp", initUp, action);
       // only here we can combine key and offset into a single key.
       if(finalUp.subAction && isOffset(finalUp.subAction.keyOrOffset) && !isOffset(finalUp.keyOrOffset)) {
+        /** Proof:
+          apply(rev(Up(k, offset, X), acc), applyZ(ReuseUp(Up(k, offset, X), E), <r, rCtx>), [])
+        = apply(rev(Up(k, offset, X), acc), applyZ(ReuseUp(Up(k+c, X), mapUpHere(E, O(-c, o, n), Up(k))), <r, rCtx>), [])
+        = apply(rev(Up(k+c, X), acc), applyZ(ReuseUp(Up(k+c, X), mapUpHere(E, O(-c, o, n), Up(k))), <r, rCtx>), [])
+        Induction
+        = apply(acc, applyZ(mapUpHere(E, O(-c, o, n), Up(k)), walkDownPath(rev(Up(k+c, X)), r, rCtx)),
+          InvariantHelper(Up(k+c, X), acc, E, r, rCtx)
+        )
+        (acc is only Down so the invariantHelper is useless)
+        ?
+        = apply(acc, applyZ(E, walkDownPath(rev(Up(k, offset, X)), r, rCtx)),
+          InvariantHelper(Up(k, offset, X), acc, E, r, rCtx)
+          
+        We just need to show that:
+        applyZ(mapUpHere(E, O(-c, o, n), Up(k)), walkDownPath(rev(Up(k+c, X)), r, rCtx))
+        = applyZ(mapUpHere(E, O(-c, o, n), Up(k)), R[k+c], (k+c, R)::walkDownPath(rev(X), r, rCtx))
+        = apply(E, R[k+c], (k, R[])::(offset, R)::walkDownPath(rev(X), r, rCtx))
+        = apply(E, walkDownPath(rev(Up(k, offset, X)), r, rCtx))
+        QED
+        
+        Sub-proof:
+        
+        We assumed that
+        walkDownPath(rev(Up(a, E), acc), r, rCtx)
+        = walkDownPath(acc, <R[a], (a, R)::RCtx>)
+        for some R and RCtx. Is it true?
+        
+        if E = Reuse(), then
+        walkDownPath(rev(Up(a), acc), r, rCtx)
+        =walkDownPath(Down(a, acc), r, rCtx)
+        =walkDownPath(acc, <r[a], (a, r)::rCtx>)
+        True.
+        
+        walkDownPath(rev(Up(a, Up(b, X))), acc), <r, rCtx>)
+        = walkDownPath(rev(Up(b, X), Down(a, acc)), <r, rCtx>)
+        = (induction)
+        = walkDownPath(Down(a, acc), <R[b], (b, R)::RCtx>)
+        = walkDownPath(acc, <R[b][a], (a, R[b])::(b, R)::RCtx>)
+        = walkDownPath(acc, <R'[a], (a, R')::RCtx')
+        QED;
+        */
         let oldKey = Number(finalUp.keyOrOffset)
+        action = mapUpHere(action, downToUpOffset(finalUp.subAction.keyOrOffset),
+          Up(oldKey)
+        );
         let newKey = Number(finalUp.keyOrOffset) + finalUp.subAction.keyOrOffset.count;
-        action = Up(newKey, Down(finalUp.subAction.keyOrOffset, Down(oldKey, action)));
-        finalUp.keyOrOffset = newKey;
-        finalUp.subAction = finalUp.subAction.subAction;
+        finalUp = Up(newKey, finalUp.subAction.subAction);
         continue;
       }
       if(editActions.__debug) {
         console.log("ReuseUp goes up " + keyOrOffsetToString(finalUp.keyOrOffset) + " on " + stringOf(action));
       }
+      /** Proof:
+        apply(rev(Up(k, X), acc), applyZ(ReuseUp(Up(k, X), E), <r, rCtx>), [])
+        = apply(rev(X, Down(k, acc)),
+          applyZ(ReuseUp(X, Reuse({k: E})), <r, rCtx>), [])
+        By induction
+        = apply(Down(k, acc), applyZ(Reuse({k: E}), walkDownPath(rev(X, Reuse()), <r, rCtx>)), InvariantHelper(X, Down(k, acc), Reuse({k: E}), r, rCtx))
+        = apply(Down(k, acc), {...k: applyZ(E, walkDown(k, walkDownPath(rev(X, Reuse()), <r, rCtx>)))...}, InvariantHelper(...))
+        = apply(acc, applyZ(E, walkDown(k, walkDownPath(rev(X, Reuse()), <r, rCtx>))), (k, applyZ(Reuse({k: E}), walkDownPath(rev(X, Reuse()), <r, rCtx>)))::InvariantHelper(...))
+        = apply(acc, applyZ(E,  walkDownPath(rev(X, Down(k)), <r, rCtx>)), (k, applyZ(Reuse({k: E}), walkDownPath(rev(X, Reuse()), <r, rCtx>)))::InvariantHelper(...))
+        = apply(acc, applyZ(E,  walkDownPath(rev(Up(k, X), Reuse()), <r, rCtx>)), (k, applyZ(Reuse({k: E}), walkDownPath(rev(X, Reuse()), <r, rCtx>)))::InvariantHelper(X, Down(k, acc), Reuse({k: E}), r, rCtx))
+        = apply(acc, applyZ(E, walkDownPath(rev(Up(k, X), Reuse()), <r, rCtx>)), InvariantHelper(Up(k, X), acc, E, r, rCtx))
+        QED;
+      */
       action = ReuseKeyOrOffset(finalUp.keyOrOffset, action);
       finalUp = finalUp.subAction;
     }
+    /** Proof:
+     
+     
+     apply(E, apply(rev(Reuse()), r, rCtx), ?1)
+     = apply(E, apply(Reuse(), r, rCtx), ?1)
+     = apply(E, r, rCtx)
+     = apply(Reuse(), apply(E, r, rCtx), ?2)
+     = apply(Reuse(), apply(ReuseUp(Reuse(), E), r, rCtx), ?2)
+     = apply(rev(Reuse()), apply(ReuseUp(rev(Reuse()), E), r, rCtx), ?2)
+    */
     return action;
   }
   editActions.__ReuseUp = ReuseUp;

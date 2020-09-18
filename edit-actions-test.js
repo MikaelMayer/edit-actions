@@ -5,10 +5,14 @@ var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
 
-n()
 shouldBeEqual(
   editActions.__ReuseUp(Up(3, Up(Offset(2))), Up(3, Offset(2), Down(0))),
   Reuse({5: Up(5, Down(0))})
+);
+
+shouldBeEqual(
+  editActions.__ReuseUp(Up(5, Offset(2)), Reuse({3: Up(3, 5, Offset(2), Down(0))})),
+  Reuse({7: Reuse({3: Up(3, 7, Down(0))})})
 );
 
 shouldBeEqual(
@@ -1067,13 +1071,10 @@ testBackPropagate(
 testBackPropagate(
   Remove(2, Replace(4, 4, Reuse({2: Down(0)}), Up(Offset(6), Down(Offset(0, 2))))),
     Remove(2, Replace(3, 3, Reuse({0: New(7), 1: New(2)}), RemoveAll())),
-  Keep(1, Remove(3,
-    Replace(2, 2,
-      Reuse({
-        0: Reuse({
-          0: New(7)}),
-        1: New(2)}),
-      Reuse()))));
+  Keep(1, Remove(3, Reuse({
+    0: Reuse({
+      0: New(7)}),
+    1: New(2)}))));
 
 ea = Reuse({a: Custom(Up("a", New([Down("x"), Down("y")])),
 {
@@ -1097,11 +1098,9 @@ testBackPropagate(
 testBackPropagate(
   Remove(2, Replace(4, 4, Reuse({2: Down(0)}), Up(Offset(2)))),
   Replace(3, 3, RemoveExcept(Offset(2, 1, 3), Reuse({0: New(7)})), Reuse()),
-    Keep(2, Remove(2, Replace(1, 1,
-      Reuse({
-        0: Reuse({
-          0: New(7)})}),
-      Reuse())))
+    Keep(2, Remove(2, Reuse({
+    0: Reuse({
+      0: New(7)})})))
 )
 
 testBackPropagate(
@@ -1329,10 +1328,10 @@ testBackPropagate(
 testBackPropagate(
   Keep(4, Remove(1)),
   RemoveExcept(Interval(0, 6), Reuse({5: New(1)})),
-  Keep(5, Replace(2, 2,
+  Replace(7, 7,
     Reuse({
-      1: New(1)}),
-    RemoveAll())), "Concat to slice");
+      6: New(1)}),
+    RemoveAll()), "Concat to slice");
 
 testBackPropagate(
   Keep(4, Remove(1)),
@@ -1943,7 +1942,9 @@ var edit =
   Reuse({0: New(42),
          1: New(54)});
 
-testBackPropagate(step, edit, Replace(2, 2, Reuse({0: New(42), 1: New(54)}), Reuse()));
+testBackPropagate(step, edit, Reuse({
+  0: New(42),
+  1: New(54)}));
 
 shouldBeEqual(merge(
              Insert(2, New([1, 2])),
@@ -2240,7 +2241,11 @@ testBackPropagate(
 testBackPropagate(
     Remove(2),
     Reuse({3: Reuse({1: Reuse({3: Reuse({1: New("style")})})})})
-  ,Keep(2, Reuse({3: Reuse({1: Reuse({3: Reuse({1: New("style")})})})})), "Reuse after ReuseArray");
+  ,Reuse({
+  5: Reuse({
+    1: Reuse({
+      3: Reuse({
+        1: New("style")})})})}), "Reuse after ReuseArray");
 
 testBackPropagate(
     Insert(2, New([1, 2])),
@@ -2823,28 +2828,32 @@ pStep = Reuse({
     Keep(1)))});
 uStep = Reuse({heap: Reuse({5: Reuse({value: New(22)})})});
 
-n()
 testBackPropagate(
   pStep, uStep,
-  Reuse({heap: Keep(4, Replace(1, 1, Reuse({0: Reuse({value: New(22)})})))}), "pStep_uStep2");
+  Reuse({
+  heap: Reuse({
+    4: Reuse({
+      value: New(22)})})}), "pStep_uStep2");
 
-pStep = Reuse({heap: ReuseArray(
-       1, New([]),
-       3, New([Down(up, 2)]))});
+pStep = Reuse({heap: Remove(
+       1, Replace(3, 1, New([Up(Offset(1, 3), Down(2))])))});
 uStep = Reuse({heap: Reuse({0: Reuse({value: New(22)})})});
 
 testBackPropagate(
   pStep, uStep,
   Reuse({heap: Reuse({2: Reuse({value: New(22)})})}), "pStep_uStep3");
 
-pStep = Reuse({heap: ReuseArray(
-       1, New([5, 6]),
-       3, New([Down(2)]))});
+pStep = Reuse({heap: Replace(
+       1, 2, New([5, 6]),
+       Replace(3, 1, New([Down(2)])))});
 uStep = Reuse({heap: Reuse({2: Reuse({value: New(22)})})});
 
 testBackPropagate(
   pStep, uStep,
-  Reuse({heap: Keep(1, 3, Reuse({2: Reuse({value: New(22)})}), Reuse())}), "pStep_uStep4");
+  Reuse({
+  heap: Reuse({
+    3: Reuse({
+      value: New(22)})})}), "pStep_uStep4");
 
 // Custom
 var plusEditAction =
@@ -2853,7 +2862,7 @@ var plusEditAction =
            function(outputDiff, {left, right}, outputOld) {
              if(outputDiff.ctor === Type.New) {
                let diff = outputDiff.model - outputOld;
-               return Reuse({left: New(left + diff)}).concat(Reuse({right: New(right + diff)}));
+               return Choose(Reuse({left: New(left + diff)}), Reuse({right: New(right + diff)}));
              } else {
                console.log(stringOf(outputDiff));
                throw "Unsupported output edit action for the + operator"
@@ -2867,12 +2876,10 @@ shouldBeEqual(
 
 shouldBeEqual(
   backPropagate(plusEditAction, New(5)),
-  Reuse({args: Reuse({left: New(2)})}).concat(
+  Choose(Reuse({args: Reuse({left: New(2)})}),
     Reuse({args: Reuse({right: New(4)})})
   )
 )
-
-finishTests();
 
 function finishTests(temp) {
   if(incompleteLines.length > 0) {
