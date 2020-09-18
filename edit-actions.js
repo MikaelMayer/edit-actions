@@ -435,7 +435,7 @@ var editActions = {};
           }
         }
       }
-      if(outLength(first) === 0) return second;
+      if(replaceCount === 0) return second;
       if(outLength(second) === 0) return first;
     }
     if(secondReuse && !firstReuse) {
@@ -1440,6 +1440,12 @@ Assuming ?1 = apply(E0, r, rCtx)
             newChildren[k] = recurse(secondAction.childEditActions[k], firstAction.childEditActions[k], AddContext(k, firstAction, firstActionContext));
           } else {
             newChildren[k] = firstAction.childEditActions[k];
+          }
+        }
+        for(let k in secondAction.childEditActions) {
+          let g = secondAction.childEditActions[k];
+          if(!(k in firstAction.childEditActions)) {
+            newChildren[k] = recurse(g, firstAction, AddContext(k, firstAction, firstActionContext));
           }
         }
         return New(newChildren, firstAction.model);
@@ -3602,9 +3608,24 @@ Assuming ?1 = apply(E0, r, rCtx)
   
   // ReuseUp(Up("a", Up("b")), New(1))
   // = Reuse({b: Reuse({a: New(1)})})
+  // TODO: Prove this function, especially the optimization.
+  /**
+     apply(ReuseUp(Up("a", X), E), r, rCtx)
+   = apply(ReuseUp(X, Reuse({a: E})), r, rCtx);
+  */
   function ReuseUp(initUp, action) {
     let finalUp = initUp;
-    while(!isIdentity(finalUp)) {
+    while(!isIdentity(finalUp) && finalUp !== undefined) {
+      printDebug("ReuseUp", initUp, action);
+      // only here we can combine key and offset into a single key.
+      if(finalUp.subAction && isOffset(finalUp.subAction.keyOrOffset) && !isOffset(finalUp.keyOrOffset)) {
+        let oldKey = Number(finalUp.keyOrOffset)
+        let newKey = Number(finalUp.keyOrOffset) + finalUp.subAction.keyOrOffset.count;
+        action = Up(newKey, Down(finalUp.subAction.keyOrOffset, Down(oldKey, action)));
+        finalUp.keyOrOffset = newKey;
+        finalUp.subAction = finalUp.subAction.subAction;
+        continue;
+      }
       if(editActions.__debug) {
         console.log("ReuseUp goes up " + keyOrOffsetToString(finalUp.keyOrOffset) + " on " + stringOf(action));
       }
@@ -3613,6 +3634,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     }
     return action;
   }
+  editActions.__ReuseUp = ReuseUp;
   
   /* Returns [e', subs, initUp] where
      e' is an edit built from U suitable to apply on the given context.
@@ -3904,6 +3926,9 @@ Assuming ?1 = apply(E0, r, rCtx)
       return undefined;
     }
     if(editActions.__debug) console.log("outLength", stringOf(editAction), "("+inCount+")");
+    if(editAction.ctor == Type.Choose) {
+      return Collection.firstOrDefaultCallback(editAction.subactions, f => outLength(f, inCount));
+    }
     if(typeof editAction.cachedOutLength == "number") {
       return editAction.cachedOutLength;
     }
@@ -4510,7 +4535,9 @@ Assuming ?1 = apply(E0, r, rCtx)
                 printDebug("Detected insertion of " + countInserted);
                 let o = [];
                 for(let i = 0; i < countInserted; i++) {
-                  let newEdit = editDiff(tmpVal, newVal[indexNew - countInserted + i], {...options, isCompatibleForReplace: () => false}, tmpValCtx);
+                  let newEdit = editDiff(tmpVal, newVal[indexNew - countInserted + i], {...options, isCompatibleForReplace: () => false,
+                  
+                  }, tmpValCtx);
                   o[i] = newEdit;
                 }
                 let n = New(o);
@@ -5654,6 +5681,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     if(!(isEditAction(self))) { return uneval(self, ""); }
     let isNew = self.ctor == Type.New;
     let childIsSimple = child => 
+      typeof child == "object" &&
       child.ctor == Type.New && (
             typeof child.model == "boolean" || 
             typeof child.model == "string" || 

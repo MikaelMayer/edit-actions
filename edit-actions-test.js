@@ -5,6 +5,12 @@ var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
 
+n()
+shouldBeEqual(
+  editActions.__ReuseUp(Up(3, Up(Offset(2))), Up(3, Offset(2), Down(0))),
+  Reuse({5: Up(5, Down(0))})
+);
+
 shouldBeEqual(
   stringOf(InsertRight(3, "abc")), "InsertRight(3, \"abc\")" 
 );
@@ -2284,26 +2290,22 @@ var array2 = [
 , ["TEXT", "\n"]
 ];
 var array1to2 = diff(array1, array2);
-debug(first(array1to2));
 shouldBeEqual(apply(array1to2, array1), array2);
-e();
-shouldBeEqual(
-  diff(array1, array2),
-  Keep(2,
-             0, New.nested([["h2", [], [["TEXT", "Hello world"]]]]), Reuse()))
-  
 
+shouldBeEqual(
+  first(diff(array1, array2, {maxCloneDown: 0})),
+  Keep(2, Insert(1, New([New(["h2", New([]), New([New(["TEXT", "Hello world"])])])]))));
 // andThen with ReuseArray
 
 shouldBeEqual(andThen(
-  Reuse({values: Reuse({0: Up("0", Down( up, "toReplace"))})}),
+  Reuse({values: Reuse({0: Up(0, "values", Down("toReplace"))})}),
   New({values: Reuse(), toReplace: Down(5)})),
-  New({values: Reuse({0: Up("0", Down( 5))}), toReplace: Down(5)}), "andThen_ReuseArray1");
+  New({values: Reuse({0: Up(0, Down( 5))}), toReplace: Down(5)}), "andThen_ReuseArray1");
 
 // First cut before second cut, no overlap, only reuse
 shouldBeEqual(andThen(
      Keep(10, Reuse({1: New(3)})),
-     Replace(6, 6, Reuse({1: New(2)}), Reuse())
+     Replace(6, 6, Reuse({1: New(2)}))
   ), Replace(6, 6, Reuse({1: New(2)}), Keep(4, Reuse({1: New(3)}))), "andThen_ReuseArray2");
 
 
@@ -2311,7 +2313,7 @@ shouldBeEqual(andThen(
 shouldBeEqual(andThen(
      Replace(6, 6, Reuse({1: New(3)}), Reuse()),
      Keep(10, Reuse({1: New(2)}))
-  ), Replace(10, 10, ReuseArray(6, Reuse({1: New(3)}), Reuse()), Reuse({1: New(2)})), "andThen_ReuseArray3");
+  ), Replace(10, 10, Replace(6, 6, Reuse({1: New(3)}), Reuse()), Reuse({1: New(2)})), "andThen_ReuseArray3");
 
 // First cut before second cut, small overlap, only reuse
 shouldBeEqual(andThen(
@@ -2323,7 +2325,7 @@ shouldBeEqual(andThen(
 shouldBeEqual(andThen(
      Keep(6, Reuse({1: New(2)})),
      Replace(10, 10, Reuse({9: New(3)}), Reuse())
-  ), ReuseArray(10, Keep(6, Reuse({1: New(2), 3: New(3)})), Reuse()), "andThen_ReuseArray5");
+  ), Replace(10, 10, Keep(6, Reuse({1: New(2), 3: New(3)}))), "andThen_ReuseArray5");
 
 // First cut before second cut, full overlap, only reuse
 shouldBeEqual(andThen(
@@ -2335,25 +2337,25 @@ shouldBeEqual(andThen(
 shouldBeEqual(andThen(
      Keep(6, Reuse({1: Reuse({b: Up("b", Down( "a"))})})),
      Replace(10, 10, Reuse({7: New({a: New(2), b: New(3)})}), Reuse())
-  ), ReuseArray(10, Keep(6, Reuse({1: New({ a: 2, b: 2})})), Reuse()), "andThen_ReuseArray7");
+  ), Replace(10, 10, Keep(6, Reuse({1: New({ a: 2, b: 2})}))), "andThen_ReuseArray7");
 
 // Reaching outside of ReuseArray after deletion
 shouldBeEqual(andThen(
-     Reuse({values: Keep(2, Remove(1, New([Down(up, up, "toReplace")])))}),
+     Reuse({values: Keep(2, Remove(1, New([Up(Offset(3), "values", Down("toReplace"))])))}),
      New({values: Reuse(), toReplace: Down(5)})
-  ), New({values: Keep(2, Remove(1, New([Down(up, 5)]))),
+  ), New({values: Keep(2, Remove(1, New([Up(Offset(3), Down(5))]))),
      toReplace: Down(5)
   }), "andThen_ReuseArray8");
 
 shouldBeEqual(andThen(
      Remove(1), // 2. Remove first element
      Remove(1)  // 1. Remove first element
-  ), Remove(1, 1, New([]), Reuse()), "andThen_ReuseArrayRemove1"); // Remove first two elements
+  ), Remove(2), "andThen_ReuseArrayRemove1"); // Remove first two elements
 
 shouldBeEqual(andThen(
      Remove(1), // 2. Remove first element
-     Keep(2, New([]))  // 1. Remove everything but first two elements
-  ), ReuseArray(2, Remove(1), New([])), "andThen_ReuseArrayRemove2"); // Remove everything but second element.
+     Keep(2, RemoveAll())  // 1. Remove everything but first two elements
+  ), RemoveExcept(Interval(1, 2)), "andThen_ReuseArrayRemove2"); // Remove everything but second element.
 
 shouldBeEqual(andThen(
      Keep(5, Remove(1)), // 2. Keep first 5 els, remove 6th
@@ -2367,14 +2369,14 @@ shouldBeEqual(andThen(
 
 // If first action is a New, then result should be the computation of applying the edit action
 shouldBeEqual(andThen(
-     Keep(3, Remove(1, ReuseArray(0, New([11]), Reuse({1: New(4)})))),
+     Keep(3, Remove(1, Insert(1, New([11]), Reuse({1: New(4)})))),
      New([0,0,0,1, 2, 3])
   ), New([0,0,0,11, 2, 4]));
 
 // If second action is a New, then result should be a New as well
 shouldBeEqual(andThen(
      New([Down(3)]),
-     Keep(3, Replace(1, 1, Reuse({0: Up("0", Down( 1))}), Reuse()))
+     Keep(3, Replace(1, 1, Reuse({0: Up(0, Offset(3), Down( 1))})))
   ), New([Down(1)]));
 //--------------------
 
@@ -2386,34 +2388,35 @@ shouldBeEqual(
 );
 
 shouldBeEqual(
-  diff([["b", [], [["TEXT", "hello"]]]], [["TEXT", "hello"]], {maxCloneDown: 3}),
-  Reuse({0: Remove(3,
-                          New([Down(up, 2, 0, 0),
-                               Down(up, 2, 0, 1)]))})
+  first(diff([["b", [], [["TEXT", "hello"]]]], [["TEXT", "hello"]], {maxCloneDown: 3})),
+  Down(0, 2)
 )
 //process.exit(0)
 
 shouldBeEqual(
   diff(["p", 1, 1], [1, "p"]),
   Choose(
-    Insert(1, New([Choose(Down(up, 1), Down(up, 2), New(1))]), Keep(1, RemoveAll())),
-    Remove(1, Keep(1, New([Choose(Down(up, 0), New("p"))]))),
-    Remove(2, Keep(1, New([Choose(Down(up, 0), New("p"))])),
-    New([Down(1).concat(Down(2)), Down(0)]))
-  )
+  Insert(1, New([Choose(
+        Down(1),
+        Down(2),
+        New(1))]),
+    Keep(1, Remove(2))),
+  New([
+  Choose(
+      Down(1),
+      Down(2)), Down(0)]))
 );
 shouldBeEqual(
   diff(["p", 1, 1], [1, "p"], {onlyReuse: true}),
-  Choose(
-    ReuseArray(0, New([Choose(Down(up, 1), Down(up, 2))]), 1, Reuse(), New([])),
-    Remove(1, Keep(1, New([Down(up, 0)]))),
-    Remove(2, Keep(1, New([Down(up, 0)])))
-  )
+  Insert(1, New([Choose(
+      Down(1),
+      Down(2))]),
+  Keep(1, Remove(2)))
 );
 
 shouldBeEqual(
   diff(["link", "meta"], ["script", "script", "link", "meta"], {maxDepth: 0, onlyReuse: true}),
-  ReuseArray(0, New(["script", "script"]), Reuse())
+  Insert(2, New(["script", "script"]))
 );
 
 shouldBeEqual(
@@ -2422,19 +2425,15 @@ shouldBeEqual(
 
 shouldBeEqual(
   backPropagate(
-    ReuseArray("heap",
-           1, Reuse({0: Down("value")}),
-           1, Reuse({0: Down("value")}),
-           Reuse()),
-    Keep(1,
-               0, New({ 0: 2}, []),
-             Reuse())
+    Down("heap", Replace(1, 1,
+           Reuse({0: Down("value")}),
+           Replace(1, 1, Reuse({0: Down("value")})))),
+    Keep(1, Replace(0, 1, New([2])))
   ),
   Reuse({
-    heap: ReuseArray(
-      1, Reuse(),
-      ReuseArray(0, New([New(2)]), Reuse()),
-    )})
+    heap: Keep(1,
+      Replace(0, 1,
+      New([2])))})
 );
 
 shouldBeEqual(
@@ -2443,23 +2442,9 @@ shouldBeEqual(
 );
 
 shouldBeEqual(
-  concatMap(Reuse({value: New(1)}).concat(New({b: 2})), ea => {
-    if(ea.ctor == Type.Reuse) {
-      return concatMap(ea.childEditActions.value, value => {
-        if(value.ctor == Type.New) {
-          return Reuse({value: New(value.model).concat(New(value.model+1)) });
-        }
-      });
-    } else {
-      return New({c: New(3)});
-    }
-  }),
-  Reuse({value: New(1).concat(New(2))}).concat(New({c: New(3)}))
-);
-
-shouldBeEqual(
   first(New([])), New([])
 )
+
 shouldBeEqual(
   first(Choose(
     Down("abc", Reuse({
@@ -2467,7 +2452,7 @@ shouldBeEqual(
     })), New(1))
   ),
   Down("abc", Reuse({value: Concat(1, New([]), Reuse())}))
-)
+);
 
 shouldBeEqual(
   andThen(Down("f", Reuse({a: Up("a", Down( "b"))})), Down("g", Reuse({f: New({a: New(1), b: New(2)})}))),
@@ -2496,7 +2481,12 @@ testBackPropagate(step,
   Reuse({stack: Reuse({hd: Reuse({argsEvaled: Reuse({ 0: Reuse({ value: New(2)})})})})}));
 
 shouldBeEqual(
-  andThen(Reuse({a: Reuse({c: New(1)}), b: Up("b", Down( "a"))}), New({a: Reuse()})),
+  andThen(
+    Reuse({
+      a: Reuse({
+        c: New(1)}),
+      b: Up("b", Down( "a"))}),
+    New({a: Reuse()})),
   New({a: Reuse({c: New(1)}), b: Reuse()})
 )
 
@@ -2505,16 +2495,22 @@ var thisObj = { ctor: "Ref", heapIndex: 8}
 shouldBeEqual(apply(
   Reuse({
     env: Up("env", Down( "heap", 5, "env")),
-    stack: New({ hd: New({ ctor: "AssignmentMultiple",
-                           params: New([]),
-                           args: ReuseArray("hd", "argsEvaled",
-                                            0, New({ 0: New(thisObj)}, []),
-                                            0, Reuse())}),
-                 tl: New({ hd: New({ ctor: "ComputationNode",
-                                     node: Up("node", Down( "heap", 5, "funDecl", "body"))}),
-                           tl: New({ hd: New({ ctor: "EndOfFunction",
-                                               env: Up("env", Down( "env"))}),
-                                     tl: Down("tl")})})})}),
+    stack: New({
+      hd: New({
+        ctor: "AssignmentMultiple",
+        params: New([]),
+        args: Down("hd", "argsEvaled", Replace(0, 1,
+          New([New(thisObj)]),
+          Reuse()))}),
+      tl: New({
+        hd: New({
+          ctor: "ComputationNode",
+          node: Up("stack", Down( "heap", 5, "funDecl", "body"))}),
+        tl: New({
+          hd: New({
+            ctor: "EndOfFunction",
+            env: Up("stack", Down( "env"))}),
+          tl: Down("tl")})})})}),
   {env: "removed",
    heap: [{ctor: "Obj"}, {ctor: "Obj"}, {ctor: "Obj"}, {ctor: "Obj"}, {ctor: "Obj"}, {env: "newenv", funDecl: {body: "test"}}],
    stack: {
@@ -2544,14 +2540,11 @@ shouldBeEqual(thisObj, { ctor: "Ref", heapIndex: 8})
 shouldBeEqual(
   apply( Reuse({
     stack: Reuse({
-      hd: Up("hd", Reuse( "tl", "hd", { // Convert to self-sufficient computation
-    objectRef: Up("objectRef", "hd", "tl", Down("hd", "value"))})),
+      hd: Up("hd", Down("tl", "hd", Reuse({ // Convert to self-sufficient computation
+    objectRef: Up("objectRef", "hd", "tl", Down("hd", "value"))}))),
       tl: Down("tl")})}),
     {stack: {hd: {value: 2}, tl: {hd: {objectRef: 1, n: 3}, tl: undefined}}}),
   {stack: {hd: {objectRef: 2, n: 3}, tl: undefined}});
-
-//pathname
-shouldBeEqual(path(path("body", 0), path("expression")), path("body", 0, "expression"))
 
 //Composition
 
@@ -2559,7 +2552,7 @@ shouldBeEqual(andThen(Reuse(), Reuse()), Reuse());
 shouldBeEqual(andThen(Reuse(), New(1)), New(1));
 shouldBeEqual(andThen(New(1), Reuse()), New(1));
 shouldBeEqual(andThen(New(1), New(2)), New(1));
-shouldBeEqual(andThen(Reuse({a: Down("..", "b")}), New({a: New(1), b: New(2)})),
+shouldBeEqual(andThen(Reuse({a: Up("a", Down("b"))}), New({a: New(1), b: New(2)})),
             New({a: New(2), b: New(2)}));
             
 shouldBeEqual(andThen(Down("a"), Reuse()), Down("a"))
@@ -2599,14 +2592,14 @@ shouldBeEqual(backPropagate(
   Reuse({b: New(3)}), "Clone new");
 
 shouldBeEqual(backPropagate(
-   Reuse({d: Up("d", Down( "c"))}, "b"),
+   Down("b", Reuse({d: Up("d", Down( "c"))})),
     Reuse({d: New(3)})),
   Reuse({b: Reuse({c: New(3)})}));
 
 shouldBeEqual(backPropagate(
    Reuse({d: Up("d", Down( "c")), e: Up("e", Down( "c"))}),
     Reuse({d: New(3), e: New(5)})),
-  Reuse({c: New(3).concat(New(5))}));
+  Reuse({c: Choose(New(3), New(5))}));
 
 shouldBeEqual(backPropagate(
    Reuse({a: Up("a", Down( "b"))}),
@@ -2646,10 +2639,10 @@ shouldBeEqual(backPropagate(
 shouldBeEqual(backPropagate(
    New({d: Down("a"), c: Down("a"), b: Down("b")}),
     Reuse({d: New(3), c: New(5)})),
-  Reuse({a: New(3).concat(New(5))}));
+  Reuse({a: Choose(New(3), New(5))}));
 
 shouldBeEqual(backPropagate(
-   New({a: Identity, b: Identity}),
+   New({a: Reuse(), b: Reuse()}),
     Reuse({a: New(2)})),
   New(2));
 
@@ -2692,46 +2685,77 @@ shouldBeEqual(backPropagate(
   );
 
 shouldBeEqual(backPropagate(
-  New({a: New({b: Down("c", Reuse({d: Up("d", Down( up, "f"))})) })}),
-  Reuse({a: Reuse({b: Reuse({d: Up("d", Reuse( "e", {p: Up("p", Down( up, "d"))})), e: Up("e", Down( "d"))})})})),
-  Reuse(
-    {f: Up("f", Reuse( "c", "e", {p: Up("p", Down( up, up, "f"))})),
-     c: Reuse({e: Up("e", Down( up, "f"))})
-    }));
+  New({
+    a: New({
+      b: Down("c", Reuse({
+        d: Up("d", "c", Down("f"))})) })}),
+  Reuse({
+    a: Reuse({
+      b: Reuse({
+        d: Up("d", Down("e", Reuse({
+          p: Up("p", "e", Down("d"))}))),
+        e: Up("e", Down( "d"))})})})),
+// This test will pass when we will have the possibility say that New can reuse all fields, but does not generate a new back-propagation rule.
+  Reuse({
+    f: Up("f", Down("c", "e")),
+    c: Reuse({
+      e: Up("e", "c", Down("f"))})})
+  /*Reuse({
+    f: Up("f", Down("c", "e", Reuse({
+      p: Up("p", "e", "c", Down("f"))}))),
+    c: Reuse({e: Up("e","c", Down("f"))})
+  })*/);
 
 shouldBeEqual(backPropagate(
-  Reuse({a: New({k: Up("k", Down( "b", "c")), p: Up("p", Down( "b", "d"))}), b: Up("b", Down( "a", "m"))}),
-  Reuse({b: New({u: Identity, o: Up("o", Down( "a", "k")), t: Up("t", Down( "a", "p"))})})),
- Reuse({a: Reuse({m: New({u: Identity, o: Up("o", Down( up, "b", "c")), t: Up("t", Down( up, "b", "d"))})})}));
+  Reuse({
+    a: New({
+      k: Up("a", Down( "b", "c")),
+      p: Up("a", Down( "b", "d"))}),
+    b: Up("b", Down( "a", "m"))}),
+  Reuse({
+    b: New({
+      u: Reuse(),
+      o: Up("b", Down( "a", "k")),
+      t: Up("b", Down( "a", "p"))})})),
+ Reuse({
+   a: Reuse({
+     m: New({
+       u: Reuse(),
+       o: Up("m", "a", Down("b", "c")),
+       t: Up("m", "a", Down( "b", "d"))})})}));
 
 shouldBeEqual(backPropagate(
   New({a: New({b: Down("c", Reuse({d: Up("d", "c", Down("f"))})) })}),
-  Reuse({a: Reuse({b: Reuse({d: Up("d", Down("e", Reuse({p: Up("p", Down( up, "d"))}))), e: Up("e", Down( "d"))})})})),
+  Reuse({a: Reuse({b: Reuse({d: Up("d", Down("e", Reuse({p: Up("p", "e", Down("d"))}))), e: Up("e", Down( "d"))})})})),
+  Reuse({
+  f: Up("f", Down("c", "e")),
+  c: Reuse({
+    e: Up("e", "c", Down("f"))})})/*
   Reuse(
-    {f: Up("f", Down("c", "e", Reuse({p: Up("p", Down( up, up, "f"))}))),
-     c: Reuse({e: Up("e", Down( up, "f"))})
-    }));
+    {f: Up("f", Down("c", "e", Reuse({p: Up("p", "e", "c", Down("f"))}))),
+     c: Reuse({e: Up("e", "c", Down("f"))})
+    })*/);
 
 shouldBeEqual(backPropagate(
-  Reuse({a: New({k: Up("k", Down( "b", "c")), p: Up("p", Down( "b", "d"))}), b: Up("b", Down( "a", "m"))}),
-  Reuse({b: New({u: Identity, o: Up("o", Down( "a", "k")), t: Up("t", Down( "a", "p"))})})),
- Reuse({a: Reuse({m: New({u: Identity, o: Up("o", Down( up, "b", "c")), t: Up("t", Down( up, "b", "d"))})})}));
+  Reuse({a: New({k: Up("a", Down( "b", "c")), p: Up("a", Down( "b", "d"))}), b: Up("b", Down( "a", "m"))}),
+  Reuse({b: New({u: Reuse(), o: Up("b", Down( "a", "k")), t: Up("b", Down( "a", "p"))})})),
+ Reuse({a: Reuse({m: New({u: Reuse(), o: Up("m", "a", Down("b", "c")), t: Up("m", "a", Down("b", "d"))})})}));
 
 shouldBeEqual(backPropagate(
-  Reuse(["app", "body"], {arg: Up("arg", Down( up, up, "arg"))}),
+  Down("app", "body", Reuse({arg: Up("arg", "body", "app", Down("arg"))})),
   Reuse({arg: Up("arg", Down( "app"))})),
   Reuse({arg: Up("arg", Down( "app", "body", "app"))})
 )
 
 shouldBeEqual(backPropagate(
-  Reuse(["app", "body"], {arg: Up("arg", Down( up, up, "arg"))}),
+  Down("app", "body", Reuse({arg: Up("arg", "body","app", Down( "arg"))})),
   New({app: Down("app"), arg: Down("app")})),
   Reuse({app: Reuse({body: New({app: Down("app"), arg: Down("app")})})})
 )
 
 shouldBeEqual(backPropagate(
     New({b: Down("a"), c: Down("a")}),
-    Reuse({b: New(2), c: New({d: Identity})})),
+    Reuse({b: New(2), c: New({d: Reuse()})})),
     Reuse({a: New({d: New(2)})})
   )
 
@@ -2739,86 +2763,70 @@ shouldBeEqual(backPropagate(
 
 var prog = ["To move elsewhere", "Keep", "Keep with next", "Keep and to clone"];
 
-var step = ReuseArray(
-    1, New([]),                            // Removes 0
-    1, Reuse(),                            // Keeps 1
-    0, New({0: Down(up, 3)},[]),              // Clones the field 3 before 2
-    2, Reuse(), // Keeps 2 and 3
-    0, New({0: Down(up, 0)}, []),         // Move the field "0" there
-    0, New({0: New("Inserted at end")}, []) // Inserts a new value
+var step = Replace(
+    1, 0, New([]),                            // Removes 0
+    Keep(1,                            // Keeps 1
+    Replace(0, 1, New([Up(Offset(2), Down(3))]),              // Clones the field 3 before 2
+    Keep(2, // Keeps 2 and 3
+    Replace(0, 1, New([Up(Offset(4), Down(0))]),         // Move the field "0" there
+    Replace(0, 1, New([New("Inserted at end")])) // Inserts a new value
+    ))))
   );
 
 shouldBeEqual(apply(step, prog),
   ["Keep", "Keep and to clone", "Keep with next", "Keep and to clone", "To move elsewhere", "Inserted at end"]);
 
 shouldBeEqual(apply(
-  Reuse({heap: ReuseArray(
-  1, Reuse(), 1, Reuse({0: Up("0", Down( up, up, "stack", "hd", "value"))}), 1, Reuse())}),
+  Reuse({heap: Keep(
+  1, Replace(1, 1, Reuse({0: Up(0, Offset(0, 1), "heap", Down("stack", "hd", "value"))}), Keep(1, RemoveAll())))}),
     {heap: [40, 50, 60], stack: {hd: {value: 1}}}),
   {heap: [40, 1, 60], stack: {hd: {value: 1}}})
 
-step = ReuseArray(
-      5, Reuse(),                       // "Hello"
-      6,                                // " world"
-        ReuseArray(
-          0, New(" big world, nice"),   // insertion
-          6, Reuse()                    // " world"
+step = Keep(
+      5,                        // "Hello"
+      Replace(6, 22,                                 // " world"
+        Replace(
+          0, 16, New(" big world, nice"),   // insertion
+          Reuse()                    // " world"
         ),
-      2, Reuse(), // The string "! "
-      0, New("?"), // The inserted string "?"
-      1, Reuse()
-    )
+      Keep(2, // The string "! "
+      Insert(1, New("?"), // The inserted string "?"
+      Reuse()
+    ))));
     
 shouldBeEqual(apply(step, "Hello world! ?"), "Hello big world, nice world! ??")
 
-step = ReuseArray(
-      5, Reuse(),                       // "Hello"
-      6,                                // " world"
-        ReuseArray( // Considering substring " world"
-          0, New(" big world, nice"),   // insertion
-          Reuse()                    // " world"
-        ).concat(
-        ReuseArray(
-          1, Reuse(), // " "
-          0, New("big world. nice "),   // insertion
-          Reuse()                    // "world"
-        )),
-      2, Reuse(), // The string "! "
-      0, New("?"), // The inserted string "?"
-      Reuse()
-    )
-
-shouldBeEqual(apply(step, "Hello world! ?"), "Hello big world, nice world! ??", "ReuseArray1");
-shouldBeEqual(apply(step, "Hello world! ?", true), "Hello big world. nice world! ??", "ReuseArray2");
-shouldBeEqual(applyAll(step, "Hello world! ?"), ["Hello big world, nice world! ??", "Hello big world. nice world! ??"], "ReuseArray3");
-
 // Should not fail
-apply(Keep(1, 0, New({0: undefined, 1: undefined}, [])), [0])
+shouldBeEqual(
+  apply(Keep(1, Replace(0, 2, New([undefined, undefined]))), [0]),
+  [0, undefined, undefined]);
 
 ///// Complex interactions between ReuseArray, New and Reuse
 
-pStep = Reuse({heap: ReuseArray(
-       1, Reuse(),
-       1, Reuse({0: Up("0", Down( up, up, "stack", "hd"))}),
-       0, Reuse())});
+pStep = Reuse({heap:
+       Keep(1, 
+       Replace(
+       1, 1, Reuse({0: Up(0, Offset(1,1), "heap", Down("stack", "hd"))}),
+       RemoveAll()))});
 uStep = Reuse({heap: Reuse({1: Reuse({value: New(22)})})});
 
 testBackPropagate(
   pStep, uStep,
   Reuse({stack: Reuse({hd: Reuse({value: New(22)})})}), "pStep_uStep1");
 
-pStep = Reuse({heap: ReuseArray(
-       1, New([]),
-       3, ReuseArray(
-           1, New([2, 3, 4]),
-           2, Reuse()
-         ),
-       1, Reuse())});
+pStep = Reuse({
+  heap: 
+    Remove(1,
+    Replace(4, 6,
+      Replace(1, 3,
+        New([2, 3, 4])),
+    Keep(1)))});
 uStep = Reuse({heap: Reuse({5: Reuse({value: New(22)})})});
 
+n()
 testBackPropagate(
   pStep, uStep,
-  Reuse({heap: Keep(4, 1, Reuse({0: Reuse({value: New(22)})}), Reuse())}), "pStep_uStep2");
+  Reuse({heap: Keep(4, Replace(1, 1, Reuse({0: Reuse({value: New(22)})})))}), "pStep_uStep2");
 
 pStep = Reuse({heap: ReuseArray(
        1, New([]),
