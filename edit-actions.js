@@ -3232,7 +3232,7 @@ var editActions = {};
       let [E1p, E1Ctxp, newSecondUpOffset] = walkUpActionCtx(U.keyOrOffset, E, ECtx);
       return partitionEdit(E1p, newSecondUpOffset ? Up(newSecondUpOffset, U.subAction) : U.subAction, E1Ctxp);
     }
-    if(U.ctor == Type.Reuse) {
+    if(isReuse(U)) {
       let buildPart = buildingPartOf(E);
       if(editActions.__debug) {
         console.log("Recovered a build part: " + stringOf(buildPart));
@@ -3382,13 +3382,13 @@ var editActions = {};
     if(U.ctor == Type.Choose) {
       return Choose(...Collection.map(U.subActions, childU => backPropagate(E, childU, ECtx)));
     }
-    if(U.ctor == Type.Reuse) {
+    if(isReuse(U)) {
       let result = Reuse();
-      for(let k in U.childEditActions) {
+      forEachChild(U, (child, k) => {
         let [Ep, ECtxp] = walkDownActionCtx(k, E, ECtx);
-        let tmp = backPropagate(Ep, U.childEditActions[k], ECtxp);
+        let tmp = backPropagate(Ep, Up(k, child), ECtxp);
         result = merge(result, tmp);
-      }
+      });
       return result;
     }
     let solution = Reuse(), subProblems = [];
@@ -3409,7 +3409,7 @@ var editActions = {};
           printDebug("Solving sub-problem first", U)
           let [EEmpty, ECtxEmpty] = walkDownActionCtx(U.keyOrOffset, E, ECtx);
           subProblems.push([EEmpty, U.subAction, ECtxEmpty]);
-          if(E.ctor == Type.Reuse) {
+          if(isReuse(E)) {
             printDebug("we prefix with a Reuse the RemoveAll");
             solution = prefixReuse(ECtx, RemoveAll(Reuse(), oldLength));
           }
