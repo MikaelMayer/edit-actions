@@ -1163,9 +1163,9 @@ var editActions = {};
             let newRight = recurse(rs, rf, secondSubContext);
             return Prepend(os, newLeft, newRight);
           }
-        } else if(isReplace(firstAction) || firstAction.ctor == Type.Reuse) {
+        } else if(isReplace(firstAction) || isReuse(firstAction)) {
           let [fi, fc, lf, rf] = argumentsIfReplace(firstAction);
-          if(firstAction.ctor == Type.Reuse) {
+          if(isReuse(firstAction)) {
             // let's convert to Replace, so that we can enjoy this syntactic sugar.
             // Note that a Reuse might increase the length.
             let [si, sc, ls, rs] = argumentsIfReplace(secondAction);
@@ -2044,7 +2044,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         return [o2, l2, Append(editAction.count, UpIfNecessary(Offset(0, 0), r2), editAction.second)]
       }
     }
-    if(editAction.ctor == Type.Reuse) {
+    if(isReuse(editAction)) {
       // Let's generate a Replace to mimic the Reuse.
       /** Proof: Assume editAction = Reuse({f: Ef, g: Eg}) where f < n and g >= n
            apply(editAction, r, rCtx)
@@ -2069,9 +2069,9 @@ Assuming ?1 = apply(E0, r, rCtx)
       for(let k in editAction.childEditActions) {
         k = Number(k);
         if(k < n) {
-          lefto[k] = mapUpHere(editAction.childEditActions[k], Offset(0, n), Up(k));
+          lefto[k] = mapUpHere(Up(k, editAction.childEditActions[k]), Offset(0, n), Up(k));
         } else {
-          righto[k-n] = mapUpHere(editAction.childEditActions[k], Offset(n), Up(k));
+          righto[k-n] = mapUpHere(Up(k, editAction.childEditActions[k]), Offset(n), Up(k));
         }
       }
       return [n, Reuse(lefto), Reuse(righto)];
@@ -5181,22 +5181,16 @@ Assuming ?1 = apply(E0, r, rCtx)
          typeof prog  === "string" || typeof prog === "number" || typeof prog === "boolean" ? monoid.String: (() => { console.trace(prog); throw "No monoid available for dealing with " + prog })();
   }
   function isIdentity(editAction) {
-    if(Collection.is(editAction)) {
-      editAction = Collection.onlyElemOfCollectionOrDefault(editAction);
-      if(editAction === undefined) return false;
-    }
     if(!isEditAction(editAction)) return false;
-    if(editAction.ctor == Type.Reuse) {
-      if(!hasChildEditActions(editAction)) return true;
-    }
-    return false;
+    if(!isReuse(editAction)) return false;
+    return !hasAnyProps(editAction.childEditActions);
   }
   editActions.isIdentity = isIdentity;
   function isDown(editAction) {
     return typeof editAction === "object" && editAction.ctor == Type.Down;
   }
   function isReuse(editAction) {
-    return typeof editAction === "object" && editAction.ctor == Type.Reuse;
+    return isNew(editAction) && editAction.model.ctor === TypeNewModel.Reuse;
   }
   function isNew(editAction) {
     return typeof editAction === "object" && editAction.ctor == Type.New;
@@ -5375,24 +5369,10 @@ Assuming ?1 = apply(E0, r, rCtx)
     let childIsSimple = child => 
       typeof child == "object" &&
       child.ctor == Type.New && (
-            typeof child.model == "boolean" || 
-            typeof child.model == "string" || 
-            typeof child.model == "number" || typeof child.model == "undefined");
-    let children = () => {
-      let childrenStr = "";
-      for(let k in self.childEditActions) {
-        let child = self.childEditActions[k];
-        let childStr =
-          Array.isArray(child) ?
-             isNew && child.length == 1 && childIsSimple(child[0]) ? editActions.uneval(child[0].model) :
-             stringOf(child)
-          : isNew && childIsSimple(child) ? editActions.uneval(child.model) : stringOf(child);
-        childrenStr += (childrenStr.length == 0 ? "" : ",\n") + k + ": " +
-          childStr
-      }
-      childrenStr += "}";
-      return childrenStr;
-    }
+            child.model.ctor == TypeNewModel.Insert && (
+            typeof child.model.value == "boolean" || 
+            typeof child.model.value == "string" || 
+            typeof child.model.value == "number" || typeof child.model.value == "undefined"));
     if(self.ctor == Type.Up) {
       let str = "Up(";
       let selfIsIdentity = false;
@@ -5549,7 +5529,7 @@ Assuming ?1 = apply(E0, r, rCtx)
           let inserted = self.first;
           let second = self.second;
           str += "Prepend(" + self.count + ", ";
-          let childStr = addPadding(childIsSimple(inserted) ? uneval(inserted.model) : stringOf(inserted), "  ");
+          let childStr = addPadding(childIsSimple(inserted) ? uneval(inserted.model.value) : stringOf(inserted), "  ");
           str += childStr;
           let extraSpace = childStr.indexOf("\n") >= 0 ? "\n " : "";
           if(!isIdentity(second)) {
@@ -5565,7 +5545,7 @@ Assuming ?1 = apply(E0, r, rCtx)
           if(!isIdentity(first)) {
             str += addPadding("\n" + stringOf(first), "  ") + ",\n  ";
           }
-          str += childIsSimple(inserted) ? uneval(inserted.model) : stringOf(inserted);
+          str += childIsSimple(inserted) ? uneval(inserted.model.value) : stringOf(inserted);
           str += ")";
         } else {
           str = "Concat(" + self.count + ", ";

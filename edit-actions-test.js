@@ -9,14 +9,12 @@ shouldBeEqual(
   stringOf(New(undefined)), "New(undefined)"
 );
 
-n();
 shouldBeEqual(
   andThen(
     Reuse({a: Reuse({b: New(1)})}),
     Reuse()),
   Reuse({a: Reuse({b: New(1)})})
   );
-e();
 
 shouldBeEqual(stringOf(Reuse({a: New(1)})), "Reuse({\na: New(1)})");
 shouldBeEqual(stringOf(New({a: Down("a", New(1))}, ReuseModel())), "Reuse({\na: New(1)})");
@@ -30,17 +28,6 @@ partialArray[2] = true;
 shouldBeEqual(stringOf(New([1, 2, 3], partialArray)), "New([1, 2, 3], [WRAP, NEW, WRAP])");
 
 shouldBeEqual(apply(Reuse({a: Reuse({b: New(1)}), d: 2}), {a: {b: 2}}), {a: {b: 1}, d: 2});
-e();
-
-shouldBeEqual(
-  editActions.__ReuseUp(Up(3, Up(Offset(2))), Up(3, Offset(2), Down(0))),
-  Reuse({5: Up(5, Down(0))})
-);
-
-shouldBeEqual(
-  editActions.__ReuseUp(Up(5, Offset(2)), Reuse({3: Up(3, 5, Offset(2), Down(0))})),
-  Reuse({7: Reuse({3: Up(3, 7, Down(0))})})
-);
 
 shouldBeEqual(
   stringOf(Append(3, "abc")), "Append(3, \"abc\")" 
@@ -2906,6 +2893,17 @@ shouldBeEqual(
     Reuse({args: Reuse({right: New(4)})})
   )
 )
+
+shouldBeEqual(
+  editActions.__ReuseUp(Up(3, Up(Offset(2))), Up(3, Offset(2), Down(0))),
+  Reuse({5: Up(5, Down(0))})
+);
+
+shouldBeEqual(
+  editActions.__ReuseUp(Up(5, Offset(2)), Reuse({3: Up(3, 5, Offset(2), Down(0))})),
+  Reuse({7: Reuse({3: Up(3, 7, Down(0))})})
+);
+
 
 finishTests();
 
