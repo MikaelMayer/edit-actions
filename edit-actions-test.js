@@ -5,6 +5,19 @@ var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
 
+shouldBeEqual(
+  stringOf(New(undefined)), "New(undefined)"
+);
+
+n();
+shouldBeEqual(
+  andThen(
+    Reuse({a: Reuse({b: New(1)})}),
+    Reuse()),
+  Reuse({a: Reuse({b: New(1)})})
+  );
+e();
+
 shouldBeEqual(stringOf(Reuse({a: New(1)})), "Reuse({\na: New(1)})");
 shouldBeEqual(stringOf(New({a: Down("a", New(1))}, ReuseModel())), "Reuse({\na: New(1)})");
 shouldBeEqual(stringOf(Reuse()), "Reuse()");

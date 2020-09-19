@@ -213,7 +213,8 @@ var editActions = {};
     return {ctor: TypeNewModel.Reuse};
   }
   editActions.ReuseModel = ReuseModel;
-  function InsertModel(value = {}) {
+  function InsertModel(value) {
+    if(arguments.length == 0) value = {};
     return {ctor: TypeNewModel.Insert, value};
   }
   editActions.InsertModel = InsertModel;
@@ -292,10 +293,6 @@ var editActions = {};
             return Down(newDownOffset, subAction.subAction);
           }
           return Up(newOffset, subAction.subAction);
-        }
-      } else if(subAction.ctor == Type.New) {
-        if(isFinal(subAction)) {
-          return subAction;
         }
       } else { // subAction is not a Down, Up, New
         if(ik) {
@@ -1351,6 +1348,24 @@ Assuming ?1 = apply(E0, r, rCtx)
       // firstAction is Reuse, New, Custom, Concat or UseResult
       // secondAction is Reuse, New, UseResult or Sequence
     } else if(secondAction.ctor == Type.Down) {
+      if(firstAction.ctor == Type.New && firstAction.model.ctor == TypeNewModel.Reuse && !isOffset(secondAction.keyOrOffset)) {
+        // Ok, the key we are going down also exists on teh first action. Hence, we can directly output it. 
+        /**
+        Proof:
+          apply(andThen(Down(k, E2), Reuse({k: E1}), ECtx), r, rCtx)
+        = apply(Down(k, andThen(E2, E1, Up(k, (k, Reuse({k: E1}))::ECtx))), r, rCtx)
+        = apply(andThen(E2, E1, Up(k, (k, Reuse({k: E1}))::ECtx)), r[k], (k, r)::rCtx)
+        = apply(E2, apply(E1, r[k], (k, r)::rCtx), apply(Up(k, (k, Reuse({k: E1}))::ECtx), r[k], (k, r)::rCtx))
+        = apply(E2, apply(E1, r[k], (k, r)::rCtx), apply((k, Reuse({k: E1}))::ECtx, r, rCtx))
+        = apply(E2, {...k: apply(E1, r[k], (k, r)::rCtx)...}[k], apply((k, Reuse({k: E1}))::ECtx, r, rCtx))
+        = apply(E2, apply(Reuse({k: E1}), r, rCtx)[k], (k, apply(Reuse({k: E1}), r, rCtx))::apply(ECtx, r, rCtx))
+        = apply(Down(k, E2), apply(Reuse({k: E1}), r, rCtx), apply(ECtx, r, rCtx))
+        */
+        let k = secondAction.keyOrOffset;
+        let E2 = secondAction.subAction;
+        let E1 = k in firstAction.childEditActions ? Up(k, firstAction.childEditActions[k]) : Reuse();
+        return Down(k, recurse(E2, E1, Up(k, AddContext(k, firstAction, firstActionContext))));
+      }
       // We know we can go down first action now.
       let f = secondAction.keyOrOffset;
       /** Proof
@@ -1754,16 +1769,6 @@ Assuming ?1 = apply(E0, r, rCtx)
   // = apply(E1, r, rCtx)[f]
   function downAt(key, editAction) {
     switch(editAction.ctor) {
-    case Type.Reuse:
-      /** Proof
-         apply(downAt(f, Reuse({f: E1}), r, rCtx)
-         = apply(Down(f, E1), r, rCtx)
-         = apply(E1, x, (f, r)::rCtx)
-         = {...f: apply(E1, x, (f, r)::rCtx)...}[f]
-         = apply(Reuse({f: E1}), {...f: x...}, rCtx)[f]
-         QED
-      */
-      return Down(key, editAction.childEditActions[key] || Reuse());
     case Type.New:
       /** Proof:
         apply(downAt(f, New({f: E1}), r, rCtx)
@@ -1771,7 +1776,8 @@ Assuming ?1 = apply(E0, r, rCtx)
         = {f: apply(E1, r, rCtx)}[f]
         = apply(New({f: E1}), r, rCtx)[f]
       */
-      return editAction.childEditActions[key] || New(undefined);
+      return key in editAction.childEditActions ? editAction.childEditActions[key]  :
+      editAction.model.ctor == TypeNewModel.Reuse ? Reuse() : New(undefined);
     case Type.Concat:
       /** Proof:
           Assuming f < n
