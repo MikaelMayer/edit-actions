@@ -311,6 +311,7 @@ shouldBeEqual(
   [3, 4, 5, 6, 7, 1, 2, 8, 9]
 );
 
+n();
 shouldBeEqual(
   andThen({hd: "hello", 1: Reuse({c: Up("c", Down("a"))})}, Reuse({a: Up("a", Down("b"))})),
   {hd: "hello", 1: Reuse({c: Up("c", Down("b")), a: Up("a", Down("b")), })}

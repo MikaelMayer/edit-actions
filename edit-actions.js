@@ -327,7 +327,6 @@ var editActions = {};
             return Down(newOffset, subAction.subAction);
           }
         } else if(subAction.ctor == Type.Up && !isRemove) {
-          printDebug("not there");
           let isk = isOffset(subAction.keyOrOffset);
           if(ik && isk) {
             let newOffset = downUpOffsetReturnsUp(keyOrOffset, subAction.keyOrOffset);
@@ -987,7 +986,7 @@ var editActions = {};
     let isSecondRaw = !isEditAction(secondAction);
     if(isSecondRaw) { // Happens when secondAction is a context.
       if(typeof secondAction == "object") {
-        secondAction = {ctor: Type.New, childEditActions: secondAction, model: {}};
+        secondAction = {ctor: Type.New, childEditActions: secondAction, model: InsertModel()};
       } else {
         secondAction = New(secondAction);
       }
