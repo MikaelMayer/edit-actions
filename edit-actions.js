@@ -7,7 +7,6 @@
 var editActions = {};
 
 (function(editActions) {
-  editActions.__absolute = false;
   editActions.__syntacticSugar = true;
   editActions.__syntacticSugarReplace = true;
   editActions.choose = editActions.choose ? editActions.choose : Symbol("choose"); // For evaluation purposes.
@@ -257,10 +256,6 @@ var editActions = {};
   
   function Up(keyOrOffset, subAction) {
     if(arguments.length == 1) subAction = Reuse();
-    if(editActions.__absolute) {
-      printDebug("Up", keyOrOffset, subAction);
-      throw "Unexpected Up() in absolute mode"
-    }
     let subActionIsPureEdit = isEditAction(subAction);
     if(arguments.length > 2 || arguments.length == 2 && !subActionIsPureEdit && (typeof subAction == "string" || typeof subAction == "number" || isOffset(subAction))) {
       return Up(arguments[0], Up(...[...arguments].slice(1)));
@@ -352,10 +347,6 @@ var editActions = {};
             } else {
               console.trace("/!\\ Warning, composing down ", keyOrOffset, " and up", subAction.keyOrOffset, ", so something is wrong");
             }
-          }
-        } else if(subAction.ctor == Type.New) {
-          if(isFinal(subAction)) {
-            return subAction;
           }
         } else {
           if(ik && (keyOrOffset.count < 0 || keyOrOffset.count === 0 && !LessThanEqualUndefined(keyOrOffset.newLength, keyOrOffset.oldLength))) {
@@ -555,7 +546,7 @@ var editActions = {};
   // apply(Reuse({a: New(1)}), {a: 2, b: 3}) = {a: 1, b: 3}
   function Reuse(childEditActions) {
     let newChildEditActions = mapChildren(
-      childEditActions, (k, c) => Down(k, c),
+      childEditActions, (k, c) => typeof c != "object" ? Down(k, New(c)) : Down(k, c),
       /*canReuse*/false,
       newChild => !isIdentity(newChild)
       );
@@ -882,7 +873,9 @@ var editActions = {};
       console.log(uneval(prog));
       console.log("-|" + List.toArray(ctx).map(prog => uneval(prog)).join(","));
     }
-    if(typeof editAction !== "object" || !("ctor" in editAction) || !(editAction.ctor in Type)) return apply(New(editAction), prog, ctx, resultCtx);
+    if(!isObject(editAction) || !(editAction.ctor in Type)) {
+      return apply(New(editAction), prog, ctx, resultCtx);
+    }
     if(editAction.ctor == Type.Up) {
       let [newProg, newCtx, mbUpOffset] = walkUpCtx(editAction.keyOrOffset, prog, ctx);
       return apply(mbUpOffset ? Up(mbUpOffset, editAction.subAction) : editAction.subAction, newProg, newCtx, resultCtx);
@@ -922,27 +915,27 @@ var editActions = {};
         apply(subAction, prog, ctx, resultCtx)
       );*/
     }
-    let isNew = editAction.ctor == Type.New;
+    let isReuse = editAction.model.ctor == TypeNewModel.Reuse;
+    let isNew = !isReuse;
     let model = modelToCopy(editAction, prog);
     let childEditActions = editAction.childEditActions;
-    if(!hasChildEditActions(editAction)) {
+    if(!hasAnyProps(childEditActions)) {
       return model;
-    } else if(prog === undefined && !isNew) {
-      console.log("apply problem. undefined program and child edit actions....");
-      editActions.debug(editAction);
+    } else if(typeof prog !== "object" && isReuse) {
+      console.log("apply problem. program not extensible but got keys to extend it: ", prog);
+      console.log(stringOf(editAction));
       console.log("context:\n",List.toArray(ctx).map(x => uneval(x.prog, "  ")).join("\n"));
     }
     let t = treeOpsOf(model);
     let o = t.init();
-    for(let k in model) {
-      t.update(o, k, t.access(model, k));
-    }
-    for(let k in childEditActions) {
-      let newProg = editActions.__absolute ? ctx == undefined ? prog : List.last(ctx).prog : isNew ? prog : prog[k];
-      let newCtx = editActions.__absolute ? undefined : isNew ? ctx : AddContext(k, prog, ctx);
+    forEach(model, (c, k) => {
+      t.update(o, k, c);
+    });
+    forEach(childEditActions, (child, k) => {
+      printDebug("apply-child", k, child);
       t.update(o, k,
-         apply(childEditActions[k], newProg, newCtx, AddContext(k, o, resultCtx)));
-    }
+         apply(child, prog, ctx, AddContext(k, o, resultCtx)));
+    });
     return o;
   }
   editActions.apply = apply;
@@ -1887,7 +1880,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     let same = canReuse;
     for(let k in object) {
       let newOk = callback(k, object[k]);
-      if(filter && filter(newOk) === false) continue;
+      if(filter && filter(newOk) === false) { same = false; continue; }
       same = same && newOk == object[k];
       o[k] = newOk;
     }
@@ -5068,7 +5061,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     return object;
   }
   function modelToCopy(editAction, prog) {
-    return editAction.ctor == Type.New ? editAction.model : prog;
+    return editAction.model.ctor === TypeNewModel.Reuse ? prog : editAction.model.value;
     // Now let's clone the original.
   }
   function hasAnyProps(obj) {

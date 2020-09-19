@@ -1,19 +1,22 @@
 var editActions = require("./edit-actions.js");
-var {List,Reuse,New,Concat,Keep,Prepend, Append,Remove,RemoveExcept,RemoveAll,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Replace, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, isFinal, debug, Interval, Insert, InsertAll} = editActions;
+var {List,Reuse,New,Concat,Keep,Prepend, Append,Remove,RemoveExcept,RemoveAll,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Replace, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, isFinal, debug, Interval, Insert, InsertAll, ReuseModel} = editActions;
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
 
-shouldBeEqual(stringOf(Reuse()), "Reuse()");
 shouldBeEqual(stringOf(Reuse({a: New(1)})), "Reuse({\na: New(1)})");
+shouldBeEqual(stringOf(New({a: Down("a", New(1))}, ReuseModel())), "Reuse({\na: New(1)})");
+shouldBeEqual(stringOf(Reuse()), "Reuse()");
 shouldBeEqual(stringOf(Insert("a", {a: 1, b: 2})), "Insert(\"a\", {\na: 1,\nb: 2})");
 shouldBeEqual(stringOf(InsertAll({a: 1, b: 2})), "InsertAll({\na: 1,\nb: 2})");
 shouldBeEqual(stringOf(New({a: 1, b: 2, c: 3}, {a: true, b: true})), "New({\na: 1,\nb: 2,\nc: 3}, {a: WRAP, b: WRAP})");
 var partialArray = [];
 partialArray[0] = true;
 partialArray[2] = true;
-shouldBeEqual(stringOf(New([1, 2, 3], partialArray)), "New([1, 2, 3], [WRAP, NEW, WRAP])")
+shouldBeEqual(stringOf(New([1, 2, 3], partialArray)), "New([1, 2, 3], [WRAP, NEW, WRAP])");
+
+shouldBeEqual(apply(Reuse({a: Reuse({b: New(1)}), d: 2}), {a: {b: 2}}), {a: {b: 1}, d: 2});
 e();
 
 shouldBeEqual(
