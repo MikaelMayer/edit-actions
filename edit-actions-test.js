@@ -1,9 +1,20 @@
 var editActions = require("./edit-actions.js");
-var {List,Reuse,New,Concat,Keep,Insert, InsertRight,Remove,RemoveExcept,RemoveAll,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Replace, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, isFinal, debug, Interval} = editActions;
+var {List,Reuse,New,Concat,Keep,Prepend, Append,Remove,RemoveExcept,RemoveAll,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Replace, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, isFinal, debug, Interval, Insert, InsertAll} = editActions;
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
+
+shouldBeEqual(stringOf(Reuse()), "Reuse()");
+shouldBeEqual(stringOf(Reuse({a: New(1)})), "Reuse({\na: New(1)})");
+shouldBeEqual(stringOf(Insert("a", {a: 1, b: 2})), "Insert(\"a\", {\na: 1,\nb: 2})");
+shouldBeEqual(stringOf(InsertAll({a: 1, b: 2})), "InsertAll({\na: 1,\nb: 2})");
+shouldBeEqual(stringOf(New({a: 1, b: 2, c: 3}, {a: true, b: true})), "New({\na: 1,\nb: 2,\nc: 3}, {a: WRAP, b: WRAP})");
+var partialArray = [];
+partialArray[0] = true;
+partialArray[2] = true;
+shouldBeEqual(stringOf(New([1, 2, 3], partialArray)), "New([1, 2, 3], [WRAP, NEW, WRAP])")
+e();
 
 shouldBeEqual(
   editActions.__ReuseUp(Up(3, Up(Offset(2))), Up(3, Offset(2), Down(0))),
@@ -16,17 +27,17 @@ shouldBeEqual(
 );
 
 shouldBeEqual(
-  stringOf(InsertRight(3, "abc")), "InsertRight(3, \"abc\")" 
+  stringOf(Append(3, "abc")), "Append(3, \"abc\")" 
 );
 shouldBeEqual(
-  stringOf(InsertRight(3, Insert(1, "d"), New("abc"))), "InsertRight(3, \n  Insert(1, \"d\"),\n  \"abc\")" 
+  stringOf(Append(3, Prepend(1, "d"), New("abc"))), "Append(3, \n  Prepend(1, \"d\"),\n  \"abc\")" 
 );
 shouldBeEqual(
   andThen(
-    Insert(3, New("abc")),
-    Insert(2, New("de"))
+    Prepend(3, New("abc")),
+    Prepend(2, New("de"))
   ),
-  Insert(3, New("abc"), Insert(2, "de"))
+  Prepend(3, New("abc"), Prepend(2, "de"))
 );
 shouldBeEqual(
   andThen(
@@ -34,36 +45,36 @@ shouldBeEqual(
       0: New(1),
       3: New(2)
     }),
-    Insert(2, New([New(0), New(3)]))
+    Prepend(2, New([New(0), New(3)]))
   ),
-  Insert(2, New([New(1), New(3)]), Reuse({1: New(2)}))
+  Prepend(2, New([New(1), New(3)]), Reuse({1: New(2)}))
 );
 
 // It does not work because the second removes the character on which the first was inserted.
-// When Insert is a simple Concat, it should be easier.
+// When Prepend is a simple Concat, it should be easier.
 testMergeAndReverse(
-  Remove(1, Insert(1, New("\""))),
-  Keep(1, Remove(1, Insert(1, New("\"")))),
-  Remove(1, Insert(1, New("\""), Remove(1, Insert(1, New("\"")))))
+  Remove(1, Prepend(1, New("\""))),
+  Keep(1, Remove(1, Prepend(1, New("\"")))),
+  Remove(1, Prepend(1, New("\""), Remove(1, Prepend(1, New("\"")))))
 );
 
 shouldBeEqual(
   stringOf(Down(Interval(3, 5))), "Down(Interval(3, 5))"
 );
 shouldBeEqual(
-  stringOf(Remove(1, Keep(2, Insert(1, "a")))), "Remove(1, Keep(2, Insert(1, \"a\")))"
+  stringOf(Remove(1, Keep(2, Prepend(1, "a")))), "Remove(1, Keep(2, Prepend(1, \"a\")))"
 );
 shouldBeEqual(
   stringOf(RemoveAll()), "RemoveAll()"
 );
 shouldBeEqual(
-  stringOf(RemoveAll(Insert(1, "a"))), "RemoveAll(Insert(1, \"a\"))"
+  stringOf(RemoveAll(Prepend(1, "a"))), "RemoveAll(Prepend(1, \"a\"))"
 );
 shouldBeEqual(
   stringOf(RemoveAll(Reuse(), 5)), "RemoveAll(Reuse(), 5)"
 );
 shouldBeEqual(
-  stringOf(RemoveExcept(Offset(5, 0), Insert(1, "a"))), "RemoveExcept(Interval(5, 5), Insert(1, \"a\"))"
+  stringOf(RemoveExcept(Offset(5, 0), Prepend(1, "a"))), "RemoveExcept(Interval(5, 5), Prepend(1, \"a\"))"
 );
 shouldBeEqual(
   stringOf(RemoveExcept(Offset(5, 0), Reuse())), "RemoveExcept(Interval(5, 5))"
@@ -84,7 +95,7 @@ shouldBeEqual(
   stringOf(RemoveExcept(Offset(2, 7), RemoveExcept(Offset(3, 2)))), "RemoveExcept(Interval(5, 7))"
 );
 shouldBeEqual(
-  stringOf(Remove(3, Insert(2, "ab"))), "Remove(3, Insert(2, \"ab\"))"
+  stringOf(Remove(3, Prepend(2, "ab"))), "Remove(3, Prepend(2, \"ab\"))"
 );
 shouldBeEqual(
   andThen(RemoveExcept(Offset(3, 2)), RemoveExcept(Offset(2, 7))),
@@ -96,7 +107,7 @@ shouldBeEqual(
     Keep(2, New("def"))      
   ),
   Replace(2, 3,
-    RemoveAll(Insert(3, "abc"), 3),
+    RemoveAll(Prepend(3, "abc"), 3),
     New("def"))
 );
 
@@ -202,41 +213,41 @@ shouldBeEqual(
 
 shouldBeEqual(
   andThen(
-    Insert(2, "ab"),
-    Insert(3, "cde")
+    Prepend(2, "ab"),
+    Prepend(3, "cde")
   ),
-  Insert(5, "abcde")
+  Prepend(5, "abcde")
 );
 
 shouldBeEqual(
   andThen(
-    Keep(1, Insert(2, "ab")),
-    Insert(3, "cde")
+    Keep(1, Prepend(2, "ab")),
+    Prepend(3, "cde")
   ),
-  Insert(5, "cabde")
+  Prepend(5, "cabde")
 );
 
 shouldBeEqual(
   andThen(
-    Keep(4, Insert(2, "ab")),
-    Insert(3, "cde")
+    Keep(4, Prepend(2, "ab")),
+    Prepend(3, "cde")
   ),
-  Insert(3, "cde", Keep(1, Insert(2, "ab")))
+  Prepend(3, "cde", Keep(1, Prepend(2, "ab")))
 );
 
 shouldBeEqual(
   andThen(
-    Keep(3, Insert(2, "ab")),
-    Insert(3, "cde")
+    Keep(3, Prepend(2, "ab")),
+    Prepend(3, "cde")
   ),
-  Insert(3, "cde", Insert(2, "ab"))
+  Prepend(3, "cde", Prepend(2, "ab"))
 );
 
 shouldBeEqual(
   stringOf(Up(Offset(0, 0), Down(Offset(0, 0)))), "Reuse()"
 );
 shouldBeEqual(
-  stringOf(Insert(1, "k")), "Insert(1, \"k\")"
+  stringOf(Prepend(1, "k")), "Prepend(1, \"k\")"
 );
 
 shouldBeEqual(
@@ -252,7 +263,7 @@ shouldBeEqual(
 
 shouldBeEqual(
   diff(["a", "b", "c", "d"], ["a", "k", "c", "d"]),
-  Choose(Reuse({1: Remove(1, Insert(1, "k"))}),
+  Choose(Reuse({1: Remove(1, Prepend(1, "k"))}),
     New([Down(0), "k", Down(2), Down(3)]))
 );
 
@@ -263,7 +274,7 @@ shouldBeEqual(
 
 shouldBeEqual(
   first(diff(["a", "b",  "c", "d"], ["a", "b", "k", "m", "c", "d"])),
-  Keep(2, Insert(2, [New("k"), New("m")]))
+  Keep(2, Prepend(2, [New("k"), New("m")]))
 );
 
 shouldBeEqual(
@@ -271,10 +282,10 @@ shouldBeEqual(
              [["x", ["p", "test"]], ["i", "hello"], "d", "blah"])),
   Replace(1, 1,
     Reuse({0: New(["x", Reuse()])}),
-    Insert(1, [New(["i", "hello"])],
+    Prepend(1, [New(["i", "hello"])],
       Replace(2, 2, 
           Reuse({1:
-            Keep(2, Remove(1, Insert(1, "a")))}),
+            Keep(2, Remove(1, Prepend(1, "a")))}),
             Remove(1))))
 );
 
@@ -309,7 +320,7 @@ shouldBeEqual(
 
 shouldBeEqual(
   apply(
-    Remove(3, Keep(5, Insert(2, Up(Offset(7, undefined, 2))))),
+    Remove(3, Keep(5, Prepend(2, Up(Offset(7, undefined, 2))))),
     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
   [3, 4, 5, 6, 7, 1, 2, 8, 9]
 );
@@ -432,7 +443,7 @@ shouldBeEqual(Up(Offset(5), Down(Offset(4), Reuse())), Up(Offset(1)));
 
 shouldBeEqual(apply(Down(Offset(2, 3)), "abcdefgh"), "cde");
 
-shouldBeEqual(apply(Down(Offset(2, 5), Insert(5, New("hello"), Up(Offset(2, 5, 2)))), "abcdefghijk"), "helloab");
+shouldBeEqual(apply(Down(Offset(2, 5), Prepend(5, New("hello"), Up(Offset(2, 5, 2)))), "abcdefghijk"), "helloab");
 
 shouldBeEqual(apply(Keep(3, Reuse({1: New(0)})), [0, 1, 2, 3, 4, 5]), [0, 1, 2, 3, 0, 5])
 shouldBeEqual(apply(Keep(3, New("def")), "abcghi"), "abcdef");
@@ -440,7 +451,7 @@ shouldBeEqual(apply(Keep(3, New("def")), "abcghi"), "abcdef");
 shouldBeEqual(apply(Down(Offset(3)), [0, 1, 2, 3, 4, 5]), [3, 4, 5]);
 shouldBeEqual(apply(Keep(3, New([Up(Offset(3), Down(0))])), [0, 1, 2, 3, 4, 5]), [0, 1, 2, 0]);
 
-shouldBeEqual(apply(Reuse({a: Keep(3, Insert(2, Up(Offset(3), "a", Down("b")), Remove(1)))}), {b: "XY", a: "abcdefghi"}), {b: "XY", a: "abcXYefghi"});
+shouldBeEqual(apply(Reuse({a: Keep(3, Prepend(2, Up(Offset(3), "a", Down("b")), Remove(1)))}), {b: "XY", a: "abcdefghi"}), {b: "XY", a: "abcXYefghi"});
 
 var x = apply(Reuse({x: UseResult(Up("x"))}), {a: 1});
 shouldBeEqual(x.x.x.x.x.a, 1);
@@ -615,15 +626,15 @@ testAndThen(
 // => [d, c, e, d]
   
 testAndThen(
-  Insert(1, New([Down(0)])),
-  Insert(1, New([Down(5)])),
+  Prepend(1, New([Down(0)])),
+  Prepend(1, New([Down(5)])),
   ["a", "b", "c", "d", "e", "f"]
 );
-// = Insert(1, New([Down(5)]),Insert(1, Down(Offset(0, 0), New([Up(Offset(0, 0), Down(5))])),Reuse()))
+// = Prepend(1, New([Down(5)]),Prepend(1, Down(Offset(0, 0), New([Up(Offset(0, 0), Down(5))])),Reuse()))
 
 testAndThen(
-  Keep(2, Insert(1, New([Up(Offset(2), Down(0))]), Reuse())),
-  Insert(1, New([Down(5)]), Reuse()),
+  Keep(2, Prepend(1, New([Up(Offset(2), Down(0))]), Reuse())),
+  Prepend(1, New([Down(5)]), Reuse()),
   ["A", "B", "C", "D", "E", "F", "G"]
 );
 
@@ -642,20 +653,20 @@ testAndThen(
 // TODO: Could optimize the result of andThen?
 testAndThen(
   Reuse({a: Keep(3, Reuse({0: New(1)}))}),
-  Reuse({a: Insert(4, Up("a", Down("b")), Reuse())}),
+  Reuse({a: Prepend(4, Up("a", Down("b")), Reuse())}),
   {a: [0, 1, 2, 3], b: [4, 5, 6, 7]});
 /*
 = Reuse({
-  a: Insert(3,
+  a: Prepend(3,
        Up("a", Down("b", Offset(0, 3))),
-       Insert(1,
+       Prepend(1,
          Up("a", Down("b", Offset(3), Reuse({
            0: New(1)}))),Reuse()))})
 
 = it would be nice but probably hard to simplify to:
 
 Reuse({
-  a: Insert(4,
+  a: Prepend(4,
        Up("a", Down("b", Offset(0, 4), Reuse({3: New(1)}))),
        Reuse())})
 */
@@ -683,10 +694,9 @@ testAndThen(
     })),
 */
 
-// TODO: Once Insert becomes a Concat with a flag, remove the Down(Offset(0, 0))
 shouldBeEqual(
   andThen(
-    Reuse({a: Keep(1, Insert(2, New([8, 9])))}),
+    Reuse({a: Keep(1, Prepend(2, New([8, 9])))}),
     Reuse({a: Concat(0, Up("a", Down("b")), New([1, 2]))})),
     Reuse({
   a: Concat(1,  Concat(0, Up("a", Down("b")), New([1, 8, 9, 2])))})
@@ -827,25 +837,25 @@ shouldBeEqual(
 
 shouldBeEqual(
   merge(
-    Remove(1, Insert(2, New([1, 2]), Reuse({1: Reuse({b: New(5)})}))),
-    Replace(3, 3, Reuse({2: Reuse({c: New(6)})}), Insert(1, New([2]), RemoveAll()))
+    Remove(1, Prepend(2, New([1, 2]), Reuse({1: Reuse({b: New(5)})}))),
+    Replace(3, 3, Reuse({2: Reuse({c: New(6)})}), Prepend(1, New([2]), RemoveAll()))
   ),
-  Remove(1, Insert(2, New([1, 2]),
+  Remove(1, Prepend(2, New([1, 2]),
     Replace(2, 2,
       Reuse({
         1: Reuse({
           b: New(5),
           c: New(6)})}),
-      Insert(1, New([2]), RemoveAll()))))
+      Prepend(1, New([2]), RemoveAll()))))
 );
 
 shouldBeEqual(
   merge(
     Replace(3, 3, Reuse({2: Reuse({c: New(6)})}), New([2])),
-    Remove(1, Insert(2, New([1, 2]), Reuse({1: Reuse({b: New(5)})})))
+    Remove(1, Prepend(2, New([1, 2]), Reuse({1: Reuse({b: New(5)})})))
   ),
   Remove(1,
-  Insert(2, New([1, 2]),
+  Prepend(2, New([1, 2]),
   Replace(2, 2,
     Reuse({1: Reuse({c: New(6), b: New(5)})}),
   New([2]))))
@@ -853,18 +863,18 @@ shouldBeEqual(
 
 shouldBeEqual(
   merge(
-    Insert(2, "ab"),
+    Prepend(2, "ab"),
     Remove(3)
   ),
-  Insert(2, "ab", Remove(3))
+  Prepend(2, "ab", Remove(3))
 );
 
 shouldBeEqual(
   merge(
-    Keep(3, Insert(2, "ab")),
+    Keep(3, Prepend(2, "ab")),
     Remove(3)
   ),
-  Remove(3, Insert(2, "ab"))
+  Remove(3, Prepend(2, "ab"))
 );
 
 shouldBeEqual(
@@ -958,9 +968,9 @@ testBackPropagate(
 
 testBackPropagate(
   Down(Offset(2)),
-    Insert(3, New("abc")),
-  Keep(2, Insert(3, New("abc"))),
-  "Insert after deletion with Down"
+    Prepend(3, New("abc")),
+  Keep(2, Prepend(3, New("abc"))),
+  "Prepend after deletion with Down"
 );
 
 testBackPropagate(
@@ -984,9 +994,9 @@ testBackPropagate(
 )
 
 testBackPropagate(
-  Insert(1, New("a")),
-    Keep(2, Insert(3, New("abc"))),
-  Keep(1, Insert(3, New("abc")))
+  Prepend(1, New("a")),
+    Keep(2, Prepend(3, New("abc"))),
+  Keep(1, Prepend(3, New("abc")))
 );
 
 testBackPropagate(
@@ -1018,23 +1028,23 @@ testBackPropagate(
 
 testBackPropagate(
   Remove(2),
-  Insert(3, "abc"),
-  Keep(2, Insert(3, "abc")),
-  "Insertion after deletion"
+  Prepend(3, "abc"),
+  Keep(2, Prepend(3, "abc")),
+  "Prepend after deletion"
 );
 
 testBackPropagate(
   Keep(2, Remove(2)),
-  Keep(2, Insert(3, "abc")),
-  Keep(4, Insert(3, "abc")),
-  "Insertion to the right of a deletion"
+  Keep(2, Prepend(3, "abc")),
+  Keep(4, Prepend(3, "abc")),
+  "Prepend to the right of a deletion"
 );
 
 testBackPropagate(
   Keep(2, Remove(2)),
-  Replace(2, 5, Keep(2, Insert(3, "abc")), Reuse()),
-  Keep(2, Insert(3, "abc")),
-  "Insertion to the left of a deletion"
+  Replace(2, 5, Keep(2, Prepend(3, "abc")), Reuse()),
+  Keep(2, Prepend(3, "abc")),
+  "Prepend to the left of a deletion"
 );
 
 testBackPropagate(
@@ -1139,12 +1149,12 @@ testBackPropagate(
 
 step = Keep(5,  // "Hello"
       Replace(6, 22,                      // " world"
-        Insert(16,
-          New(" big world, nice"),   // insertion
+        Prepend(16,
+          New(" big world, nice"),   // prepend
           Reuse()                    // " world"
         ),
       Keep(2, // The string "! "
-      Insert(1, "?" // The inserted string "?"
+      Prepend(1, "?" // The inserted string "?"
       ))));
 shouldBeEqual(apply(step, "Hello world! ?"), "Hello big world, nice world! ??")
 
@@ -1282,7 +1292,7 @@ testBackPropagate(
 );
 
 testBackPropagate(
-  Keep(4, Insert(1, New("X"))),
+  Keep(4, Prepend(1, New("X"))),
   Remove(6, Keep(2, RemoveAll())),
   Remove(5, Keep(2, RemoveAll())), "Shifted slice again"
 );
@@ -1335,8 +1345,8 @@ testBackPropagate(
 
 testBackPropagate(
   Keep(4, Remove(1)),
-  Keep(6, Insert(1, New("\""))),
-  Keep(7, Insert(1, New("\"")))
+  Keep(6, Prepend(1, New("\""))),
+  Keep(7, Prepend(1, New("\"")))
   , "Concat Iterated");
 
 testBackPropagate(
@@ -1437,37 +1447,37 @@ testMergeAndReverse(
 
 testMergeAndReverse(
   Remove(5), Replace(4, 3, New("abc"), Reuse()),
-  Remove(5), "insertion removed");
+  Remove(5), "prepend removed");
 
 testMergeAndReverse(
   Remove(5),
   Keep(5, Replace(0, 3, New("abc"), Reuse())),
-  Remove(5, Replace(0, 3, New("abc"), Reuse())), "insertion kept"
+  Remove(5, Replace(0, 3, New("abc"), Reuse())), "prepend kept"
 );
 testMergeAndReverse(
   Remove(5),
-  Keep(7, Insert(3, "abc")),
-  Remove(5, Keep(2, Insert(3, "abc"))),
-"insertion not removed"
+  Keep(7, Prepend(3, "abc")),
+  Remove(5, Keep(2, Prepend(3, "abc"))),
+"prepend not removed"
 );
 
 testMergeAndReverse(
-  Remove(4, Insert(8, New("inserted"))),
+  Remove(4, Prepend(8, New("inserted"))),
   Remove(3),
-  Remove(4, Insert(8, New("inserted"))), "merge concat Remove");
+  Remove(4, Prepend(8, New("inserted"))), "merge concat Remove");
 
 testMerge(
-  Insert(3, New("abc")),
-  Insert(2, Down(Offset(3, 2)), RemoveExcept(Offset(0, 3))),
+  Prepend(3, New("abc")),
+  Prepend(2, Down(Offset(3, 2)), RemoveExcept(Offset(0, 3))),
   Choose(
-    Insert(3, "abc", Insert(2, Down(Interval(3, 5)), RemoveExcept(Interval(0, 3)))),
-    Insert(2, Down(Interval(3, 5)), Insert(3, "abc", RemoveExcept(Interval(0, 3))))),
-  "Permutation and insertion 1");
+    Prepend(3, "abc", Prepend(2, Down(Interval(3, 5)), RemoveExcept(Interval(0, 3)))),
+    Prepend(2, Down(Interval(3, 5)), Prepend(3, "abc", RemoveExcept(Interval(0, 3))))),
+  "Permutation and prepend 1");
 
 testMergeAndReverse(
-    Insert(8, New("inserted"), Remove(1)),
-    Keep(4, Insert(9, New("inserted2"))),
-    Insert(8, New("inserted"), Remove(1, Keep(3, Insert(9, New("inserted2"))))), "merge concat concat 1");
+    Prepend(8, New("inserted"), Remove(1)),
+    Keep(4, Prepend(9, New("inserted2"))),
+    Prepend(8, New("inserted"), Remove(1, Keep(3, Prepend(9, New("inserted2"))))), "merge concat concat 1");
 
 shouldBeEqual(
   merge(
@@ -1483,13 +1493,13 @@ testMergeAndReverse(
   Replace(8, 7,
   RemoveExcept(Interval(1, 8)),
   New("abc")),
-  "Permutation and insertion again"
+  "Permutation and prepend again"
 );
 
 shouldBeEqual(
   merge(Keep(5, Remove(3)),
         Keep(7,
-          Insert(3, New("abc")))),
+          Prepend(3, New("abc")))),
   Keep(5, Remove(3))
 );
 
@@ -1817,7 +1827,7 @@ shouldBeEqual(
 shouldBeEqual(
   andThen(Concat(1, New([1]), Reuse()), Down(Offset(1))),
   Down(Interval(1), Concat(1, New([1]), Reuse())),
-  "Insert Down"
+  "Prepend Down"
 )
 
 shouldBeEqual(
@@ -1843,14 +1853,14 @@ shouldBeEqual(
 
 testBackPropagate(
   Keep(4, Remove(1, Keep(2, Remove(2)))),
-  Keep(17, Remove(1, Insert(1, "\""))),
-  Keep(20, Remove(1, Insert(1, "\"")))
+  Keep(17, Remove(1, Prepend(1, "\""))),
+  Keep(20, Remove(1, Prepend(1, "\"")))
 , "Concat Multiple");
 
 testBackPropagate(
   Keep(4, Remove(1, Keep(2, Remove(2)))),
-  Keep(17, Insert(1, "\"", Remove(1))),
-  Keep(20, Insert(1, "\"", Remove(1)))
+  Keep(17, Prepend(1, "\"", Remove(1))),
+  Keep(20, Prepend(1, "\"", Remove(1)))
 , "Concat Multiple 2");
 
 
@@ -1860,35 +1870,35 @@ step = Reuse({
 user = Reuse({
   1: Reuse({
       2: Keep(17,
-         Remove(1, Insert(1, New("\""),
-         Remove(1, Insert(1, New("\""),
+         Remove(1, Prepend(1, New("\""),
+         Remove(1, Prepend(1, New("\""),
          Replace(49, 49, 
-           Keep(45, Insert(1, New("\""), Remove(1))),
-         Remove(1, Insert(1, New("\""),
+           Keep(45, Prepend(1, New("\""), Remove(1))),
+         Remove(1, Prepend(1, New("\""),
          Keep(57,
-         Remove(1, Insert(1, New("\""),
+         Remove(1, Prepend(1, New("\""),
          Keep(3,
-         Remove(1, Insert(1, New("\""),
+         Remove(1, Prepend(1, New("\""),
          Keep(46,
-         Remove(1, Insert(1, New("\""),
+         Remove(1, Prepend(1, New("\""),
          Keep(3,
-         Remove(1, Insert(1, New("\""),
+         Remove(1, Prepend(1, New("\""),
 ))))))))))))))))))))})});
 
 testBackPropagate(step, user,
   Reuse({
     1: Reuse({
-      2: Keep(20, Remove(1, Insert(1, "\"", Remove(1, Insert(1, "\"", Keep(45, Insert(1, "\"", Remove(1, Keep(3, Remove(1, Insert(1, "\"", Keep(57, Remove(1, Insert(1, "\"", Keep(3, Remove(1, Insert(1, "\"", Keep(46, Remove(1, Insert(1, "\"", Keep(3, Remove(1, Insert(1, "\"")))))))))))))))))))))))})}), "editActionOutLength == 0");
+      2: Keep(20, Remove(1, Prepend(1, "\"", Remove(1, Prepend(1, "\"", Keep(45, Prepend(1, "\"", Remove(1, Keep(3, Remove(1, Prepend(1, "\"", Keep(57, Remove(1, Prepend(1, "\"", Keep(3, Remove(1, Prepend(1, "\"", Keep(46, Remove(1, Prepend(1, "\"", Keep(3, Remove(1, Prepend(1, "\"")))))))))))))))))))))))})}), "editActionOutLength == 0");
 
 shouldBeEqual(
   andThen(
   Reuse({array: Keep(1, Remove(2))}),
   Reuse({array:
-    Keep(2, Insert(5, Up(Offset(2), "array", Down("array2", 3)), RemoveAll()))})),
+    Keep(2, Prepend(5, Up(Offset(2), "array", Down("array2", 3)), RemoveAll()))})),
   Reuse({
     array: Replace(2, 1,
       Keep(1, RemoveAll()),
-      Insert(4, Up(Interval(2), "array", Down("array2", 3, Remove(1))), RemoveAll()))})
+      Prepend(4, Up(Interval(2), "array", Down("array2", 3, Remove(1))), RemoveAll()))})
 );
 
 var editStep = Replace(5, 2, Custom(Reuse(),
@@ -1921,12 +1931,12 @@ testBackPropagate(
 );
 
 testBackPropagate(
-  Reuse({2: Reuse({1: Keep(1, Insert(1, "\n"))})}),
-  Replace(3, 7, Keep(1, Insert(3, New([ "section",
+  Reuse({2: Reuse({1: Keep(1, Prepend(1, "\n"))})}),
+  Replace(3, 7, Keep(1, Prepend(3, New([ "section",
                                  New([]),
                                  New([])]))),
                  Reuse()),
-  Keep(1, Insert(3, New([ "section",
+  Keep(1, Prepend(3, New([ "section",
                     New([]),
                     New([])]))), "independend changes")
 shouldBeEqual(editActions.diff(1, undefined), New(undefined));
@@ -1947,23 +1957,23 @@ testBackPropagate(step, edit, Reuse({
   1: New(54)}));
 
 shouldBeEqual(merge(
-             Insert(2, New([1, 2])),
-             Insert(2, New([3, 4]))),
+             Prepend(2, New([1, 2])),
+             Prepend(2, New([3, 4]))),
            Choose(
-             Insert(4, New([1, 2, 3, 4])),
-             Insert(4, New([3, 4, 1, 2]))), "merge Insert x 2");
+             Prepend(4, New([1, 2, 3, 4])),
+             Prepend(4, New([3, 4, 1, 2]))), "merge Prepend x 2");
 shouldBeEqual(merge(
              Remove(1),
-             Insert(2, New([3, 4]))),
-           Insert(2, New([3, 4]), Remove(1)), "merge ReuseArray 2");
+             Prepend(2, New([3, 4]))),
+           Prepend(2, New([3, 4]), Remove(1)), "merge ReuseArray 2");
 shouldBeEqual(merge(
-             Insert(2, New([1, 2])),
+             Prepend(2, New([1, 2])),
              Remove(1)),
-             Insert(2, New([1, 2]), Remove(1)), "merge ReuseArray 3");
+             Prepend(2, New([1, 2]), Remove(1)), "merge ReuseArray 3");
 shouldBeEqual(merge(
-             Keep(2, Insert(1, New([1]), RemoveAll())),
+             Keep(2, Prepend(1, New([1]), RemoveAll())),
              Remove(1)),
-           Remove(1, Keep(1, Insert(1, New([1]), RemoveAll()))));
+           Remove(1, Keep(1, Prepend(1, New([1]), RemoveAll()))));
 
 shouldBeEqual(merge(
              Remove(1),
@@ -2004,57 +2014,57 @@ var d = Replace(14, New({ 0: Down(0)  ,
                        11: Down(12),
                        12: Down(13)}, []),
                        Reuse());
-var step = Reuse({13: Reuse({1: Keep(1, Insert(1, New("\n")))})})
+var step = Reuse({13: Reuse({1: Keep(1, Prepend(1, New("\n")))})})
 shouldBeEqual(backPropagate(step, d), d);
-var m1 = Remove(47, Insert(1, New("A")))
+var m1 = Remove(47, Prepend(1, New("A")))
 var m2 = Keep(1,
-           Insert(1, New(" "),
+           Prepend(1, New(" "),
               Reuse()))
 var m3 = Keep(1,
-          Remove(1, Insert(2, New(" g"))));
+          Remove(1, Prepend(2, New(" g"))));
 var m4 = Keep(3,
-           Insert(1, New("r")));
+           Prepend(1, New("r")));
 var m5 = Keep(2,
-           Remove(1, Insert(1, New("G"))));
+           Remove(1, Prepend(1, New("G"))));
 var m45 = andThen(m5, m4);
 shouldBeEqual(m45, Replace(3, 2,
   Keep(2, RemoveAll()),
-  Insert(2, "Gr")), "m45");
+  Prepend(2, "Gr")), "m45");
 var m345 = andThen(m45, m3);
-shouldBeEqual(m345, Keep(1, Remove(1, Insert(3, " Gr"))), "m345");
+shouldBeEqual(m345, Keep(1, Remove(1, Prepend(3, " Gr"))), "m345");
 var m2345 = andThen(m345, m2);
-shouldBeEqual(m2345, Keep(1, Insert(2, New(" G"), Insert(1, New("r")))), "m2345");
+shouldBeEqual(m2345, Keep(1, Prepend(2, New(" G"), Prepend(1, New("r")))), "m2345");
 var m12345 = andThen(m2345, m1);
-shouldBeEqual(m12345, Remove(47, Insert(1, New("A"), Insert(2, New(" G"), Insert(1, New("r"))))), "m12345");
+shouldBeEqual(m12345, Remove(47, Prepend(1, New("A"), Prepend(2, New(" G"), Prepend(1, New("r"))))), "m12345");
 
-var m5b = Keep(4, Insert(1, New(" ")))
-var m6b = Keep(4, Remove(1, Insert(2, New(" w"))))
-var m7b = Keep(6, Insert(1, New("o")));
-var m8b = Keep(2, Remove(1, Insert(1, New("G"))));
+var m5b = Keep(4, Prepend(1, New(" ")))
+var m6b = Keep(4, Remove(1, Prepend(2, New(" w"))))
+var m7b = Keep(6, Prepend(1, New("o")));
+var m8b = Keep(2, Remove(1, Prepend(1, New("G"))));
 var m7b8b = andThen(m8b, m7b);
 shouldBeEqual(m7b8b, Replace(6, 6,
-  Keep(2, RemoveExcept(Interval(1, 4), Insert(1, "G"))),
-  Insert(1, "o")), "m7b8b");
+  Keep(2, RemoveExcept(Interval(1, 4), Prepend(1, "G"))),
+  Prepend(1, "o")), "m7b8b");
 var m6b7b8b = andThen(m7b8b, m6b);
 shouldBeEqual(m6b7b8b, Replace(4, 4,
-  Keep(2, RemoveExcept(Interval(1, 2), Insert(1, "G"))),
-  Remove(1, Insert(3, " wo"))), "m6b7b8b");
+  Keep(2, RemoveExcept(Interval(1, 2), Prepend(1, "G"))),
+  Remove(1, Prepend(3, " wo"))), "m6b7b8b");
 
 shouldBeEqual(
   andThen(
-    Keep(2, Remove(1, Insert(1, New("G")))),
-    Remove(47, Insert(1, New("A"),
-           Insert(2, New(" g"),
-           Insert(1, New("r")))))),
-  Remove(47, Insert(1, New("A"),
-             Insert(2, New(" G"),
-             Insert(1, New("r"))))));
+    Keep(2, Remove(1, Prepend(1, New("G")))),
+    Remove(47, Prepend(1, New("A"),
+           Prepend(2, New(" g"),
+           Prepend(1, New("r")))))),
+  Remove(47, Prepend(1, New("A"),
+             Prepend(2, New(" G"),
+             Prepend(1, New("r"))))));
 
 shouldBeEqual(
-  andThen(Keep(1, Remove(1, Insert(1, New("B")))), Insert(2, New(" b"))),
-  Insert(2, New(" B")));
+  andThen(Keep(1, Remove(1, Prepend(1, New("B")))), Prepend(2, New(" b"))),
+  Prepend(2, New(" B")));
 
-// Insertion followed by deletion of the same element.
+// Prepend followed by deletion of the same element.
 //s()
 //finishTests(true);
 var p1 = "Hello world", p2 = "Hallo world", p3 = "Hallo wrld", p4 = "Hello wrld";
@@ -2062,21 +2072,21 @@ shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Modific
 var p1 = "Hello world", p2 = "Hllo world", p3 = "Hllo wrld";
 shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Deletion then deletion");
 var p1 = "Hello world", p2 = "Heillo world", p3 = "Heillo wrld";
-shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Insertion then deletion");
+shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Prepend then deletion");
 
 var p1 = "Hello world", p2 = "Hallo world", p3 = "Hallo wourld", p4 = "Hello wourld";
-shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Modification then insertion");
+shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Modification then prepend");
 var p1 = "Hello world", p2 = "Hllo world", p3 = "Hllo wourld";
-shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Deletion then insertion");
+shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Deletion then prepend");
 var p1 = "Hello world", p2 = "Heillo world", p3 = "Heillo wourld";
-shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Insertion then insertion");
+shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Prepend then prepend");
 
 var p1 = "Hello world", p2 = "Hallo world", p3 = "Hallo warld", p4 = "Hello warld";
 shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Modification then modification");
 var p1 = "Hello world", p2 = "Hllo world", p3 = "Hllo warld";
 shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Deletion then modification");
 var p1 = "Hello world", p2 = "Heillo world", p3 = "Heillo warld";
-shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Insertion then modification");
+shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Prepend then modification");
 
 addHTMLCapabilities(editActions)
 
@@ -2115,15 +2125,15 @@ var defaultDiffOptions = {findNextSimilar, onlyReuse: true,
 
 testBackPropagate(
   Replace(3, 3, New([Down(1), Down(2), Down(0)]), Reuse()),
-  Keep(2, Insert(1, New(["Inserted"]))),
-  Insert(1, New(["Inserted"])),
-  "Insert in array after reordering");
+  Keep(2, Prepend(1, New(["Prepended"]))),
+  Prepend(1, New(["Prepended"])),
+  "Prepend in array after reordering");
 
 testBackPropagate(
-  Insert(1, Down(Interval(2, 3)), RemoveExcept(Offset(0, 2))),
-  Keep(2, Insert(1, New(["Inserted"]))),
-  Keep(1, Insert(1, New(["Inserted"]))),
-  "Insert in array after reordering 2");
+  Prepend(1, Down(Interval(2, 3)), RemoveExcept(Offset(0, 2))),
+  Keep(2, Prepend(1, New(["Prepended"]))),
+  Keep(1, Prepend(1, New(["Prepended"]))),
+  "Prepend in array after reordering 2");
 
 /*
 shouldBeEqual(
@@ -2193,8 +2203,8 @@ testBackPropagate(
 
 testBackPropagate(
     Reuse({0: Down("value")}),
-    Insert(1, New([2]))
-   ,Insert(1, New([2])), "ReuseArray through Reuse");
+    Prepend(1, New([2]))
+   ,Prepend(1, New([2])), "ReuseArray through Reuse");
 
 
 // Same tests without 
@@ -2209,14 +2219,14 @@ testBackPropagate(
    , Reuse({3: New(3), 4: New(4)}), "ReuseReuse");
 
 testBackPropagate(
-     Insert(1, New([1])),
-     Keep(1, Insert(1, New([2])))
-   , Insert(1, New([2])), "Insertion Step");
+     Prepend(1, New([1])),
+     Keep(1, Prepend(1, New([2])))
+   , Prepend(1, New([2])), "Prepend Step");
 
 testBackPropagate(
      Remove(1),
-     Insert(1, New([2]))
-  , Keep(1, Insert(1, New([2]))), "Insertion after deletion");
+     Prepend(1, New([2]))
+  , Keep(1, Prepend(1, New([2]))), "Prepend after deletion");
 
 testBackPropagate(
      Keep(2, Reuse({0: Up(0, Offset(2), Down(5))})),
@@ -2248,14 +2258,14 @@ testBackPropagate(
         1: New("style")})})})}), "Reuse after ReuseArray");
 
 testBackPropagate(
-    Insert(2, New([1, 2])),
+    Prepend(2, New([1, 2])),
     Reuse({5: Reuse({1: Reuse({3: Reuse({1: New("style")})})})})
   ,Reuse({3: Reuse({1: Reuse({3: Reuse({1: New("style")})})})}), "Reuse after ReuseArray 2");
 
 shouldBeEqual(andThen(
      Keep(2, Replace(1, 0, New([]), Reuse())),
      Keep(2, Replace(0, 1, New([1]), Reuse()))
- ),  Reuse(), "insertion followed by deletion");
+ ),  Reuse(), "prepend followed by deletion");
 
 shouldBeEqual(
   apply(diff([
@@ -2299,7 +2309,7 @@ shouldBeEqual(apply(array1to2, array1), array2);
 
 shouldBeEqual(
   first(diff(array1, array2, {maxCloneDown: 0})),
-  Keep(2, Insert(1, New([New(["h2", New([]), New([New(["TEXT", "Hello world"])])])]))));
+  Keep(2, Prepend(1, New([New(["h2", New([]), New([New(["TEXT", "Hello world"])])])]))));
 // andThen with ReuseArray
 
 shouldBeEqual(andThen(
@@ -2374,7 +2384,7 @@ shouldBeEqual(andThen(
 
 // If first action is a New, then result should be the computation of applying the edit action
 shouldBeEqual(andThen(
-     Keep(3, Remove(1, Insert(1, New([11]), Reuse({1: New(4)})))),
+     Keep(3, Remove(1, Prepend(1, New([11]), Reuse({1: New(4)})))),
      New([0,0,0,1, 2, 3])
   ), New([0,0,0,11, 2, 4]));
 
@@ -2401,7 +2411,7 @@ shouldBeEqual(
 shouldBeEqual(
   diff(["p", 1, 1], [1, "p"]),
   Choose(
-  Insert(1, New([Choose(
+  Prepend(1, New([Choose(
         Down(1),
         Down(2),
         New(1))]),
@@ -2413,7 +2423,7 @@ shouldBeEqual(
 );
 shouldBeEqual(
   diff(["p", 1, 1], [1, "p"], {onlyReuse: true}),
-  Insert(1, New([Choose(
+  Prepend(1, New([Choose(
       Down(1),
       Down(2))]),
   Keep(1, Remove(2)))
@@ -2421,7 +2431,7 @@ shouldBeEqual(
 
 shouldBeEqual(
   diff(["link", "meta"], ["script", "script", "link", "meta"], {maxDepth: 0, onlyReuse: true}),
-  Insert(2, New(["script", "script"]))
+  Prepend(2, New(["script", "script"]))
 );
 
 shouldBeEqual(
@@ -2774,12 +2784,12 @@ var step = Replace(
     Replace(0, 1, New([Up(Offset(2), Down(3))]),              // Clones the field 3 before 2
     Keep(2, // Keeps 2 and 3
     Replace(0, 1, New([Up(Offset(4), Down(0))]),         // Move the field "0" there
-    Replace(0, 1, New([New("Inserted at end")])) // Inserts a new value
+    Replace(0, 1, New([New("Prepended at end")])) // Prepends a new value
     ))))
   );
 
 shouldBeEqual(apply(step, prog),
-  ["Keep", "Keep and to clone", "Keep with next", "Keep and to clone", "To move elsewhere", "Inserted at end"]);
+  ["Keep", "Keep and to clone", "Keep with next", "Keep and to clone", "To move elsewhere", "Prepended at end"]);
 
 shouldBeEqual(apply(
   Reuse({heap: Keep(
@@ -2791,11 +2801,11 @@ step = Keep(
       5,                        // "Hello"
       Replace(6, 22,                                 // " world"
         Replace(
-          0, 16, New(" big world, nice"),   // insertion
+          0, 16, New(" big world, nice"),   // prepend
           Reuse()                    // " world"
         ),
       Keep(2, // The string "! "
-      Insert(1, New("?"), // The inserted string "?"
+      Prepend(1, New("?"), // The inserted string "?"
       Reuse()
     ))));
     

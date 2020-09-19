@@ -15,17 +15,18 @@ var editActions = {};
   var Type = {
      Up: "Up",       // Navigate the tree
      Down: "Down",
-     Reuse: "Reuse", // Reuse the tree
      New: "New",     // Create a new tree
      Concat: "Concat", // Concatenates two instances of monoids.
-     Replace: "Replace",   // A Concat that works on two sub-slices of an array, string or maps. Formerly ReuseArray
      Custom: "Custom",
      UseResult: "UseResult", // Not supported for andThen, backPropagation and merge.
      Sequence: "Sequence", // Can be encoded with Custom
      Choose: "Choose", // Alternative choice options
   };
+  function isObject(v) {
+    return typeof v == "object";
+  }
   function isEditAction(obj) {
-    return typeof obj == "object" && obj.ctor in Type;
+    return isObject(obj) && obj.ctor in Type;
   }
   var PathElemType = {
     Offset: "Offset"
@@ -198,38 +199,46 @@ var editActions = {};
   }
   editActions.Collection = Collection;
   
+  /**
+    Types of New:
+    model is either
+      {ctor: "Reuse"}
+      {ctor: "Insert", value: value}
+    // values has no keys for objects and arrays, except if values have keys, then these keys mark the intent to reuse the original value.
+  */
+  var TypeNewModel = {
+    Reuse: "Reuse",
+    Insert: "Insert"
+  }
+  function ReuseModel() {
+    return {ctor: TypeNewModel.Reuse};
+  }
+  editActions.ReuseModel = ReuseModel;
+  function InsertModel(value = {}) {
+    return {ctor: TypeNewModel.Insert, value};
+  }
+  editActions.InsertModel = InsertModel;
+  
   /* apply(New(1), x) = 1                 */
   /* apply(New({0: New(2)}, []), x) = [2] */
   /* apply(New([Reuse()]), x) = [x]       */
   function New(childEditActions, model) {
-    if(typeof childEditActions === "undefined" && typeof model === "undefined") {
-      childEditActions = {};
-    } else {
-      if(typeof childEditActions !== "object" && typeof model === "undefined") {
-        model = childEditActions;
-        childEditActions = {};
-      }
-      if(typeof childEditActions === "object" && typeof model === "undefined") {
-        model = Array.isArray(childEditActions) ? [] : {};
+    if(arguments.length == 0) {
+      return New({}, InsertModel(undefined));
+    }
+    if(arguments.length == 1) {
+      if(typeof childEditActions == "object") {
+        return New(childEditActions, Array.isArray(childEditActions) ? [] : {});
+      } else {
+        return New({}, InsertModel(childEditActions));
       }
     }
-    return { ctor: Type.New, model: model, childEditActions: childEditActions || {}};
+    if(isObject(model) && !(model.ctor in TypeNewModel)) {
+      model = InsertModel(model);
+    }
+    return {ctor: Type.New, childEditActions: childEditActions, model: model};
   }
   editActions.New = New;
-  
-  // apply(Reuse({a: New(1)}), {a: 2, b: 3}) = {a: 1, b: 3}
-  function Reuse(childEditActions) {
-    var outsideLevel = 0;
-    childEditActions = mapChildren(childEditActions, (k, c) => {
-      if(!isEditAction(c)) {
-        c = New(c);
-      }
-      outsideLevel = Math.max(outsideLevel, c.outsideLevel - 1);
-      return c;
-    });
-    return {ctor: Type.Reuse, childEditActions: childEditActions || {}, outsideLevel};
-  }
-  editActions.Reuse = Reuse;
 
   // Offset changes the current start position by +count on Down, -count on Up
   // Changes the length of the current slice to newLength on Down, on oldLength on Up
@@ -439,19 +448,19 @@ var editActions = {};
       if(outLength(second) === 0) return first;
     }
     if(secondReuse && !firstReuse) {
-      // An insert. Maybe the second one is an insert?
-      if(isNew(first) && isInsert(second) && isNew(second.first)) {
+      // A prepend. Maybe the second one is an prepend?
+      if(isNew(first) && isPrepend(second) && isNew(second.first)) {
         let optimizedConcat = optimizeConcatNew(first, second.first);
         if(optimizedConcat !== undefined) {
-          return Insert(count + second.count, optimizedConcat, second.second);
+          return Prepend(count + second.count, optimizedConcat, second.second);
         }
       }
     }
     if(firstReuse && !secondReuse) {
-      if(isNew(second) && isInsertRight(first) && isNew(first.second)) {
+      if(isNew(second) && isAppend(first) && isNew(first.second)) {
         let optimizedConcat = optimizeConcatNew(first.second, second);
         if(optimizedConcat !== undefined) {
-          return InsertRight(first.count, first.first, optimizedConcat);
+          return Append(first.count, first.first, optimizedConcat);
         }
       }
     }
@@ -526,8 +535,6 @@ var editActions = {};
     switch(editAction.ctor) {
       case Type.New:
         return New(mapChildren(editAction.childEditActions, (k, c) => first(c)), editAction.model);
-      case Type.Reuse:
-        return Reuse(mapChildren(editAction.childEditActions, (k, c) => first(c)));
       case Type.Concat:
         return Concat(editAction.count, first(editAction.first), first(editAction.second), editAction.replaceCount, editAction.firstReuse, editAction.secondReuse);
       case Type.Up:
@@ -542,8 +549,46 @@ var editActions = {};
   }
   editActions.first = first;
   
-  //// HELPERS and syntactic sugar: Replace, Insert, Keep
-  ////                              Remove, RemoveAll, RemoveExcept //////
+  //// HELPERS and syntactic sugar:
+  // Reuse, Replace, Interval Prepend, Keep, Remove, RemoveAll, RemoveExcept
+ 
+  // apply(Reuse({a: New(1)}), {a: 2, b: 3}) = {a: 1, b: 3}
+  function Reuse(childEditActions) {
+    let newChildEditActions = mapChildren(
+      childEditActions, (k, c) => Down(k, c),
+      /*canReuse*/false,
+      newChild => !isIdentity(newChild)
+      );
+    return New(newChildEditActions, ReuseModel());
+  }
+  editActions.Reuse = Reuse;
+  
+  // A constant, useful for pretty-printing
+  var WRAP = true;
+  editActions.WRAP = WRAP;
+  var NEW = true;
+  editActions.NEW = NEW;
+  // The intent is that the element at key is the one that reuses the original record.
+  // If no key is provided
+  function Insert(key, childEditActions) {
+    if(!isObject(childEditActions)) return New(childEditActions);
+    let treeOps = treeOpsOf(childEditActions);
+    let modelValue = Array.isArray(childEditActions) ? [] : childEditActions instanceof Map ? new Map() : {};
+    treeOps.update(modelValue, key, WRAP);
+    modelValue[key] = WRAP;
+    return New(childEditActions, InsertModel(modelValue));
+  }
+  editActions.Insert = Insert;
+  
+  function InsertAll(childEditActions) {
+    if(!isObject(childEditActions)) return New(childEditActions);
+    let o = {};
+    for(let k in childEditActions) {
+      o[k] = WRAP;
+    }
+    return New(childEditActions, InsertModel(o));
+  }
+  editActions.InsertAll = InsertAll;
  
   function Interval(start, endExcluded) {
     return Offset(start, MinusUndefined(endExcluded,  start));
@@ -603,29 +648,27 @@ var editActions = {};
     return [inCount, second];
   }
 
-  function argumentsIfReplaceIsInsert(inCount, outCount, first, second) {
+  function argumentsIfReplaceIsPrepend(inCount, outCount, first, second) {
     if(outCount > 0 && inCount === 0) {
       return [outCount, first, second];
     }
     return [];
   }
   
-  // first is the thing to insert (in the current context of the slice), second is the remaining (default is Reuse()).
-  function Insert(count, first, second = Reuse()) {
+  // first is the thing to prepend (in the current context of the slice), second is the remaining (default is Reuse()).
+  function Prepend(count, first, second = Reuse()) {
     if(!isEditAction(first)) first = New(first);
     return Concat(count, first, second, undefined, false, true);
   }
-  function InsertRight(count, first, second) {
+  function Append(count, first, second) {
     if(arguments.length == 2) {
       second = first;
       first = Reuse();
     }
     return Concat(count, first, second, undefined, true, false);
   }
-  editActions.Insert = Insert;
-  editActions.Prepend = Insert;
-  editActions.InsertRight = InsertRight;
-  editActions.Append = InsertRight;
+  editActions.Prepend = Prepend;
+  editActions.Append = Append;
   
   function Keep(count, subAction) {
     return Replace(count, count, Reuse(), subAction);
@@ -695,24 +738,14 @@ var editActions = {};
   }
   editActions.ReuseKeyOrOffset = ReuseKeyOrOffset;
   
-  function isKeepInsertRemove(editAction) {
-    return isRemoveExcept(editAction) ||
-      isInsert(editAction) ||
-      isKeep(editAction) ||
-      isIdentity(editAction);
-  }
   function isRemove(editAction) {
     return isRemoveExcept(editAction) && editAction.keyOrOffset.newLength === undefined;
   }
-  function isInsert(editAction) {
+  function isPrepend(editAction) {
     return typeof editAction == "object" && editAction.ctor == Type.Concat && editAction.secondReuse && !editAction.firstReuse && editAction.replaceCount === undefined;
   }
-  function isInsertRight(editAction) {
+  function isAppend(editAction) {
     return typeof editAction == "object" && editAction.ctor == Type.Concat && editAction.firstReuse && !editAction.secondReuse && editAction.replaceCount === undefined;
-  }
-  function isKeep(editAction) {
-    let [inCount, subAction] = argumentsIfKeep(editAction);
-    return subAction !== undefined;
   }
 
   // Proof:
@@ -841,6 +874,7 @@ var editActions = {};
   }
   
   // Applies the edit action to the given program/context
+  // TODO: Deal with the case when childEditActions is a Map
   function apply(editAction, prog, ctx, resultCtx) {
     if(editActions.__debug) {
       console.log("apply(");
@@ -1102,42 +1136,42 @@ var editActions = {};
       // secondAction is Up, Down, Reuse, New, Concat, UseResult or Sequence
     } else if(secondAction.ctor == Type.Concat) {
       // If we have replaces, we try to preserve them as much as possible.
-      // TODO: Deal with Replace/Insert/InsertRight
-      // Insert's structure should be preserved as much as possible.
-      // andThen(Insert(2, Down(Offset(10, 2))), InsertRight(10, "cd"))
-      // = Insert(2, "cd", InsertRight(10, "cd"))
-      // andThen(Keep(1, X), Insert(3, Y, Z)))
-      // = Insert(1, y[1],)
+      // TODO: Deal with Replace/Prepend/Append
+      // Prepend's structure should be preserved as much as possible.
+      // andThen(Prepend(2, Down(Offset(10, 2))), Append(10, "cd"))
+      // = Prepend(2, "cd", Append(10, "cd"))
+      // andThen(Keep(1, X), Prepend(3, Y, Z)))
+      // = Prepend(1, y[1],)
       if(isReplace(secondAction)) {
-        if(isInsert(firstAction) || isInsertRight(secondAction)) {
+        if(isPrepend(firstAction) || isAppend(secondAction)) {
           /** Proof. 
-            apply(andThen(Replace(fc, os, ls, rs), Insert(fc, if, rf), ECtx), r, rCtx)
-            = apply(Concat(os, andThen(ls, if, (Offset(0, fc), Insert(fc, if, rf))::ECtx), andThen(ls, rf, (Offset(fc), Insert(fc, if, rf))::ECtx), r, rCtx)
-            = apply(andThen(ls, if, (Offset(0, fc), Insert(fc, if, rf))::ECtx), r, rCtx) ++os
-              apply(andThen(ls, rf, (Offset(fc), Insert(fc, if, rf))::ECtx), r, rCtx)
-            = apply(ls, apply(if, r, rCtx), apply((Offset(0, fc), Insert(fc, if, rf))::ECtx, r, rCtx)) ++os apply(ls, apply(rf, r, rCtx), apply((Offset(fc), Insert(fc, if, rf))::ECtx, r, rCtx))
-            = apply(ls, apply(if, r, rCtx), (Offset(0, fc), apply(Insert(fc, if, rf), r, rCtx))::apply(ECtx, r, rCtx)) ++os apply(ls, apply(rf, r, rCtx), (Offset(fc), apply(Insert(fc, if, rf), r, rCtx)::apply(ECtx, r, rCtx))
+            apply(andThen(Replace(fc, os, ls, rs), Prepend(fc, if, rf), ECtx), r, rCtx)
+            = apply(Concat(os, andThen(ls, if, (Offset(0, fc), Prepend(fc, if, rf))::ECtx), andThen(ls, rf, (Offset(fc), Prepend(fc, if, rf))::ECtx), r, rCtx)
+            = apply(andThen(ls, if, (Offset(0, fc), Prepend(fc, if, rf))::ECtx), r, rCtx) ++os
+              apply(andThen(ls, rf, (Offset(fc), Prepend(fc, if, rf))::ECtx), r, rCtx)
+            = apply(ls, apply(if, r, rCtx), apply((Offset(0, fc), Prepend(fc, if, rf))::ECtx, r, rCtx)) ++os apply(ls, apply(rf, r, rCtx), apply((Offset(fc), Prepend(fc, if, rf))::ECtx, r, rCtx))
+            = apply(ls, apply(if, r, rCtx), (Offset(0, fc), apply(Prepend(fc, if, rf), r, rCtx))::apply(ECtx, r, rCtx)) ++os apply(ls, apply(rf, r, rCtx), (Offset(fc), apply(Prepend(fc, if, rf), r, rCtx)::apply(ECtx, r, rCtx))
             = apply(Down(Offset(0, fc), ls), apply(if, r, rCtx) ++fc apply(rf, r, rCtx), apply(ECtx, r, rCtx)) ++os apply(Down(Offset(fc), ls), apply(if, r, rCtx) ++fc apply(rf, r, rCtx), apply(ECtx, r, rCtx))
             = apply(Replace(fc, os, ls, rs), apply(if, r, rCtx) ++fc apply(rf, r, rCtx), apply(ECtx, r, rCtx))
-            = apply(Replace(fc, os, ls, rs), apply(Insert(fc, if, rf), r, rCtx), apply(ECtx, r, rCtx))
+            = apply(Replace(fc, os, ls, rs), apply(Prepend(fc, if, rf), r, rCtx), apply(ECtx, r, rCtx))
             */
           let fc = firstAction.count;
           let fi = 0, lf = firstAction.first, rf = firstAction.second;
           let [os, ls, rs] = splitIn(fc, secondAction);
-          if(rs !== undefined && isInsert(firstAction)) {
+          if(rs !== undefined && isPrepend(firstAction)) {
             let ECtx = firstActionContext;
             let firstSubContext = AddContext(Offset(0, fc), firstAction, ECtx);
             let secondSubContext = AddContext(Offset(fc), firstAction, ECtx);
-            /*Insert(os, andThen(ls, if, (Offset(0, fc), Insert(fc, if, rf))::ECtx), andThen(ls, rf, (Offset(fc), Insert(fc, if, rf))::ECtx))*/
+            /*Prepend(os, andThen(ls, if, (Offset(0, fc), Prepend(fc, if, rf))::ECtx), andThen(ls, rf, (Offset(fc), Prepend(fc, if, rf))::ECtx))*/
             if(editActions.__debug) {
-              console.log("Filling Insert("+fc+", |, ...)");
+              console.log("Filling Prepend("+fc+", |, ...)");
             }
             let newLeft = recurse(ls, lf, firstSubContext);
             if(editActions.__debug) {
               console.log("Filling Replace("+fi+", " + os + ", "+stringOf(newLeft)+", |)");
             }
             let newRight = recurse(rs, rf, secondSubContext);
-            return Insert(os, newLeft, newRight);
+            return Prepend(os, newLeft, newRight);
           }
         } else if(isReplace(firstAction) || firstAction.ctor == Type.Reuse) {
           let [fi, fc, lf, rf] = argumentsIfReplace(firstAction);
@@ -1848,11 +1882,12 @@ Assuming ?1 = apply(E0, r, rCtx)
 
   // Change all the fields of an object.
   // If fields are unchanged, guarantees to return te same object.
-  function mapChildren(object, callback, canReuse = true) {
+  function mapChildren(object, callback, canReuse = true, filter = undefined) {
     let o = {};
     let same = canReuse;
     for(let k in object) {
       let newOk = callback(k, object[k]);
+      if(filter && filter(newOk) === false) continue;
       same = same && newOk == object[k];
       o[k] = newOk;
     }
@@ -1908,21 +1943,21 @@ Assuming ?1 = apply(E0, r, rCtx)
         if(inCount1 == n) return editAction;
         if(inCount1 < n) return Replace(inCount1, outCount1, left1, makeSplitInCompatibleAt(n-inCount1, right1));
         if(inCount1 > n) return Replace(inCount1, outCount1, makeSplitInCompatibleAt(n, left1), right1);
-      } else if(editAction.firstReuse || editAction.secondReuse) { // An insertRight or and insertLeft
+      } else if(editAction.firstReuse || editAction.secondReuse) { // An Append or a Prepend
         if(editAction.secondReuse) {
-          return Insert(editAction.count, editAction.first, makeSplitInCompatibleAt(editAction.second));
+          return Prepend(editAction.count, editAction.first, makeSplitInCompatibleAt(editAction.second));
         } else if(editAction.firstReuse) {
-          return InsertRight(editAction.count, makeSplitInCompatibleAt(editAction.first), editAction.second);
+          return Append(editAction.count, makeSplitInCompatibleAt(editAction.first), editAction.second);
         }
       } else {
-        // Not a Replace, nor an insert or an insertRight. We just treat it like an insert.
-        return Insert(outCount1, editAction.first, makeSplitInCompatibleAt(editAction.second));
+        // Not a Replace, nor an prepend or an Append. We just treat it like an prepend.
+        return Prepend(outCount1, editAction.first, makeSplitInCompatibleAt(editAction.second));
       }
     } else if(isRemoveExcept(editAction)) {
       let {keyOrOffset: {offset, newLength, oldLength}, subAction: e} = editAction;
       return RemoveExcept(editAction.keyOrOffset, makeSplitInCompatibleAt(n-offset, e));
     } else { // New, regular Down, Up, Concat
-      return RemoveAll(Insert(outLength(editAction), Up(Offset(0, 0), editAction)))
+      return RemoveAll(Prepend(outLength(editAction), Up(Offset(0, 0), editAction)))
     }
   }
   
@@ -1930,7 +1965,7 @@ Assuming ?1 = apply(E0, r, rCtx)
   // Replace(0, x, I, E) will also work because
   //   if n == 0, then it will just return editAction.
   //   if n > 0, then inCount < n and thus, only right is split.
-  // Hence splitIn works for Insert and Keep as well!
+  // Hence splitIn works for Prepend and Keep as well!
   
   // If [outCount, left, right] = splitIn(inCount, editAction)
   // Then
@@ -1998,16 +2033,16 @@ Assuming ?1 = apply(E0, r, rCtx)
         return [outCount2, left1, Replace(inCount - n, outCount-outCount2, left2, right)];
       }
     }
-    if(isInsert(editAction)) {
+    if(isPrepend(editAction)) {
       let [o2, l2, r2] = splitIn(n, editAction.second);
       if(r2 !== undefined) {
-        return [o2 + editAction.count, Insert(editAction.count, UpIfNecessary(Offset(0, 0), editAction.first), l2), r2];
+        return [o2 + editAction.count, Prepend(editAction.count, UpIfNecessary(Offset(0, 0), editAction.first), l2), r2];
       }
     }
-    if(isInsertRight(editAction)) {
+    if(isAppend(editAction)) {
       let [o2, l2, r2] = splitIn(n, editAction.first);
       if(r2 !== undefined) {
-        return [o2, l2, InsertRight(editAction.count, UpIfNecessary(Offset(0, 0), r2), editAction.second)]
+        return [o2, l2, Append(editAction.count, UpIfNecessary(Offset(0, 0), r2), editAction.second)]
       }
     }
     if(editAction.ctor == Type.Reuse) {
@@ -2299,7 +2334,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         = apply(editAction, r, rCtx)
         QED.
         
-        Proof if using mapUpHere (which is nice because it does not insert unnecessary Ups and Downs)
+        Proof if using mapUpHere (which is nice because it does not prepend unnecessary Ups and Downs)
         
         Proof: (f < n, g >= n)
         editAction: Reuse({f: Ef, g: Eg})
@@ -2745,7 +2780,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     }
   }
   
-  // Impure code detected - Heuristic is to convert to delete/insert
+  // Impure code detected - Heuristic is to convert to remove/prepend
   // Spec A: returns an edit action that would produce the same result, just written differently.
   // apply(toSplitInCompatibleAt(editAction, ...), r, rCtx)
   // = apply(editAction, r, rCtx);
@@ -2775,12 +2810,12 @@ Assuming ?1 = apply(E0, r, rCtx)
       /** Proof of spec B: the split will be done on count - offset.count, so it will work.*/
       return RemoveExcept(offset, toSplitInCompatibleAt(subAction, count - offset.count, MinUndefined(offset.newLength, MinusUndefined(contextInCount, offset.count)), contextOutCount));
     }
-    // This is not a Reuse. Let's wrap it as an insertion, either after deletion, or before.
+    // This is not a Reuse. Let's wrap it as an prepend, either after remove, or before.
     /**
       Proof of Spec A:
         apply(toSplitInCompatibleAt(editAction, count, contextInCount, contextOutCount), r, rCtx)
-      = apply(RemoveAll(Insert(contextOutCount, UpIfNecessary(Offset(0, 0, contextInCount), editAction)), contextInCount), r, rCtx)
-      = apply(Insert(contextOutCount, UpIfNecessary(Offset(0, 0, contextInCount), editAction)), [], (Offset(0, 0, contextInCount), r)::rCtx)
+      = apply(RemoveAll(Prepend(contextOutCount, UpIfNecessary(Offset(0, 0, contextInCount), editAction)), contextInCount), r, rCtx)
+      = apply(Prepend(contextOutCount, UpIfNecessary(Offset(0, 0, contextInCount), editAction)), [], (Offset(0, 0, contextInCount), r)::rCtx)
       = apply(UpIfNecessary(Offset(0, 0, contextInCount), editAction), [], (Offset(0, 0, contextInCount), r)::rCtx) ++contextOutCount 
       apply(Reuse(), [], (Offset(0, 0, contextInCount), r)::rCtx)
       = apply(Up(Offset(0, 0, contextInCount), editAction), [], (Offset(0, 0, contextInCount), r)::rCtx) ++contextOutCount  []
@@ -2789,8 +2824,8 @@ Assuming ?1 = apply(E0, r, rCtx)
     if(editAction.ctor == Type.Choose) {
       return Choose(Collection.map(editAction.subActions, toSplitInCompatibleAt))
     }
-    return /*Choose(*/RemoveAll(Insert(contextOutCount, UpIfNecessary(Offset(0, 0, contextInCount), editAction)), contextInCount)/*,
-      Insert(contextOutCount, UpIfNecessary(Offset(0, 0, contextInCount), RemoveAll(contextInCount))))*/;
+    return /*Choose(*/RemoveAll(Prepend(contextOutCount, UpIfNecessary(Offset(0, 0, contextInCount), editAction)), contextInCount)/*,
+      Prepend(contextOutCount, UpIfNecessary(Offset(0, 0, contextInCount), RemoveAll(contextInCount))))*/;
   }
   
   
@@ -3049,13 +3084,13 @@ Assuming ?1 = apply(E0, r, rCtx)
         printDebug("Two replaces");
         let [inCount1, outCount1, left1, right1] = argumentsIfReplace(E1);
         let [inCount2, outCount2, left2, right2] = argumentsIfReplace(E2);
-        if(inCount1 == 0) { // First is an insertion
-          result.push(Insert(outCount1, left1, merge(right1, E2)));
+        if(inCount1 == 0) { // First is an prepend
+          result.push(Prepend(outCount1, left1, merge(right1, E2)));
         }
-        if(inCount2 == 0) { // Second is an insertion
-          result.push(Insert(outCount2, left2, merge(E1, right2)));
+        if(inCount2 == 0) { // Second is an prepend
+          result.push(Prepend(outCount2, left2, merge(E1, right2)));
         }
-        if(inCount1 == 0 || inCount2 == 0) { // done inserting
+        if(inCount1 == 0 || inCount2 == 0) { // done prepending
           break merge_cases;
         }
         if(outCount1 == 0 && outCount2 == 0) {
@@ -3066,7 +3101,7 @@ Assuming ?1 = apply(E0, r, rCtx)
             inCount2 == minRemove ? right2 : Remove(inCount2 - minRemove, right2),
             multiple
           )));
-        // We are left with non-Inserts which are not both deletions.
+        // We are left with non-Prepends which are not both deletions.
         } else if(inCount1 == inCount2) { // Aligned replaces
           let newLeft = merge(left1, left2);
           let newLeftCount = MinUndefined(outLength(newLeft, inCount1), outCount1 + outCount2);
@@ -3433,7 +3468,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     if(isRemoveExcept(U)) {
       printDebug("removeExcept case")
       let {count, newLength, oldLength} = U.keyOrOffset;
-      // Base case where we remove everything from the array, possibly inserting something else at the given offset.
+      // Base case where we remove everything from the array, possibly prepending something else at the given offset.
       if(newLength === 0) {
         printDebug("Empty")
         if(E.ctor == Type.Concat) {
@@ -3469,14 +3504,14 @@ Assuming ?1 = apply(E0, r, rCtx)
           subProblems.push([ERight, RemoveAll(Reuse(), MinusUndefined(oldLength, count + newLength)), ECtxRight]);
         }
       }
-    } else if(isInsert(U)) {
+    } else if(isPrepend(U)) {
       let [s, probs, newECtx] = partitionEdit(E, U.first, ECtx);
       // Now we prefix action with the Reuse and ReuseOffset from the context and call it a solution.
-      solution = prefixReuse(newECtx, Insert(U.count, s));
+      solution = prefixReuse(newECtx, Prepend(U.count, s));
       subProblems.push([E, U.second, ECtx], ...probs);
-    } else if(isInsertRight(U)) {
+    } else if(isAppend(U)) {
       let [s, probs, newECtx] = partitionEdit(E, U.second, ECtx);
-      solution = prefixReuse(newECtx, InsertRight(U.count, s));
+      solution = prefixReuse(newECtx, Append(U.count, s));
       subProblems.push([E, U.first, ECtx], ...probs);
       // Now we prefix action with the Reuse and ReuseOffset from the context and call it a solution.
     } else if(isReplace(U)) {
@@ -3932,7 +3967,7 @@ Assuming ?1 = apply(E0, r, rCtx)
           // The string actually finds where separators are moved... if the separator is small enough.
           //function toReplaces(strEdit, newElemsStr, oldElemsStr, sep) {
           // Algorithm:
-          // We tag elements from newElemsStr and oldElemsStr with the number of insertions and deletions inside them.
+          // We tag elements from newElemsStr and oldElemsStr with the number of prepends and deletions inside them.
           // when new and old cross a separator together, we mark the mapping.
           // At the end, around every removed separator, we choose which element was removed according to the one having the most deletions.
           // 
@@ -4142,7 +4177,7 @@ Assuming ?1 = apply(E0, r, rCtx)
                   o[i] = newEdit;
                 }
                 let n = New(o);
-                acc = ((acc, countInserted, n) => tail => acc(Insert(countInserted, n, tail)))(acc, countInserted, n);
+                acc = ((acc, countInserted, n) => tail => acc(Prepend(countInserted, n, tail)))(acc, countInserted, n);
               }
               let countKept = 0;
               // Keeps
@@ -4984,12 +5019,12 @@ Assuming ?1 = apply(E0, r, rCtx)
           if(index > 0) {
             let f = linear_diff[index - 1];
             if(f[0] == DIFF_DELETE) {
-              acc = Remove(f[1].length, Insert(s[1].length, New(s[1]), acc));
+              acc = Remove(f[1].length, Prepend(s[1].length, New(s[1]), acc));
               index -= 2;
               break;
             }
           }
-          acc = Insert(s[1].length, New(s[1]), acc);
+          acc = Prepend(s[1].length, New(s[1]), acc);
           index -= 1;
           break;
         case DIFF_DELETE: // We were already at the deletion position
@@ -5048,21 +5083,42 @@ Assuming ?1 = apply(E0, r, rCtx)
     Array: {
       init() { return []; },
       access(x, k) { return x[k]; },
-      update(x, k, v) { x[k] = v; }
+      update(x, k, v) { x[k] = v; },
+      forEach(x, callback) {
+        for(let k in x) {
+          callback(x[k], numIfPossible(k), x);
+        }
+      }
     },
     RecordLike: {
       init() { return {}; },
       access(x, k) { return x[k]; },
-      update(x, k, v) { x[k] = v; }
+      update(x, k, v) { x[k] = v; },
+      forEach(x, callback) {
+        for(let k in x) {
+          callback(x[k], numIfPossible(k), x);
+        }
+      }
     },
     MapLike: {
       init() { return new Map(); },
       access(x, k) { return x.get(k); },
-      update(x, k, v) { x.set(k, v) ; }
+      update(x, k, v) { x.set(k, v) ; },
+      forEach(x, callback) {
+        x.forEach((value, key, map) => callback(value, key, map));
+      }
     }
   }
   function treeOpsOf(x) {
     return typeof x === "object" ? x instanceof Map ? treeOps.MapLike : Array.isArray(x) ? treeOps.Array : treeOps.RecordLike : treeOps.RecordLike;
+  }
+  function access(x, k) {
+    if(arguments.length == 1) return x;
+    let treeOps = treeOpsOf(x);
+    return access(treeOps.access(x, k), ...[...arguments].slice(2));
+  }
+  function forEach(treeLike, callback) {
+    return treeOpsOf(treeLike).forEach(treeLike, callback);
   }
   var monoid = {
     ArrayLike: {
@@ -5145,6 +5201,43 @@ Assuming ?1 = apply(E0, r, rCtx)
   }
   function isNew(editAction) {
     return typeof editAction === "object" && editAction.ctor == Type.New;
+  }
+  function isInsert(editAction) {
+    if(!isNew(editAction)) return;
+    let numberKeyWrapping = 0;
+    let model = editAction.model;
+    for(let k in model.value) {
+      if(model.value[k]) {
+        numberKeyWrapping++;
+      }
+    }
+    return numberKeyWrapping == 1;
+  }
+  function isInsertAll(editAction) {
+    if(!isNew(editAction)) return;
+    // We detect inserts.
+    let keyWrapping = undefined;
+    let numberKeyWrapping = 0;
+    let numberKeys = 0;
+    for(let k in editAction.childEditActions) {
+      numberKeys++;
+    }
+    let model = editAction.model;
+    for(let k in model.value) {
+      if(model.value[k]) {
+        numberKeyWrapping++;
+      }
+    }
+    return numberKeyWrapping == numberKeys;
+  }
+  function keyInsertedIfInsert(editAction) {
+    let model = editAction.model;
+    for(let k in model.value) {
+      if(model.value[k]) {
+        return numIfPossible(k);
+      }
+    }
+    return undefined;
   }
   
   
@@ -5267,7 +5360,7 @@ Assuming ?1 = apply(E0, r, rCtx)
   }
   
   function isNumeric(num){
-    return !isNaN(num)
+    return !isNaN(num);
   }
   function numIfPossible(num) {
     if(isNumeric(num)) return Number(num);
@@ -5275,7 +5368,6 @@ Assuming ?1 = apply(E0, r, rCtx)
   }
   
   function stringOf(self) {
-    self = typeof self !== undefined ? self: this;
     if(Array.isArray(self)) {
       return "[" + self.map(stringOf).join(",\n").replace(/\n/g, "\n ") + "]";
     }
@@ -5340,52 +5432,94 @@ Assuming ?1 = apply(E0, r, rCtx)
       if(!selfIsIdentity) str += stringOf(self);
       str += ")";
       return str;
-    } if(self.ctor == Type.Reuse) {
-      var result    = "Reuse(";
-      if(hasChildEditActions(self)) {
-        result += "{\n  ";
-        result += addPadding(children(), "  ");
-      }
-      result += ")";
-      return result;
-    } else if(self.ctor == Type.New) { // New
-      let str = "New(";
-      result += (result === "New(" ? "": ",");
+    } else if(self.ctor == Type.New) { // New or Reuse
       let model = self.model;
-      if(typeof model !== "object") {
-        str += uneval(model);
+      let selfIsReuse = model.ctor == TypeNewModel.Reuse;
+      let str = "";
+      let selfIsInsert = false;
+      let selfIsInsertAll = false;
+      if(selfIsReuse) {
+        str = "Reuse(";
       } else {
+        if(typeof model.value != "object") {
+          str += "New(" + uneval(model.value);
+        } else {
+          if(isInsertAll(self)) {
+            selfIsInsertAll = true;
+            str += "InsertAll(";
+          } else if(isInsert(self)) {
+            selfIsInsert = true;
+            str += "Insert(" + uneval(keyInsertedIfInsert(self)) + ", ";
+          } else {
+            str += "New("
+          }
+        }
+      }
+      if((selfIsReuse && hasAnyProps(self.childEditActions)) || (!selfIsReuse && typeof model.value === "object")) {
         let parts = [];
         let allNumeric = true;
         let expectedIndex = 0;
+        let fillInBetween = !selfIsReuse && Array.isArray(model.value);
+        // TODO: Deal with the case when childEditActions is a Map.
         // As per JS spec, numeric keys go first.
-        for(let k in self.childEditActions) {
+        forEach(self.childEditActions, (child, k) => {
           if(!isNumeric(k)) {
             allNumeric = false;
           } else {
-            k = Number(k);
-            while(expectedIndex < k) {
+            while(fillInBetween && expectedIndex < k) {
               parts.push([expectedIndex, "undefined"])
               expectedIndex++;
             }
           }
-          let child = self.childEditActions[k];
           let childStr =
-            Array.isArray(child) ?
-              child.length == 1 && childIsSimple(child[0]) ?
-                editActions.uneval(child[0].model)
-              : stringOf(child)
-            : childIsSimple(child) ?
-                editActions.uneval(child.model) :
-                stringOf(child);
+                selfIsReuse ? 
+                  isObject(child) && child.ctor == Type.Down && child.keyOrOffset == k ? stringOf(child.subAction) : stringOf(Up(k, child))
+                : stringOf(child);
           parts.push([k, childStr]);
           expectedIndex++;
-        }
-        if(allNumeric && Array.isArray(model) && model.length == 0) {
+        });
+        if(!selfIsReuse && allNumeric && Array.isArray(model.value)) {
           let extraSpace = parts.length > 1 && parts[0][1].indexOf("\n") >= 0 ? "\n" : "";
           str += "[" + extraSpace + parts.map(([k, s]) =>  addPadding(s, "  ")).join(", ") + "]";
         } else {
-          str += "{\n" + parts.map(([k, s]) =>  k + ": " + addPadding(s, "  ")).join(",") + "}" + (model instanceof Map ? ", new Map()" : typeof model == "object" && !hasAnyProps(model) ? "" : uneval(model));
+          str += "{" + parts.map(([k, s]) => "\n" + k + ": " + addPadding(s, "  ")).join(",") + "}";
+        }
+        
+        let selfIsMap = !selfIsReuse && model.value instanceof Map;
+        if(!selfIsInsert && !selfIsReuse && !selfIsInsertAll || selfIsMap) {
+          let insertModelNecessary = !Array.isArray(model.value) && !(model.value instanceof Map) && isObject(model.value) && "ctor" in model.value;
+          str += ", " + (insertModelNecessary ? "InsertModel(" : "");
+          if(Array.isArray(model.value)) {
+            str += "[";
+            let first = true;
+            for(let k = 0; k < model.value.length; k++) {
+              if(first) first = false;
+              else str += ", ";
+              str += k in model.value ? "WRAP" : "NEW";
+            }
+            str += "]";
+          } else if(model.value instanceof Map) {
+            str += "new Map([";
+            let first = true;
+            forEach(model.value, (child, k) => {
+              if(first) first = false;
+              else str += ", ";
+              str += "[" + uneval(k) + ", WRAP]";
+            });
+            str += "])";
+          } else {
+            str += "{";
+            let first = true;
+            for(let k in model.value) {
+              if(first) first = false;
+              else str += ", ";
+              str += k + ": WRAP";
+            }
+            str += "}";
+          }
+          if(insertModelNecessary) {
+            str += ")";
+          }
         }
       }
       str += ")";
@@ -5415,7 +5549,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         if(self.secondReuse && !self.firstReuse && editActions.__syntacticSugar) {
           let inserted = self.first;
           let second = self.second;
-          str += "Insert(" + self.count + ", ";
+          str += "Prepend(" + self.count + ", ";
           let childStr = addPadding(childIsSimple(inserted) ? uneval(inserted.model) : stringOf(inserted), "  ");
           str += childStr;
           let extraSpace = childStr.indexOf("\n") >= 0 ? "\n " : "";
@@ -5428,7 +5562,7 @@ Assuming ?1 = apply(E0, r, rCtx)
         } else if(!self.secondReuse && self.firstReuse && editActions.__syntacticSugar) {
           let first = self.first;
           let inserted = self.second;
-          str += "InsertRight(" + self.count + ", ";
+          str += "Append(" + self.count + ", ";
           if(!isIdentity(first)) {
             str += addPadding("\n" + stringOf(first), "  ") + ",\n  ";
           }
@@ -5503,7 +5637,7 @@ Assuming ?1 = apply(E0, r, rCtx)
     = apply(mapUpHere(Ej, Offset(c, n), mkPath(LCtx, Up(k))), x, LCtx ++ (k-c, r[c..c+n[)::(Offset(c, n), r)::rCtx)
   */
   // mapUpHere enables us to change the key of a Reuse statement by an offset. We change its underlying sub edit action by wrapping it up calls to the main expression to Up(the new offseted key, the offset, the edit action on the main expression)
-  // A) Insert some offset
+  // A) Prepend some offset
   // apply(Ej, x, LCtx ++ (k, r)::rCtx)
   // = apply(mapUpHere(Ej, Offset(c, n, o), mkPath(LCtx, Up(k))), x, LCtx ++ (k-c, r[c..c+n[)::(Offset(c, n, o), r)::rCtx)
   // B) Remove some offset in context.
