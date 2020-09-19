@@ -1285,7 +1285,7 @@ var editActions = {};
       // firstAction is Reuse, New, Custom, Concat, UseResult
       // secondAction is Up, Down, Reuse, New, UseResult
     } else if(secondAction.ctor == Type.Down) {
-      if(isReuse(firstAction)) {
+      if(false && isReuse(firstAction)) {
         if(isOffset(secondAction.keyOrOffset)) {
           // Ok, the interval we are going down also contains keys before the first action. Hence, we can directly output it.
           /**
@@ -1336,7 +1336,7 @@ var editActions = {};
       return recurse(secondAction.subAction, newFirstAction, newFirstActionContext);
       // firstAction is Reuse, New, Custom, Concat, UseResult
       // secondAction is Reuse, New, UseResult
-    } else if(isReuse(secondAction)) {
+    } else if(false && isReuse(secondAction)) {
       if(isReuse(firstAction)) {
         /** Proof (key, context does not contain offset)
           apply(andThen(Reuse({f: E2}), Reuse({f: E1}), E2Ctx), {...f: x...}, rCtx)
@@ -1692,14 +1692,20 @@ var editActions = {};
   function downAt(key, editAction) {
     switch(editAction.ctor) {
     case Type.New:
-      /** Proof:
-        apply(downAt(f, New({f: E1}), r, rCtx)
+      /** Proof: For New
+        apply(downAt(f, New({f: E1})), r, rCtx)
         = apply(E1, r, rCtx)
         = {f: apply(E1, r, rCtx)}[f]
         = apply(New({f: E1}), r, rCtx)[f]
+        
+        For copy and keys that don't exist
+        apply(downAt(f, NewC{}, r, rCtx)
+        = apply(Down(f), r, rCtx)
+        = r[f]
+        = apply(NewC{}, r, rCtx)[f]
       */
       return key in editAction.childEditActions ? editAction.childEditActions[key]  :
-      editAction.model.ctor == TypeNewModel.Reuse ? Reuse() : New(undefined);
+      editAction.model.ctor == TypeNewModel.Reuse ? Down(key) : New(undefined);
     case Type.Concat:
       /** Proof:
           Assuming f < n
