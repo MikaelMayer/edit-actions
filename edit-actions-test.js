@@ -311,7 +311,6 @@ shouldBeEqual(
   [3, 4, 5, 6, 7, 1, 2, 8, 9]
 );
 
-n();
 shouldBeEqual(
   andThen({hd: "hello", 1: Reuse({c: Up("c", Down("a"))})}, Reuse({a: Up("a", Down("b"))})),
   {hd: "hello", 1: Reuse({c: Up("c", Down("b")), a: Up("a", Down("b")), })}
@@ -337,10 +336,6 @@ shouldBeEqual(
   apply({1: Down(2), 2: {a: Reuse({1: 0})}, 3: undefined},
     [0, 1, 2, 3]),
     {1: 2, 2: {a: [0, 0, 2, 3]}, 3: undefined});
-
-shouldBeEqual(
-  Down(1, New([])), New([]) 
-);
 
 shouldBeEqual(
   stringOf(Down(1, {})), "Down(1, { })"
@@ -377,7 +372,7 @@ shouldBeEqual(
 
 // This test is failing because Concat is not stored in the context when going down.
 testAndThen(
-  Down(1, Reuse({a: Up("a", 1, Down(2))})),
+  Down(0, Reuse({a: Up("a", 0, Down(2))})),
   Concat(2, Reuse(), New([Down(0), 1])),
   [{a: "a"}, "b"]
 );
@@ -513,11 +508,26 @@ shouldBeEqual(andThen(Reuse({x: Reuse({y: Up("y", "x", Down("c"))})}), Reuse({c:
                      c: Up("c", Down("x", "y", "z", Reuse()))
               }))
 
-shouldBeEqual(andThen(Reuse({a: Down("c")}), Reuse({a: Up("a", Down("b"))})), Reuse({a: Up("a", Down("b", Down("c")))}));
+shouldBeEqual(
+  andThen(
+  Reuse({a: Down("c")}),
+  Reuse({a: Up("a", Down("b"))})),
+  Reuse({a: Up("a", Down("b", Down("c")))}));
 
-shouldBeEqual(andThen(Reuse({a: Reuse({c: Up("c", Up("a", Reuse({a: Reuse({d: New(1)})})))})}),
-        Reuse({a: Up("a", Reuse())})),
-Reuse({a: Up("a", Reuse({c: Up("c", Reuse({a: Up("a", Reuse({d: New(1)}))}))}))}))
+shouldBeEqual(
+  andThen(
+    Reuse({
+    a: Reuse({
+      c: Up("c", Up("a", Reuse({
+        a: Reuse({
+          d: New(1)})})))})}),
+    Reuse({
+    a: Up("a", Reuse())})),
+  Reuse({
+  a: Up("a", Reuse({
+    c: Up("c", Reuse({
+      a: Up("a", Reuse({
+        d: New(1)}))}))}))}))
 
 //{a: X, b: {c: {d: 1}}, e: 2}
 //==>{a: {c: {d: 1}}, b: {c: {d: 1}}, e: 2}
@@ -611,7 +621,7 @@ testAndThen(
 // [a, b|in, c, d, e]
 // => [e|out, c, d, d]
 // => [d, c, e, d]
-  
+
 testAndThen(
   Prepend(1, New([Down(0)])),
   Prepend(1, New([Down(5)])),
@@ -709,10 +719,10 @@ shouldBeEqual(
 
 shouldBeEqual(
   merge(
-    Reuse({a: New({b: Up("a", Down("c")), d: Reuse()})}),
+    Reuse({a: Insert("d", {b: Up("a", Down("c")), d: Reuse()})}),
     Reuse({a: New(3)})
   ),
-  Reuse({a: New({b: Up("a", Down("c")), d: New(3)})})
+  Reuse({a: Insert("d", {b: Up("a", Down("c")), d: New(3)})})
 );
 
 shouldBeEqual(

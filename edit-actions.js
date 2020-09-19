@@ -385,7 +385,7 @@ var editActions = {};
       let newChildren = [];
       let newModel = [];
       let length = 0;
-      forEach(first.model, (c, k) => {
+      forEach(first.model.value, (c, k) => {
         newModel[k] = c;
         length = k + 1;
       });
@@ -393,10 +393,11 @@ var editActions = {};
         newChildren[k] = c;
         length = Math.max(length, k + 1);
       });
-      forEach(second.model, (c, k) => {
+      forEach(second.model.value, (c, k) => {
         newModel[k + length] = c;
       });
       forEachChild(second, (c, k) => {
+        if(typeof k === "string") throw "string"
         newChildren[k + length] = c;
       });
       return New(newChildren, newModel);
@@ -562,7 +563,7 @@ var editActions = {};
     let newChildEditActions = mapChildren(
       childEditActions, (k, c) => typeof c != "object" ? Down(k, New(c)) : Down(k, c),
       /*canReuse*/false,
-      newChild => !isIdentity(newChild)
+      (newChild, k) => !isObject(newChild) || newChild.ctor !== Type.Down || newChild.keyOrOffset !== k || !isIdentity(newChild.subAction)
       );
     return New(newChildEditActions, ReuseModel());
   }
@@ -927,7 +928,7 @@ var editActions = {};
     if(!hasAnyProps(childEditActions)) {
       return model;
     } else if(typeof prog !== "object" && isReuse) {
-      console.log("apply problem. program not extensible but got keys to extend it: ", prog);
+      console.trace("apply problem. program not extensible but got keys to extend it: ", prog);
       console.log(stringOf(editAction));
       console.log("context:\n",List.toArray(ctx).map(x => uneval(x.prog, "  ")).join("\n"));
     }
@@ -975,6 +976,30 @@ var editActions = {};
         = apply(andThen(E2, E1, []), apply(E0, r, rCtx), apply([], r, rCtx))
         = apply(andThen(andThen(E2, E1, []), E0, []), r, rCtx)
   */
+  function rawIfPossible(editAction, requested = true) {
+    if(!requested) return editAction;
+    if(!isObject(editAction)) return editAction;
+    if(editAction.ctor !== Type.New) return editAction;
+    if(typeof editAction.model.value !== "object") return editAction.model.value;
+    let notSuitable = false;
+    forEach(editAction.model, (child, k) => {
+      if(child == true) notSuitable = true;
+    });
+    if(notSuitable) {
+      return editAction;
+    }
+    if(Array.isArray(editAction.model.value)) {
+      if(Array.isArray(editAction.childEditActions)) return editAction.childEditActions;
+      else return editAction;
+    }
+    if(editAction.model.value instanceof Map) {
+      if(editAction.childEditActions instanceof Map) {
+        return editAction.childEditActions;
+      } else return editAction;
+    }
+    return editAction.childEditActions;
+  }
+  
   function andThen(secondAction, firstAction, firstActionContext = undefined) {
     if(editActions.__debug) {
       console.log("andThen(");
@@ -984,12 +1009,12 @@ var editActions = {};
     }
     let recurse = /*customRecurse || */editActions.__debug ? andThenWithLog : andThen;
     let isSecondRaw = !isEditAction(secondAction);
-    if(isSecondRaw) { // Happens when secondAction is a context.
-      if(typeof secondAction == "object") {
-        secondAction = {ctor: Type.New, childEditActions: secondAction, model: InsertModel()};
-      } else {
-        secondAction = New(secondAction);
-      }
+    if(isSecondRaw) { // Happens when secondAction is a context, or other cases.
+      secondAction = New(secondAction);
+    }
+    let isFirstRaw = !isEditAction(secondAction);
+    if(isFirstRaw) {
+      firstAction = New(firstAction);
     }
     /** Proof:
         apply(andThen(Reuse(), E1, ECtx), r, rCtx)
@@ -1334,9 +1359,10 @@ var editActions = {};
       */
       let [newFirstAction, newFirstActionContext] = walkDownActionCtx(f, firstAction, firstActionContext, secondAction.isRemove);
       return recurse(secondAction.subAction, newFirstAction, newFirstActionContext);
-      // firstAction is Reuse, New, Custom, Concat, UseResult
+      // firstAction is Reuse, New, Concat, Custom, UseResult
       // secondAction is Reuse, New, UseResult
-    } else if(false && isReuse(secondAction)) {
+    } else if(isReuse(secondAction)) {
+      // Special case of New. We should keep the structure of the first action, just modify certain things.
       if(isReuse(firstAction)) {
         /** Proof (key, context does not contain offset)
           apply(andThen(Reuse({f: E2}), Reuse({f: E1}), E2Ctx), {...f: x...}, rCtx)
@@ -1374,7 +1400,7 @@ var editActions = {};
             if(editActions.__debug) {
               console.log("Inside Reuse({ " + k + ": ");
             }
-            newChildren[k] = Down(k, recurse(Up(k, f), Up(k, g), newCtx));
+            newChildren[k] = Down(k, recurse(Up(k, f), g, newCtx));
           } else {
             if(editActions.__debug) {
               console.log("Inside Reuse({ " + k + ": ");
@@ -1417,7 +1443,7 @@ var editActions = {};
             newChildren[k] = recurse(secondChild, New(undefined), AddContext(k, firstAction, firstActionContext));
           }
         });
-        return New(newChildren, firstAction.model);
+        return rawIfPossible(New(newChildren, firstAction.model), isFirstRaw);
       } else if(firstAction.ctor == Type.Concat) {
         /** Assume f < n, g >= n
           //   apply(Reuse({k: Ek}), r, rCtx)
@@ -1556,6 +1582,7 @@ var editActions = {};
       // firstAction is Reuse, New, Custom, Concat or UseResult
       // secondAction is New, or UseResult
     } else if(secondAction.ctor == Type.New) {
+      
       /**
          apply(andThen(New({f: E2}), E1, ECtx), r, rCtx)
          = apply(New({f: andThen(E2, E1, ECtx)}), r, rCtx)
@@ -1573,15 +1600,7 @@ var editActions = {};
         }
         newChildren[g] = recurse(secondAction.childEditActions[g], firstAction, firstActionContext);
       }
-      if(isSecondRaw) { // We keep the raw nature of the edit action, e.g. if this is a context
-        if(typeof secondAction.model == "object") {
-          return newChildren;
-        } else {
-          return secondAction.model;
-        }
-      } else {
-        return New(newChildren, secondAction.model);
-      }
+      return rawIfPossible(New(newChildren, secondAction.model), isSecondRaw);
       // firstAction is Reuse, New, Custom, Concat or UseResult
       // secondAction is UseResult
     }
@@ -1814,7 +1833,7 @@ var editActions = {};
     let same = canReuse;
     for(let k in object) {
       let newOk = callback(k, object[k]);
-      if(filter && filter(newOk) === false) { same = false; continue; }
+      if(filter && filter(newOk, k) === false) { same = false; continue; }
       same = same && newOk == object[k];
       o[k] = newOk;
     }
@@ -1994,14 +2013,13 @@ var editActions = {};
       */
       let lefto = {};
       let righto = {};
-      for(let k in editAction.childEditActions) {
-        k = Number(k);
+      forEachChild(editAction, (child, k) => {
         if(k < n) {
-          lefto[k] = mapUpHere(Up(k, editAction.childEditActions[k]), Offset(0, n), Up(k));
+          lefto[k] = mapUpHere(Up(k, child), Offset(0, n), Up(k));
         } else {
-          righto[k-n] = mapUpHere(Up(k, editAction.childEditActions[k]), Offset(n), Up(k));
+          righto[k-n] = mapUpHere(Up(k, child), Offset(n), Up(k));
         }
-      }
+      });
       return [n, Reuse(lefto), Reuse(righto)];
     }
     if(isRemoveExcept(editAction)) {
@@ -2817,54 +2835,40 @@ var editActions = {};
             break merge_cases;
           }
         }
-        if(!isReusingBelow(E1) && !isReusingBelow(E2)) {
-          result.push(E1);
-          result.push(E2);
-          break merge_cases;
-        }
       }
       // (E1, E2) is [R*, N, F, C, U, D, UR] x [R*, N, F, C, U, D, UR] \ N0 x N0
       
       // We only merge children that have reuse in them. The other ones, we don't merge.
-      if(E1.ctor == Type.New) {
-        if(isReusingBelow(E1)) {
-          result.push(New(mapChildren(E1.childEditActions, (k, c) => isReusingBelow(c) ? merge(c, E2) : c), E1.model));
+      let E1IsInsert = isNew(E1) && E1.model.ctor == TypeNewModel.Insert;
+      let E2IsInsert = isNew(E2) && E2.model.ctor == TypeNewModel.Insert;
+      let E1IsReusingBelow = false;
+      if(E1IsInsert) {
+        forEach(E1.model.value, (child, k) => {
+          if(child) E1IsReusingBelow = true;
+        });
+        if(E1IsReusingBelow) {
+          result.push(New(mapChildren(E1.childEditActions, (k, c) => access(E1.model.value, k) ? merge(c, E2) : c), E1.model));
         }
       }
+      let E2IsReusingBelow = false;
       if(E2.ctor == Type.New) {
-        if(isReusingBelow(E2)) {
-          result.push(New(mapChildren(E2.childEditActions, (k, c) => isReusingBelow(c) ? merge(E1, c) : c), E2.model));
+        forEach(E2.model.value, (child, k) => {
+          if(child) E2IsReusingBelow = true;
+        });
+        if(E2IsReusingBelow) {
+          result.push(New(mapChildren(E2.childEditActions, (k, c) => access(E2.model.value, k) ? merge(E1, c) : c), E2.model));
         }
       }
-      // Everything that does not reuse overrides everything that does reuses.
-      if(E1.ctor == Type.New && !isReusingBelow(E1) && isReusingBelow(E2) && E2.ctor != Type.New) {
-        result.push(E1);
-        break merge_cases;
-      }
-      if(E2.ctor == Type.New && !isReusingBelow(E2) && isReusingBelow(E1) && E1.ctor != Type.New) {
-        result.push(E2);
-        break merge_cases;
-      }
-      if(E1.ctor == Type.New && !isReusingBelow(E1) && E2.ctor != Type.New || E2.ctor == Type.New && !isReusingBelow(E2) && E1.ctor != Type.New) {
-        result.push(E1);
-        result.push(E2);
-        break merge_cases;
-      }
-      if(E1.ctor == Type.New || E2.ctor == Type.New) {
-        // The only way for nothing to have been pushed to result is to have:
-        // E1.ctor == Type.New || E2.ctor == Type.New
-        // && (E1.ctor != Type.New || E2.ctor != Type.New || isReusingBelow(E1) || isReusingBelow(E2))
-        // && E1.ctor == Type.New ==> !isReusingBelow(E1)
-        // && E2.ctor == Type.New ==> !isReusingBelow(E2)
-        // = (a || b) && (!a || !b || c || d)
-        // && (!a || !c) && (!b || !d)
-        // && (!a || c || b)
-        // && (!b || d || a)
-        // Is it satisfiable now?
-        // If a = true then c is false and b is true, so d is false, thus contradiction.
-        // if a = false, then b is true, then d is false, then a is true. Contradiction.
-        // Ok at this point, at least one case will have been pushed into result.
-        break merge_cases;
+      if(!E1IsReusingBelow && !E2IsReusingBelow) {
+        if(E1IsInsert) {
+          result.push(E1);
+        }
+        if(E2IsInsert) {
+          result.push(E2);
+        }
+        if(E1IsInsert || E2IsInsert) {
+          break merge_cases;
+        }
       }
       
       let E1IsContactNotReplace = E1.ctor == Type.Concat && !isReplace(E1);
@@ -2911,7 +2915,7 @@ var editActions = {};
       
       // We will deal with RemoveExcept later. Let's deal with regular Down
       // For now, it looks like
-      if(E1.ctor == Type.Down && E2.ctor == Type.Down && keyOrOffsetAreEqual(E1.keyOrOffset) && (isRemoveExcept(E1) == isRemoveExcept(E2))) {
+      if(E1.ctor == Type.Down && E2.ctor == Type.Down && keyOrOffsetAreEqual(E1.keyOrOffset, E2.keyOrOffset) && (isRemoveExcept(E1) == isRemoveExcept(E2))) {
         result.push((SameDownAs(E1))(E1.keyOrOffset, merge(E1.subAction, E2.subAction)));
       } else {
         // Not the same keys or offsets.
@@ -2954,7 +2958,7 @@ var editActions = {};
       
       // We start by all Reuse pairs:
       // Reuse / Reuse
-      if(E1.ctor == Type.Reuse && E2.ctor == Type.Reuse) {
+      if(isReuse(E1) && isReuse(E2)) {
         // Merge key by key.
         let o = mapChildren(E1.childEditActions, (k, c) => {
           if(k in E2.childEditActions) {
@@ -2968,9 +2972,9 @@ var editActions = {};
             o[k] = E2.childEditActions[k];
           }
         }
-        result.push(Reuse(o));
+        result.push(New(o, ReuseModel()));
       // (E1, E2) is [R*, F, C, U, D, UR] x [R*, F, C, U, D, UR] \ R* x R*
-      } else if(E1.ctor == Type.Reuse && isReplace(E2)) {
+      } else if(isReuse(E1) && isReplace(E2)) {
         let [inCount, outCount, left, right] = argumentsIfReplace(E2);
         let [o1, l1, r1] = splitIn(inCount, E1);
         let newFirst = merge(l1, left);
@@ -2978,7 +2982,7 @@ var editActions = {};
         let newCount = outLength(newFirst);
         if(newCount === undefined) newCount = outCount;
         result.push(Replace(inCount, outCount, newFirst, newSecond));
-      } else if(E2.ctor == Type.Reuse && isReplace(E1)) {
+      } else if(isReuse(E2) && isReplace(E1)) {
         let [inCount, outCount, left, right] = argumentsIfReplace(E1);
         let [o2, l2, r2] = splitIn(inCount, E2);
         let newFirst = merge(left, l2);
@@ -2986,11 +2990,11 @@ var editActions = {};
         let newCount = outLength(newFirst);
         if(newCount === undefined) newCount = outCount;
         result.push(Replace(inCount, outCount, newFirst, newSecond));
-      } else if(E1.ctor == Type.Reuse && isRemoveExcept(E2)) {
+      } else if(isReuse(E1) && isRemoveExcept(E2)) {
         // E1 being a Reuse, offsetIn is always defined.
         let restricted = offsetIn(E2.keyOrOffset, E1);
         result.push(RemoveExcept(E2.keyOrOffset, merge(restricted, E2.subAction)));
-      } else if(E2.ctor == Type.Reuse && isRemoveExcept(E1)) {
+      } else if(isReuse(E2) && isRemoveExcept(E1)) {
         let restricted = offsetIn(E1.keyOrOffset, E2);
         // E2 being a Reuse, offsetIn is always defined.
         result.push(RemoveExcept(E1.keyOrOffset, merge(E1.subAction, restricted)));
