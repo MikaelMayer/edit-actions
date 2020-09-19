@@ -727,17 +727,17 @@ shouldBeEqual(
 
 shouldBeEqual(
   merge(
-    New({
+    InsertAll({
       a: Reuse({
         b: New(3)})}),
     Reuse({
-      b: New({
+      b: Insert("e", {
         e: Reuse(),
         d: Up("b", Down("c"))})})
   ),
-  New({
+  InsertAll({
     a: Reuse({
-      b: New({
+      b: Insert("e", {
         e: New(3),
         d: Up("b", Down("c"))})})})
 );

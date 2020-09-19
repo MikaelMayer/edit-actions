@@ -2157,7 +2157,7 @@ var editActions = {};
           = apply(E, x, (key, r)::rCtx)
           QED;  it used to be defined.
       */
-      return key in editAction.childEditActions ? editAction.childEditActions[key] : Reuse();
+      return key in editAction.childEditActions ? Up(key, editAction.childEditActions[key]) : Reuse();
     } else if(isReplace(editAction)) {
       let [inCount, outCount, left, right] = argumentsIfReplace(editAction);
       if(inCount <= key) {
@@ -3505,23 +3505,24 @@ var editActions = {};
       return editAction.count + rightLength;
     }
     if(editAction.ctor == Type.New) {
-      if(typeof editAction.model === "string") {
-        return editAction.model.length;
+      if(isReuse(editAction)) {
+        if(editActions.__debug) console.log("inCount", inCount);
+        let l = inCount || 0;
+        let hadSome = false;
+        for(let k in editAction.childEditActions) {
+          if(Number(k) > l) l = Number(k);
+          hadSome = true;
+        }
+        let result = hadSome ? l : typeof inCount != "undefined" ? l : undefined;
+        if(editActions.__debug) console.log("Results in ", result);
+        return result;
       } else {
-        return lengthOfArray(editAction.childEditActions);
+        if(typeof editAction.model.value === "string") {
+          return editAction.model.length;
+        } else {
+          return lengthOfArray(editAction.childEditActions);
+        }
       }
-    }
-    if(editAction.ctor == Type.Reuse) {
-      if(editActions.__debug) console.log("inCount", inCount);
-      let l = inCount || 0;
-      let hadSome = false;
-      for(let k in editAction.childEditActions) {
-        if(Number(k) > l) l = Number(k);
-        hadSome = true;
-      }
-      let result = hadSome ? l : typeof inCount != "undefined" ? l : undefined;
-      if(editActions.__debug) console.log("Results in ", result);
-      return result;
     }
     if(editAction.ctor == Type.Custom) {
       if(editAction.lens.cachedOutput === undefined) return undefined;
