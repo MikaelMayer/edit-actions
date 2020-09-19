@@ -897,6 +897,19 @@ function testBackPropagate(e, u, res, name) {
   shouldBeEqual(backPropagate(e, u), res, name);
 }
 
+// Custom composed with Reuse
+var step1 = Reuse({b: Custom(Reuse(),
+  { apply: x => ({a: x + 1}),
+    update: editOut => 
+      New(editOut.childEditActions[a].model.value - 1),
+    name: "Wrap and add 1"
+  })});
+var step2 = Reuse({c: Up("c", Down("b", Reuse({c: Up("c", Down("a"))})))});
+
+var combined = andThen(step2, step1);
+shouldBeEqual(apply(combined, {b: 1}), {b: {a: 2}, c: {a: 2}});
+shouldBeEqual(backPropagate(combined, Reuse({b: Reuse({c: Reuse({a: New(3)})})})), Reuse({b: New(2)}))
+
 testBackPropagate(
   Down("a", "b"),
   Choose(New(1), New(2)),

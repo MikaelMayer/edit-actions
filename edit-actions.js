@@ -18,7 +18,6 @@ var editActions = {};
      Concat: "Concat", // Concatenates two instances of monoids.
      Custom: "Custom",
      UseResult: "UseResult", // Not supported for andThen, backPropagation and merge.
-     Sequence: "Sequence", // Can be encoded with Custom
      Choose: "Choose", // Alternative choice options
   };
   function isObject(v) {
@@ -376,20 +375,20 @@ var editActions = {};
       let newChildren = [];
       let newModel = [];
       let length = 0;
-      for(let k in first.model) {
-        newModel[k] = first.model[k];
-        length = Number(k) + 1;
-      }
-      for(let k in first.childEditActions) {
-        newChildren[k] = first.childEditActions[k];
-        length = Math.max(length, Number(k) + 1);
-      }
-      for(let k in second.model) {
-        newModel[k + length] = second.model[k];
-      }
-      for(let k in second.childEditActions) {
-        newChildren[Number(k) + length] = second.childEditActions[k];
-      }
+      forEach(first.model, (c, k) => {
+        newModel[k] = c;
+        length = k + 1;
+      });
+      forEachChild(first, (c, k) => {
+        newChildren[k] = c;
+        length = Math.max(length, k + 1);
+      });
+      forEach(second.model, (c, k) => {
+        newModel[k + length] = c;
+      });
+      forEachChild(second, (c, k) => {
+        newChildren[k + length] = c;
+      });
       return New(newChildren, newModel);
     }
     return undefined;
@@ -496,13 +495,21 @@ var editActions = {};
   editActions.UseResult = UseResult;
   
   // apply(Sequence(e1, e2, ectx), x, xctx)
+  // = apply(Custom(e1, ((y, r, rCtx) => apply(e2, y, apply(ectx, r, rCtx)), B)), x, xctx)
+  // = ((y, r, rCtx) => apply(e2, y, apply(ectx, r, rCtx)))(apply(e1, x, xctx), x, xctx)
   // = apply(e2, apply(e1, x, xctx), apply(ectx, x, xctx))
-  function Sequence(first, second, ctx) {
-    if(arguments.length == 0) return Reuse();
-    if(isIdentity(second)) { // this case we can simplify - We assume that we called Sequence because andThen is not working, so we don't want to run andThen to simplify.
-      return first;
-    }
-    return {ctor: Type.Sequence, first, second, ctx};
+  function Sequence(firstAction, secondAction, firstActionContext) {
+    return Custom(firstAction,
+      {apply: (x, r, rCtx) =>
+        apply(secondAction, x, apply(firstActionContext, r, rCtx)),
+       backPropagate: (backPropagate, U, oldInput, oldOutput, firstAction, firstActionContext) => {
+         // TODO: Test this
+         let UBeforeSecond = backPropagate(secondAction, U, firstActionContext);
+         // Top-level needs top-level propagation.
+         let [E, initUp] = originalFirstActionAndContext(firstAction, firstActionContext);
+         return backPropagate(E, UBeforeSecond, initUp);
+       },
+      name: "Follow this by " + stringOf(secondAction) + " under " + stringOf(firstActionContext)});
   }
   editActions.Sequence = Sequence;
   
@@ -862,7 +869,6 @@ var editActions = {};
   }
   
   // Applies the edit action to the given program/context
-  // TODO: Deal with the case when childEditActions is a Map
   function apply(editAction, prog, ctx, resultCtx) {
     if(editActions.__debug) {
       console.log("apply(");
@@ -887,14 +893,6 @@ var editActions = {};
     }
     if(editAction.ctor == Type.UseResult) {
       return apply(editAction.subAction, undefined, resultCtx);
-    }
-    if(editAction.ctor == Type.Sequence) {
-      // Sequence(E1, E2, ECtx)
-      // = Custom(E1, ((x, r, rCtx) => apply(E2, x, apply(ECtx, rrCtx)), ?))
-      // back-propagation semantics?
-      let prog2 = apply(editAction.first, prog, ctx, resultCtx);
-      let ctx2 = apply(editAction.ctx, prog, ctx, resultCtx);
-      return apply(editAction.second, prog2, ctx2, resultCtx);
     }
     if(editAction.ctor == Type.Concat) {
       let o1 = apply(editAction.first, prog, ctx, resultCtx);
@@ -1046,8 +1044,8 @@ var editActions = {};
       let [finalFirstAction, finalFirstActionContext, newSecondUpOffset] = walkUpActionCtx(secondAction.keyOrOffset, firstAction, firstActionContext);
       return recurse(
             newSecondUpOffset ? Up(newSecondUpOffset, secondAction.subAction) : secondAction.subAction,finalFirstAction, finalFirstActionContext);
-      // firstAction is Reuse, New, Custom, Concat, UseResult or Sequence
-      // secondAction is Down, Reuse, New, UseResult or Sequence
+      // firstAction is Reuse, New, Custom, Concat, UseResult
+      // secondAction is Down, Reuse, New, UseResult
     } else if(firstAction.ctor == Type.Down) {
       if(isOffset(firstAction.keyOrOffset)) {
         /** Proof for offset when there is already an offset on r
@@ -1091,7 +1089,7 @@ var editActions = {};
         }
         return Down(firstAction.keyOrOffset, recurse(secondAction, firstAction.subAction, Up(firstAction.keyOrOffset, firstActionContext)));
       }
-      // firstAction is Up, Reuse, New, Custom, Concat, UseResult, or Sequence
+      // firstAction is Up, Reuse, New, Custom, Concat, UseResult
     } else if(firstAction.ctor == Type.Up) {
       /** Proof for keys:
         
@@ -1107,8 +1105,8 @@ var editActions = {};
         console.log("Pre-pending Up("+ keyOrOffsetToString(firstAction.keyOrOffset)+", ...)");
       }
       return Up(firstAction.keyOrOffset, recurse(secondAction, firstAction.subAction, Down(firstAction.keyOrOffset, firstActionContext)));
-      // firstAction is Reuse, New, Custom, Concat, UseResult, or Sequence
-      // secondAction is Custom, Up, Down, Reuse, New, Concat, UseResult or Sequence
+      // firstAction is Reuse, New, Custom, Concat, UseResult
+      // secondAction is Custom, Up, Down, Reuse, New, Concat, UseResult
     } else if(secondAction.ctor == Type.Custom) {
       if(editActions.__debug) {
         console.log("Pre-pending Custom(|, ...)");
@@ -1122,8 +1120,8 @@ var editActions = {};
         QED;
       */
       return Custom(recurse(secondAction.subAction, firstAction, firstActionContext), {...secondAction.lens});
-      // firstAction is Reuse, New, Custom, Concat, UseResult or Sequence
-      // secondAction is Up, Down, Reuse, New, Concat, UseResult or Sequence
+      // firstAction is Reuse, New, Custom, Concat, UseResult
+      // secondAction is Up, Down, Reuse, New, Concat, UseResult
     } else if(secondAction.ctor == Type.Concat) {
       // If we have replaces, we try to preserve them as much as possible.
       // TODO: Deal with Replace/Prepend/Append
@@ -1274,79 +1272,8 @@ var editActions = {};
       let firstReuse = secondAction.firstReuse || firstAction.firstReuse;
       let secondReuse = !firstReuse && (secondAction.secondReuse || firstAction.secondReuse);
       return Concat(secondAction.count, newSecondFirst, newSecondSecond, undefined, firstReuse, secondReuse);
-      // firstAction is Reuse, New, Custom, Concat, UseResult or Sequence
-      // secondAction is Up, Down, Reuse, New, UseResult or Sequence
-    } else if(firstAction.ctor == Type.Sequence) {
-      /** Can we combine a Sequence with another?
-         Can we just permute so that the Sequence is on second?
-         apply(andThen(E2, Sequence(E0, E1, E0Ctx), E1Ctx), r, rCtx)
-         = apply(andThen(Sequence(E1, E2, E1Ctx'), E0, E0Ctx), r, rCtx)
-         = apply(Sequence(E1, E2, E1Ctx'), apply(E0, r, rCtx), apply(E0Ctx, r, rCtx));
-         = apply(E2, apply(E1, apply(E0, r, rCtx), apply(E0Ctx, r, rCtx)), apply(E1Ctx', apply(E0, r, rCtx), apply(E0Ctx, r, rCtx)))
-         
-         // Almost the same except we need to find E1Ctx' such that:
-         
-         apply(E1Ctx', apply(E0, r, rCtx), apply(E0Ctx, r, rCtx))
-         ?= apply(E1Ctx, r, rCtx)
-         If E1Ctx = [], then the RHS is [], and thus, for the LHS to be empty, E1Ctx' = []
-         
-         E1Ctx' has to have the same length and keys as E1Ctx, by induction.
-         
-         
-         = apply(E2, apply(E1, apply(E0, r, rCtx), apply(E0Ctx, r, rCtx)), apply(E1Ctx, r, rCtx))
-         = apply(E2, apply(Sequence(E0, E1, E0Ctx), r, rCtx), apply(E1Ctx, r, rCtx)) -- GOAL
-         
-         // E01Ctx = apply(E1Ctx, apply(E0, r, rCtx), apply(E0Ctx, r, rCtx))
-         //           for some E1Ctx and E0Ctx
-
-         = apply(E2, apply(E1, apply(E0, r, rCtx), apply(E0Ctx, r, rCtx)),
-                 apply(?0, apply(E0, r, rCtx), apply(E0Ctx, r, rCtx)))
-         = apply(Sequence(E1, E2, ?0  ), apply(E0, r, rCtx), apply(E0Ctx, r, rCtx))
-         
-         
-         
-         = apply(E2, apply(E1, apply(E0, r, rCtx), apply(E0Ctx, r, rCtx)), apply(ECtx, apply(E0, r, rCtx), apply(E0Ctx, r, rCtx)))
-         = apply(Sequence(E1, E2, ECtx), apply(E0, r, rCtx), apply(E0Ctx, r, rCtx))
-         = apply(andThen(Sequence(E1, E2, ECtx), E0, E0Ctx), ECtx), r, rCtx)
-         
-        -----
-         
-         Proof:
-         
-         apply(andThen(E2, Sequence(E0, E1, E0Ctx), ECtx), r, rCtx)
-         ?= apply(Sequence(E0, andThen(E1, E2, ECtx), E0Ctx), r, rCtx)
-         = apply(andThen(E1, E2, ECtx), apply(E0, r, rCtx), apply(E0Ctx, r, rCtx))
-         = apply(E2, apply(E1, apply(E0, r, rCtx), apply(E0Ctx, r, rCtx)),
-            apply(ECtx, apply(E0, r, rCtx), apply(E0Ctx, r, rCtx)))
-         
-Assuming ?1 = apply(E0, r, rCtx)
-         ?2 = apply(E0Ctx, r, rCtx)
-         apply(?0, r, rCtx) = apply(ECtx, ?1, ?2)
-         apply(?0, r, rCtx) = apply(ECtx, apply(E0, r, rCtx), apply(E0Ctx, r, rCtx))
-         ?0 = (Offset(0), E0, Reuse())::ECtx
-         
-         
-         = apply(andThen(E1, E2, ?0), ?1, ?2)
-         = apply(E2, apply(E1, apply(E0, r, rCtx), apply(E0Ctx, r, rCtx)), apply(ECtx, r, rCtx))
-         = apply(E2, apply(Sequence(E0, E1, E0Ctx), r, rCtx), apply(ECtx, r, rCtx))
-      
-         Nothing is conclusive.
-         We need to find a way to make sense of:
-         
-         apply(ECtx, apply(E0, r, rCtx), apply(E0Ctx, r, rCtx))
-      */
-      if(firstAction.ctx === undefined && firstActionContext === undefined) {
-        // Only top-level simplification was proven.
-        return Sequence(firstAction.first, andThen(firstAction.second, secondAction, undefined), undefined);
-      }
-      
-      // No simplification found for now.
-      return Sequence(firstAction, secondAction, firstActionContext);
-      
-      /*return Sequence(firstAction.first,
-        andThen(secondAction, firstAction.second, firstActionContext), firstAction.ctx);*/
-      // firstAction is Reuse, New, Custom, Concat or UseResult
-      // secondAction is Reuse, New, UseResult or Sequence
+      // firstAction is Reuse, New, Custom, Concat, UseResult
+      // secondAction is Up, Down, Reuse, New, UseResult
     } else if(secondAction.ctor == Type.Down) {
       if(firstAction.ctor == Type.New && firstAction.model.ctor == TypeNewModel.Reuse && !isOffset(secondAction.keyOrOffset)) {
         // Ok, the key we are going down also exists on teh first action. Hence, we can directly output it. 
@@ -1377,33 +1304,12 @@ Assuming ?1 = apply(E0, r, rCtx)
       = apply(Down(keyOrOffset, E2), apply(E1, r, rCtx), apply(E1Ctx, r, rCtx))
       QED;
       */
-      
       let [newFirstAction, newFirstActionContext] = walkDownActionCtx(f, firstAction, firstActionContext, secondAction.isRemove);
       return recurse(secondAction.subAction, newFirstAction, newFirstActionContext);
-      // firstAction is Reuse, New, Custom, Concat, UseResult or Sequence
-      // secondAction is Reuse, New, UseResult or Sequence
-    } else if(secondAction.ctor == Type.Sequence) {
-       if(secondAction.ctx === undefined && firstActionContext === undefined) {
-        // Only top-level simplification was proven.
-        return Sequence(recurse(secondAction.first, firstAction, undefined), secondAction.second, undefined);
-      }
-      /** Proof
-      applyZ(andThen(Sequence(E1, E2, ECtx2), E0, ECtx), rrCtx)
-      = applyZ(Sequence(andThen(E1, E0, ECtx), E2, andThen(ECtx2, E0, ECtx)), rrCtx)
-      = applyZ(E2, apply(andThen(E1, E0, ECtx), rrCtx), apply(andThen(ECtx2, E0, ECtx), rrCtx))
-      = applyZ(E2, apply(E1, applyZ(E0, rrCtx), applyZ(ECtx, rrCtx)), applyZ(andThen(ECtx2, E0, ECtx), rrCtx))
-      = applyZ(E2, apply(E1, applyZ(E0, rrCtx), applyZ(ECtx, rrCtx)), applyZ(ECtx2, applyZ((E0, ECtx), rrCtx)))
-      = applyZ(E2, apply(E1, applyZ(E0, rrCtx), applyZ(ECtx, rrCtx)), apply(ECtx2, applyZ(E0, rrCtx), applyZ(ECtx, rrCtx))))
-      = applyZ(Sequence(E1, E2, ECtx2), applyZ(E0, rrCtx), applyZ(ECtx, rrCtx)) 
-      QED;
-      */
-      return Sequence(recurse(secondAction.first, firstAction, firstActionContext), secondAction.second, recurse(secondAction.ctx, firstAction, firstActionContext));
-      //return Sequence(firstAction, secondAction, firstActionContext);
-      
-      // firstAction is Reuse, New, Custom, Concat or UseResult
-      // secondAction is Reuse, New, or UseResult
-    } else if(secondAction.ctor == Type.Reuse) {
-      if(firstAction.ctor == Type.Reuse) {
+      // firstAction is Reuse, New, Custom, Concat, UseResult
+      // secondAction is Reuse, New, UseResult
+    } else if(isReuse(secondAction)) {
+      if(isReuse(firstAction)) {
         /** Proof (key, context does not contain offset)
           apply(andThen(Reuse({f: E2}), Reuse({f: E1}), E2Ctx), {...f: x...}, rCtx)
         = apply(Reuse({f: andThen(E2, E1, Up(f, (f, Reuse({f: E1}))::E2Ctx))}), {...f: x...}, rCtx)   -- AndThen-Copy-Copy
@@ -1432,35 +1338,30 @@ Assuming ?1 = apply(E0, r, rCtx)
    GOAL = apply(Reuse({f: E2}), apply(Reuse({f: E1}), {...f: x...}, rCtx), apply((Offset(a, n), E0, X)::E2Ctx, {...f: x...}, rCtx));
         QED.
         */
-        
-        //if(isIdentity(firstAction)) return secondAction; // Not correct
         let newChildren = {};
-        
-        for(let k in secondAction.childEditActions) {
-          k = numIfPossible(k);
-          let f = secondAction.childEditActions[k];
+        forEach(secondAction.childEditActions, (f, k) => {
           if(k in firstAction.childEditActions) {
-            let g = firstAction.childEditActions[k];
+            let g = Up(k, firstAction.childEditActions[k]);
             let newCtx = Up(k, AddContext(k, firstAction, firstActionContext));
             if(editActions.__debug) {
               console.log("Inside Reuse({ " + k + ": ");
             }
-            newChildren[k] = recurse(f, g, newCtx);
+            newChildren[k] = Down(k, recurse(Up(k, f), Up(k, g), newCtx));
           } else {
             if(editActions.__debug) {
               console.log("Inside Reuse({ " + k + ": ");
             }
-            newChildren[k] = recurse(f, Reuse(), Up(k, AddContext(k, firstAction, firstActionContext)));
+            newChildren[k] = Down(k, recurse(Up(k, f), Reuse(), Up(k, AddContext(k, firstAction, firstActionContext))));
           }
-        }
-        for(let k in firstAction.childEditActions) {
-          let g = firstAction.childEditActions[k];
+        });
+        forEach(firstAction.childEditActions, (g, k) => {
           if(!(k in secondAction.childEditActions)) {
             newChildren[k] = g;
           }
-        }
-        return Reuse(newChildren);
+        })
+        return New(newChildren, ReuseModel());
       } else if(firstAction.ctor == Type.New) {
+        // Not a Reuse
         /** Proof (key)
           apply(andThen(Reuse({f: E2}), New({f: E1}), E2Ctx), r, rCtx)
         = apply(New({f: andThen(E2, E1, (f, New({f: E1}), Reuse())::E2Ctx)}), r, rCtx) -- AT-REUSE-NEW1
@@ -1471,25 +1372,23 @@ Assuming ?1 = apply(E0, r, rCtx)
         = apply(Reuse({f: E2}), {f: apply(E1, r, rCtx)}, apply(E2Ctx, r, rCtx))
         = apply(Reuse({f: E2}), apply(New({f: E1}), r, rCtx), apply(E2Ctx, r, rCtx)) -- GOAL
         */
-        
         let newChildren = {};
-        for(let k in firstAction.childEditActions) {
-          k = numIfPossible(k);
+        forEachChild(firstAction, (firstChild, k) => {
           if(k in secondAction.childEditActions) {
+            let secondChild = secondAction.childEditActions[k];
             if(editActions.__debug) {
               console.log("Inside New({ " + k + ": ");
             }
-            newChildren[k] = recurse(secondAction.childEditActions[k], firstAction.childEditActions[k], AddContext(k, firstAction, firstActionContext));
+            newChildren[k] = recurse(Up(k, secondChild), firstChild, AddContext(k, firstAction, firstActionContext));
           } else {
-            newChildren[k] = firstAction.childEditActions[k];
+            newChildren[k] = firstChild;
           }
-        }
-        for(let k in secondAction.childEditActions) {
-          let g = secondAction.childEditActions[k];
+        });
+        forEachChild(secondAction, (secondChild, k) => {
           if(!(k in firstAction.childEditActions)) {
-            newChildren[k] = recurse(g, firstAction, AddContext(k, firstAction, firstActionContext));
+            newChildren[k] = recurse(secondChild, New(undefined), AddContext(k, firstAction, firstActionContext));
           }
-        }
+        });
         return New(newChildren, firstAction.model);
       } else if(firstAction.ctor == Type.Concat) {
         /** Assume f < n, g >= n
@@ -1594,27 +1493,26 @@ Assuming ?1 = apply(E0, r, rCtx)
         
         let leftChildren = {};
         let rightChildren = {};
-        for(let k in secondAction.childEditActions) {
-          k = Number(k);
+        forEachChild(secondAction, (secondChild, k) => {
           if(k < firstAction.count) {
-            leftChildren[k] = mapUpHere(secondAction.childEditActions[k], Offset(0, firstAction.count), Up(k));
+            leftChildren[k] = Down(k, mapUpHere(Up(k, secondChild), Offset(0, firstAction.count), Up(k)));
           } else {
-            rightChildren[k - firstAction.count] = mapUpHere(secondAction.childEditActions[k], Offset(firstAction.count), Up(k));
+            rightChildren[k - firstAction.count] = Down(k - firstAction.count, mapUpHere(Up(k, secondChild), Offset(firstAction.count), Up(k)));
           }
-        }
+        })
         
         if(editActions.__debug) {
           console.log("Inside left of Concat(" + firstAction.count, ", |, ...)");
         }
-        let newFirst = recurse(Reuse(leftChildren), firstAction.first, AddContext(Offset(0, firstAction.count), firstAction, firstActionContext));
+        let newFirst = recurse(New(leftChildren, ReuseModel()), firstAction.first, AddContext(Offset(0, firstAction.count), firstAction, firstActionContext));
         if(editActions.__debug) {
           console.log("Inside right of Concat(" + firstAction.count, ", ..., |)");
         }
-        let newSecond = recurse(Reuse(rightChildren), firstAction.second, AddContext(Offset(firstAction.count), firstAction, firstActionContext));
+        let newSecond = recurse(New(rightChildren, ReuseModel()), firstAction.second, AddContext(Offset(firstAction.count), firstAction, firstActionContext));
         
         return Concat(firstAction.count, newFirst, newSecond, firstAction.replaceCount, firstAction.firstReuse, firstAction.secondReuse);
       } else {
-        // Anything else, we could use Custom.
+        // Anything else, we could use Sequence that transforms into Custom.
         /** Proof 
           applyZ(andThen(E2, E1, ECtx), rrCtx)
           = applyZ(Custom(E1, ((x, rrCtx) => apply(E2, x, apply(ECtx, rrCtx)), ?Rev))), rrCtx)
@@ -1625,12 +1523,8 @@ Assuming ?1 = apply(E0, r, rCtx)
           QED;
         */ 
         // However, it does not reduce the size of the expression, really.
-        // Actually, it seems that we just did a Custom with the semantics of Sequence.
-        // Sequence(E1, E2, ECtx)
-        // = Custom(E1, ((x, r, rCtx) => apply(E2, x, apply(ECtx, rrCtx)), ?))
-        return Custom(firstAction, (x, r, rCtx) => apply(secondAction, x, apply(ECtx, r, rCtx)), undefined);
+        return Sequence(firstAction, secondAction, firstActionContext);
       }
-      //throw "Implement me - andThen second Reuse"
       // firstAction is Reuse, New, Custom, Concat or UseResult
       // secondAction is New, or UseResult
     } else if(secondAction.ctor == Type.New) {
@@ -2835,20 +2729,6 @@ Assuming ?1 = apply(E0, r, rCtx)
   // = three way merge of r, applyZ(E1, (r, rCtx)) and applyZ(E2, (r, rCtx));
   
   // Meaning of abbreviations:
-  /*
-    R: Reuse (R = R* U R0)
-    R*: Reuse without identity
-    N: New  (N = N* U N0)
-    N*: New without primitive types (N* = Nr U Nc)
-    Nr: New with reusing (wrapping)
-    Nc: New without reusing directly (building from scratch)
-    F: Replace
-    C: Concat
-    U: Up,
-    D: Down,
-    S: Sequence,
-    UR: UseResult
-  */
   // Action resulting if we applied E1 and E2 in parallel and merged the result.
   var merge = addLogMerge(function mergeRaw(E1, E2) {
     if(editActions.__debug) {
@@ -3606,9 +3486,6 @@ Assuming ?1 = apply(E0, r, rCtx)
     if(editAction.ctor == Type.Down) {
       let newLength = isOffset(editAction.keyOrOffset) ? MinUndefined(editAction.keyOrOffset.newLength, MinusUndefined(inCount, editAction.keyOrOffset.count)) : undefined;
       return outLength(editAction.subAction, newLength);
-    }
-    if(editAction.ctor == Type.Sequence) {
-      return outLength(editAction.second, inCount);
     }
     console.trace("outLength invoked on unexpected input", editAction);
     return undefined;
@@ -5119,6 +4996,14 @@ Assuming ?1 = apply(E0, r, rCtx)
   function forEach(treeLike, callback) {
     return treeOpsOf(treeLike).forEach(treeLike, callback);
   }
+  function forEachChild(editAction, callback) {
+    if(editAction.ctor == Type.New) {
+      return forEach(editAction.childEditActions, callback);
+    } else if(editAction.ctor == Type.Concat) {
+      callback(editAction.first, "first");
+      callback(editAction.second, "second");
+    }
+  }
   var monoid = {
     ArrayLike: {
       init() { return []; },
@@ -5341,6 +5226,19 @@ Assuming ?1 = apply(E0, r, rCtx)
     return [newProg, newCtx];
   }
   
+  // Given an edit action and its context, returns the original first edit action and the initial context change of Ups.
+  function originalFirstActionAndContext(E, ECtx, initUp) {
+    if(isObject(ECtx)) {
+      if(ECtx.ctor == Type.Up || ECtx.ctor == Type.Down) {
+        return originalFirstActionAndContext(E, ECtx.subAction, initUp);
+      } else { // A regular context. We reset the initUp.
+        return originalFirstActionAndContext(ECtx.prog, ECtx.tl, ECtx.tl);
+      }
+    } else {
+      return [E, initUp];
+    }
+  }
+  
   // Returns true if the two key or offsets are the same.
   function keyOrOffsetAreEqual(keyOrOffset1, keyOrOffset2) {
     if(isOffset(keyOrOffset1)) {
@@ -5559,18 +5457,6 @@ Assuming ?1 = apply(E0, r, rCtx)
       let outerPadding = toSpaces(str);
       str += addPadding(stringOf(self.subAction), outerPadding);
       str += ", " + self.lens.name + ")";
-      return str;
-    } else if(self.ctor == Type.Sequence) {
-      var str = "Sequence(\n  ";
-      var padding = "  ";
-      var tmp = self;
-      str += addPadding(stringOf(self.first) + ",\n", padding);
-      str += addPadding(stringOf(self.second), padding);
-      if(self.ctx !== undefined) {
-        str += ", " + stringOf(self.ctx);
-        str += "])";
-      }
-      str += ")";
       return str;
     } else if(self.ctor == Type.Choose) {
       var str = "Choose(";
