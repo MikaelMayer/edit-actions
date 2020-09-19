@@ -53,14 +53,6 @@ shouldBeEqual(
   Prepend(2, New([New(1), New(3)]), Reuse({1: New(2)}))
 );
 
-// It does not work because the second removes the character on which the first was inserted.
-// When Prepend is a simple Concat, it should be easier.
-testMergeAndReverse(
-  Remove(1, Prepend(1, New("\""))),
-  Keep(1, Remove(1, Prepend(1, New("\"")))),
-  Remove(1, Prepend(1, New("\""), Remove(1, Prepend(1, New("\"")))))
-);
-
 shouldBeEqual(
   stringOf(Down(Interval(3, 5))), "Down(Interval(3, 5))"
 );
@@ -103,15 +95,6 @@ shouldBeEqual(
 shouldBeEqual(
   andThen(RemoveExcept(Offset(3, 2)), RemoveExcept(Offset(2, 7))),
   RemoveExcept(Offset(5, 2))
-);
-shouldBeEqual(
-  merge(
-    Replace(3, 3, New("abc"), Reuse()),
-    Keep(2, New("def"))      
-  ),
-  Replace(2, 3,
-    RemoveAll(Prepend(3, "abc"), 3),
-    New("def"))
 );
 
 /*
@@ -261,13 +244,13 @@ shouldBeEqual(
   isFinal(New([New(1)])), true);
 shouldBeEqual(isFinal([1]), false);
 shouldBeEqual(
-  stringOf(Up(Offset(0, 0), New([New(1)]))), "New([1])"
+  stringOf(Up(Offset(0, 0), New([New(1)]))), "Up(Interval(0, 0), New([New(1)], []))"
 );
 
 shouldBeEqual(
   diff(["a", "b", "c", "d"], ["a", "k", "c", "d"]),
   Choose(Reuse({1: Remove(1, Prepend(1, "k"))}),
-    New([Down(0), "k", Down(2), Down(3)]))
+    New([Down(0), New("k"), Down(2), Down(3)]))
 );
 
 shouldBeEqual(
@@ -284,8 +267,8 @@ shouldBeEqual(
   first(diff([["p", "test"], "d", "blih", "mk"],
              [["x", ["p", "test"]], ["i", "hello"], "d", "blah"])),
   Replace(1, 1,
-    Reuse({0: New(["x", Reuse()])}),
-    Prepend(1, [New(["i", "hello"])],
+    Reuse({0: New([New("x"), Reuse()])}),
+    Prepend(1, [New([New("i"), New("hello")])],
       Replace(2, 2, 
           Reuse({1:
             Keep(2, Remove(1, Prepend(1, "a")))}),
@@ -712,6 +695,17 @@ shouldBeEqual(
     Reuse({a: Reuse({d: New(1)})})),
   Reuse({a: Up("a", Down("b", Create({x: Reuse(), c: Up("b", Down("a", Reuse({d: New(1)})))})))})
 )*/
+
+shouldBeEqual(
+  merge(
+    Replace(3, 3, New("abc"), Reuse()),
+    Keep(2, New("def"))      
+  ),
+  Replace(2, 3,
+    RemoveAll(Prepend(3, "abc"), 3),
+    New("def"))
+);
+
 shouldBeEqual(
   merge(
     Reuse({a: New({b: Up("a", Down("c")), d: Reuse()})}),
@@ -1443,6 +1437,12 @@ shouldBeEqual(
     Remove(3, Reuse({0: New(1), 4: New(3)})),
     Remove(1, Replace(4, 4, Reuse({0: New(0), 3: New(2)}), RemoveAll()))),
   Remove(3, Replace(2, 2, Reuse({0: New(1), 1: New(2)}), RemoveAll())), "Merge two slices 4");
+
+testMergeAndReverse(
+  Remove(1, Prepend(1, New("\""))),
+  Keep(1, Remove(1, Prepend(1, New("\"")))),
+  Remove(1, Prepend(1, New("\""), Remove(1, Prepend(1, New("\"")))))
+);
 
 testMergeAndReverse(
   Remove(1, Keep(4, RemoveAll())),

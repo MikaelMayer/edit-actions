@@ -369,9 +369,20 @@ var editActions = {};
   }
   
   function optimizeConcatNew(first, second) {
-    if(typeof first.model == "string" && typeof second.model == "string") {
-      return New(first.model + second.model);   
-    } else if(Array.isArray(first.model) && Array.isArray(second.model)) {
+    let bothWereNonEditActions = true;
+    if(!isEditAction(first)) {
+      first = New(first);
+      bothWereNonEditActions = false;
+    }
+    if(!isEditAction(second)) {
+      second = New(second);
+      bothWereNonEditActions = false;
+    }
+    if(typeof first.model.value == "string" && typeof second.model.value == "string") {
+      let result = first.model.value + second.model.value;
+      if(bothWereNonEditActions) return result;
+      return New(result);
+    } else if(Array.isArray(first.model.value) && Array.isArray(second.model.value)) {
       let newChildren = [];
       let newModel = [];
       let length = 0;
@@ -1275,23 +1286,41 @@ var editActions = {};
       // firstAction is Reuse, New, Custom, Concat, UseResult
       // secondAction is Up, Down, Reuse, New, UseResult
     } else if(secondAction.ctor == Type.Down) {
-      if(firstAction.ctor == Type.New && firstAction.model.ctor == TypeNewModel.Reuse && !isOffset(secondAction.keyOrOffset)) {
-        // Ok, the key we are going down also exists on teh first action. Hence, we can directly output it. 
-        /**
-        Proof:
-          apply(andThen(Down(k, E2), Reuse({k: E1}), ECtx), r, rCtx)
-        = apply(Down(k, andThen(E2, E1, Up(k, (k, Reuse({k: E1}))::ECtx))), r, rCtx)
-        = apply(andThen(E2, E1, Up(k, (k, Reuse({k: E1}))::ECtx)), r[k], (k, r)::rCtx)
-        = apply(E2, apply(E1, r[k], (k, r)::rCtx), apply(Up(k, (k, Reuse({k: E1}))::ECtx), r[k], (k, r)::rCtx))
-        = apply(E2, apply(E1, r[k], (k, r)::rCtx), apply((k, Reuse({k: E1}))::ECtx, r, rCtx))
-        = apply(E2, {...k: apply(E1, r[k], (k, r)::rCtx)...}[k], apply((k, Reuse({k: E1}))::ECtx, r, rCtx))
-        = apply(E2, apply(Reuse({k: E1}), r, rCtx)[k], (k, apply(Reuse({k: E1}), r, rCtx))::apply(ECtx, r, rCtx))
-        = apply(Down(k, E2), apply(Reuse({k: E1}), r, rCtx), apply(ECtx, r, rCtx))
-        */
-        let k = secondAction.keyOrOffset;
-        let E2 = secondAction.subAction;
-        let E1 = k in firstAction.childEditActions ? Up(k, firstAction.childEditActions[k]) : Reuse();
-        return Down(k, recurse(E2, E1, Up(k, AddContext(k, firstAction, firstActionContext))));
+      if(isReuse(firstAction)) {
+        if(isOffset(secondAction.keyOrOffset)) {
+          // Ok, the interval we are going down also contains keys before the first action. Hence, we can directly output it.
+          /**
+          Proof: Illustrated with b < c, c <= i < c + l and c + l <= d:
+            apply(andThen(Down(Offset(c, l, o), E2), Reuse({b: Eb, i: Ec, d: Ed}), ECtx), r, rCtx)
+          = apply(Down(Offset(c, l, o), andThen(E2, Reuse({i-c, Ec}), ?1)), r, rCtx)
+          = apply(andThen(E2, Reuse({i-c, Ec}), ?1), r[c..c+l[, (Offset(c, l, o), r)::rCtx)
+          = apply(E2, apply(Reuse({i-c, Ec}), r[c..c+l[, (Offset(c, l, o), r)::rCtx), apply(?1, r[c..c+l[, (Offset(c, l, o), r)::rCtx))
+          = 
+          
+          = apply(E2, apply(offsetAt(Offset(c, l, o), Reuse({b: Eb, i: Ec, d: Ed})), r, rCtx), apply((Offset(c, l, o), Reuse({b: Eb, i: Ec, d: Ed}))::ECtx, r, rCtx))
+          = apply(E2, applyOffset(Offset(c, l, o), apply(Reuse({b: Eb, i: Ec, d: Ed}), r, rCtx)), (Offset(c, l, o), apply(Reuse({b: Eb, i: Ec, d: Ed}), r, rCtx))::apply(ECtx, r, rCtx))
+          = apply(Down(Offset(c, l, o), E2), apply(Reuse({b: Eb, i: Ec, d: Ed}), r, rCtx), apply(ECtx, r, rCtx))
+          QED;
+          */
+          //return recurse(secondAction.subAction, New({i-c: Down(i, Ei)}), (Offset(c, l, o), Reuse({b: Eb, i: Ec, d: Ed}))::ECtx)
+        } else {
+          // Ok, the key we are going down also exists on the first action. Hence, we can directly output it. 
+          /**
+          Proof:
+            apply(andThen(Down(k, E2), Reuse({k: E1}), ECtx), r, rCtx)
+          = apply(Down(k, andThen(E2, E1, Up(k, (k, Reuse({k: E1}))::ECtx))), r, rCtx)
+          = apply(andThen(E2, E1, Up(k, (k, Reuse({k: E1}))::ECtx)), r[k], (k, r)::rCtx)
+          = apply(E2, apply(E1, r[k], (k, r)::rCtx), apply(Up(k, (k, Reuse({k: E1}))::ECtx), r[k], (k, r)::rCtx))
+          = apply(E2, apply(E1, r[k], (k, r)::rCtx), apply((k, Reuse({k: E1}))::ECtx, r, rCtx))
+          = apply(E2, {...k: apply(E1, r[k], (k, r)::rCtx)...}[k], apply((k, Reuse({k: E1}))::ECtx, r, rCtx))
+          = apply(E2, apply(Reuse({k: E1}), r, rCtx)[k], (k, apply(Reuse({k: E1}), r, rCtx))::apply(ECtx, r, rCtx))
+          = apply(Down(k, E2), apply(Reuse({k: E1}), r, rCtx), apply(ECtx, r, rCtx))
+          */
+          let k = secondAction.keyOrOffset;
+          let E2 = secondAction.subAction;
+          let E1 = k in firstAction.childEditActions ? Up(k, firstAction.childEditActions[k]) : Reuse();
+          return Down(k, recurse(E2, E1, Up(k, AddContext(k, firstAction, firstActionContext))));
+        }
       }
       // We know we can go down first action now.
       let f = secondAction.keyOrOffset;
@@ -2206,76 +2235,76 @@ var editActions = {};
     }
     var left, right;
     switch(editAction.ctor) {
-    case Type.Reuse: {
-      /** n = count
-        Proof: (f < n, g >= n)
-        editAction: Reuse({f: Ef, g: Eg})
-        left: Down(Offset(0, n), Reuse({f: Up(f, Offset(0, n), Down(f, Ef))}))
-        right: Down(Offset(n), Reuse({(g-n): Up(g-n, Offset(n), Down(g, Eg))}))
-        r = {...f: x...g: y...}
-        
-        apply(left, r, rCtx) ++n apply(right, r, rCtx))
-        = apply(Down(Offset(0, n), Reuse({f: Up(f, Offset(0, n), Down(f, Ef))})), {...f: x...g: y...}, rCtx) ++ apply(Down(Offset(n), Reuse({(g-n): Up(g-n, Offset(n), Down(g, Eg))})), {...f: x...g: y...}, rCtx)
-        = apply(Reuse({f: Up(f, Offset(0, n), Down(f, Ef))}), {...f: x.}, (Offset(0, n), {...f: x...g: y...})::rCtx) ++ apply(Reuse({(g-n): Up(g-n, Offset(n), Down(g, Eg))}), {..(g-n): y...}, (Offset(n), {...f: x...g: y...})::rCtx)
-        = {...f: apply(Up(f, Offset(0, n), Down(f, Ef)), x, (f, {...f: x.})::(Offset(0, n), {...f: x...g: y...})::rCtx).} ++n {..(g-n): apply(Up(g-n, Offset(n), Down(g, Eg)), y, (g-n, {..(g-n): y...})::(Offset(n), {...f: x...g: y...})::rCtx)...}
-        = {...f: apply(Down(f, Up(f, Offset(0, n), Down(f, Ef))), {...f: x.}, (Offset(0, n), {...f: x...g: y...})::rCtx).} ++n {..(g-n): apply(Down(g-n, Up(g-n, Offset(n), Down(g, Eg))), {..(g-n): y...}, (Offset(n), {...f: x...g: y...})::rCtx)...}
-        = {...f: apply(Down(Offset(0, n), Up(Offset(0, n), Down(f, Ef))), {...f: x...g: y...}, rCtx).} ++n {..(g-n): apply(Down(Offset(n), Up(Offset(n), Down(g, Eg))), {...f: x...g: y...}, rCtx)
-        = {...f: apply(Up(f, Down(Offset(0, n), Up(Offset(0, n), Down(f, Ef)))), x, (f, {...f: x...g: y...})::rCtx).} ++n {..(g-n): apply(Up(g, Down(Offset(n), Up(Offset(n), Down(g, Eg)))), y, (g, {...f: x...g: y...})::rCtx)
-        = {...f: apply(Ef, x, (f, {...f: x...g: y...})::rCtx).} ++n {..(g-n): apply(Eg, y, (g, {...f: x...g: y...})::rCtx)
-        = {...f: apply(Ef, x, (f, {...f: x...g: y...})::rCtx)...g: apply(Eg, y, (g, {...f: x...g: y...})::rCtx)
-        = apply(Reuse({f: Ef, g: Eg}), {...f: x...g: y...}, rCtx)
-        = apply(editAction, r, rCtx)
-        QED.
-        
-        Proof if using mapUpHere (which is nice because it does not prepend unnecessary Ups and Downs)
-        
-        Proof: (f < n, g >= n)
-        editAction: Reuse({f: Ef, g: Eg})
-        left: Down(Offset(0, n), Reuse({f: mapUpHere(Ef, Offset(0, n), Up(f)) }))
-        right: Down(Offset(n), Reuse({(g-n): mapUpHere(Eg, Offset(n), Up(f))}))
-        r = {...f: x...g: y...}
-        
-        apply(left, r, rCtx) ++n apply(right, r, rCtx))
-        = apply(Down(Offset(0, n), Reuse({f: mapUpHere(Ef, Offset(0, n), Up(f)) })), r, rCtx) ++n
-          apply(Down(Offset(n), Reuse({(g-n): mapUpHere(Eg, Offset(n), Up(f))})), r, rCtx))
-        = apply(Reuse({f: mapUpHere(Ef, Offset(0, n), Up(f)) }), r[0,n], (Offset(0, n), r)::rCtx) ++n
-          apply(Reuse({(g-n): mapUpHere(Eg, Offset(n), Up(f))}), r[n...], (Offset(n), r)::rCtx))
-        = r[0,n][f -> 
-            apply(mapUpHere(Ef, Offset(0, n), Up(f)), r[f], (f, r[0,n])::(Offset(0, n), r)::rCtx)] ++n
-          r[n...][g-n ->
-            apply(mapUpHere(Eg, Offset(n), Up(f)),
-              r[n+(g-n)], (g-n, r[n...])::(Offset(n), r)::rCtx)
-          ]
-        = r[f ->
-              apply(Ef, r[f], (f, r)::rCtx)
-            g ->
-              apply(Ef, r[g], (g, r)::rCtx)]
-        = apply(Reuse({f: Ef, g: Eg}), r, rCtx)
-        = apply(editAction, r, rCtx);
-        QED;
-      */
-      
-      var left = {};
-      var right = {};
-      for(let k in editAction.childEditActions) {
-        let f = Number(k), g = Number(k);
-        if(f < count) {
-          // I could also have done a mapUpHere there. What is the best?
-          //left[f] = Up(f, Offset(0, count), Down(f, editAction.childEditActions[k]));
-          left[k] = mapUpHere(editAction.childEditActions[k], Offset(0, count), Up(k)); 
-        } else { // g >= count
-          //right[g - count] = Up(g-count, Offset(count), Down(g, editAction.childEditActions[k]));
-          right[g-count] = mapUpHere(editAction.childEditActions[k], Offset(count), Up(k));
-        }
-      }
-      // left: Down(Offset(0, n), Reuse({f: Up(f, Offset(0, n), Down(f, Ef))}))
-      // right: Down(Offset(n), Reuse({(g-n): Up(g-n, Offset(n), Down(g, Eg))}))
-     
-      return [SameDownAs(isRemove)(Offset(0, count), Reuse(left)),
-              SameDownAs(isRemove)(Offset(count), Reuse(right))];
-      }
     case Type.New:
-      if(typeof editAction.model === "string") {
+      if(isReuse(editAction)) {
+        /** n = count
+          Proof: (f < n, g >= n)
+          editAction: Reuse({f: Ef, g: Eg})
+          left: Down(Offset(0, n), Reuse({f: Up(f, Offset(0, n), Down(f, Ef))}))
+          right: Down(Offset(n), Reuse({(g-n): Up(g-n, Offset(n), Down(g, Eg))}))
+          r = {...f: x...g: y...}
+          
+          apply(left, r, rCtx) ++n apply(right, r, rCtx))
+          = apply(Down(Offset(0, n), Reuse({f: Up(f, Offset(0, n), Down(f, Ef))})), {...f: x...g: y...}, rCtx) ++ apply(Down(Offset(n), Reuse({(g-n): Up(g-n, Offset(n), Down(g, Eg))})), {...f: x...g: y...}, rCtx)
+          = apply(Reuse({f: Up(f, Offset(0, n), Down(f, Ef))}), {...f: x.}, (Offset(0, n), {...f: x...g: y...})::rCtx) ++ apply(Reuse({(g-n): Up(g-n, Offset(n), Down(g, Eg))}), {..(g-n): y...}, (Offset(n), {...f: x...g: y...})::rCtx)
+          = {...f: apply(Up(f, Offset(0, n), Down(f, Ef)), x, (f, {...f: x.})::(Offset(0, n), {...f: x...g: y...})::rCtx).} ++n {..(g-n): apply(Up(g-n, Offset(n), Down(g, Eg)), y, (g-n, {..(g-n): y...})::(Offset(n), {...f: x...g: y...})::rCtx)...}
+          = {...f: apply(Down(f, Up(f, Offset(0, n), Down(f, Ef))), {...f: x.}, (Offset(0, n), {...f: x...g: y...})::rCtx).} ++n {..(g-n): apply(Down(g-n, Up(g-n, Offset(n), Down(g, Eg))), {..(g-n): y...}, (Offset(n), {...f: x...g: y...})::rCtx)...}
+          = {...f: apply(Down(Offset(0, n), Up(Offset(0, n), Down(f, Ef))), {...f: x...g: y...}, rCtx).} ++n {..(g-n): apply(Down(Offset(n), Up(Offset(n), Down(g, Eg))), {...f: x...g: y...}, rCtx)
+          = {...f: apply(Up(f, Down(Offset(0, n), Up(Offset(0, n), Down(f, Ef)))), x, (f, {...f: x...g: y...})::rCtx).} ++n {..(g-n): apply(Up(g, Down(Offset(n), Up(Offset(n), Down(g, Eg)))), y, (g, {...f: x...g: y...})::rCtx)
+          = {...f: apply(Ef, x, (f, {...f: x...g: y...})::rCtx).} ++n {..(g-n): apply(Eg, y, (g, {...f: x...g: y...})::rCtx)
+          = {...f: apply(Ef, x, (f, {...f: x...g: y...})::rCtx)...g: apply(Eg, y, (g, {...f: x...g: y...})::rCtx)
+          = apply(Reuse({f: Ef, g: Eg}), {...f: x...g: y...}, rCtx)
+          = apply(editAction, r, rCtx)
+          QED.
+          
+          Proof if using mapUpHere (which is nice because it does not prepend unnecessary Ups and Downs)
+          
+          Proof: (f < n, g >= n)
+          editAction: Reuse({f: Ef, g: Eg})
+          left: Down(Offset(0, n), Reuse({f: mapUpHere(Ef, Offset(0, n), Up(f)) }))
+          right: Down(Offset(n), Reuse({(g-n): mapUpHere(Eg, Offset(n), Up(f))}))
+          r = {...f: x...g: y...}
+          
+          apply(left, r, rCtx) ++n apply(right, r, rCtx))
+          = apply(Down(Offset(0, n), Reuse({f: mapUpHere(Ef, Offset(0, n), Up(f)) })), r, rCtx) ++n
+            apply(Down(Offset(n), Reuse({(g-n): mapUpHere(Eg, Offset(n), Up(f))})), r, rCtx))
+          = apply(Reuse({f: mapUpHere(Ef, Offset(0, n), Up(f)) }), r[0,n], (Offset(0, n), r)::rCtx) ++n
+            apply(Reuse({(g-n): mapUpHere(Eg, Offset(n), Up(f))}), r[n...], (Offset(n), r)::rCtx))
+          = r[0,n][f -> 
+              apply(mapUpHere(Ef, Offset(0, n), Up(f)), r[f], (f, r[0,n])::(Offset(0, n), r)::rCtx)] ++n
+            r[n...][g-n ->
+              apply(mapUpHere(Eg, Offset(n), Up(f)),
+                r[n+(g-n)], (g-n, r[n...])::(Offset(n), r)::rCtx)
+            ]
+          = r[f ->
+                apply(Ef, r[f], (f, r)::rCtx)
+              g ->
+                apply(Ef, r[g], (g, r)::rCtx)]
+          = apply(Reuse({f: Ef, g: Eg}), r, rCtx)
+          = apply(editAction, r, rCtx);
+          QED;
+        */
+        
+        var left = {};
+        var right = {};
+        forEachChild(editAction, (child, k) => {
+          let reuseChild = Up(k, child);
+          let f = k, g = k;
+          if(f < count) {
+            // I could also have done a mapUpHere there. What is the best?
+            //left[f] = Up(f, Offset(0, count), Down(f, editAction.childEditActions[k]));
+            left[k] = Down(k, mapUpHere(reuseChild, Offset(0, count), Up(k))); 
+          } else { // g >= count
+            //right[g - count] = Up(g-count, Offset(count), Down(g, editAction.childEditActions[k]));
+            right[g-count] = Down(g-count, mapUpHere(reuseChild, Offset(count), Up(k)));
+          }
+        })
+        // left: Down(Offset(0, n), Reuse({f: Up(f, Offset(0, n), Down(f, Ef))}))
+        // right: Down(Offset(n), Reuse({(g-n): Up(g-n, Offset(n), Down(g, Eg))}))
+       
+        return [SameDownAs(isRemove)(Offset(0, count), New(left, ReuseModel())),
+                SameDownAs(isRemove)(Offset(count), New(right, ReuseModel()))];
+      } else if(typeof editAction.model.value === "string") {
         /** Proof
           editAction = New("abcdnef");
           
@@ -2284,7 +2313,7 @@ var editActions = {};
           = "abcdnef"
           = apply(editAction, r, rCtx)
         */
-        return [New(editAction.model.substring(0, count)), New(editAction.model.substring(count))];
+        return [New(editAction.model.value.substring(0, count)), New(editAction.model.value.substring(count))];
       } else {
         /** n = count
         Proof: (f < n, g >= n)
@@ -2302,17 +2331,28 @@ var editActions = {};
         
         var left = {};
         var right = {};
-        for(let k in editAction.childEditActions) {
-          let f = Number(k), g = f;
+        forEachChild(editAction, (child, k) => {
+          let f = k, g = f;
           if(f < count) {
-            left[f] = editAction.childEditActions[f];
+            left[f] = child;
           } else {
-            right[g - count] = editAction.childEditActions[g];
+            right[g - count] = child;
           }
-        }
+        });
+        var treeOps = treeOpsOf(editAction.model.value);
+        var leftModelValue = treeOps.init();
+        var rightModelValue = treeOps.init();
+        forEach(editAction.model.value, (child, k) => {
+          let f = k, g = f;
+          if(f < count) {
+            leftModelValue[f] = child;
+          } else {
+            rightModelValue[g - count] = child;
+          }
+        })
         // Proof: editAction = New({fi = ei}i, [])
         //                   = Concat(count, Down(Offset(0, count), New({fi = ei, if fi < count}i)), Down(Offset(count), New({(fi-count) = ei, if fi >= count})))
-        return [New(left, editAction.model), New(right, editAction.model)];
+        return [New(left, InsertModel(leftModelValue)), New(right, InsertModel(rightModelValue))];
       }
     case Type.Concat:
       if(editAction.count == count) {
@@ -2487,7 +2527,7 @@ var editActions = {};
     = apply(leftFirst, r, rCtx) ++offset.count (apply(rightFirst1, r, rCtx) ++offset.newLength ++ apply(rightFirst2, r, rCtx));
   Hence
   
-  applyOffset(offset, apply(editAction, r, rCtx)
+  applyOffset(offset, apply(editAction, r, rCtx))
   = apply(rightFirst1, r, rCtx)
   = apply(offsetAt(offset, editAction), r, rCtx)
   QED
@@ -5078,7 +5118,10 @@ var editActions = {};
     return isNew(editAction) && editAction.model.ctor === TypeNewModel.Reuse;
   }
   function isNew(editAction) {
-    return typeof editAction === "object" && editAction.ctor == Type.New;
+    return isObject(editAction) && editAction.ctor == Type.New || !isEditAction(editAction);
+  }
+  function valueIfNew(editAction) {
+    return isEditAction(editAction) ? editAction.model.value : editAction;
   }
   function isInsert(editAction) {
     if(!isNew(editAction)) return;
