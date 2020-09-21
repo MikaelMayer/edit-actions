@@ -1,9 +1,14 @@
 var editActions = require("./edit-actions.js");
-var {List,Reuse,New,Concat,Keep,Prepend, Append,Remove,RemoveExcept,RemoveAll,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Replace, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, isFinal, debug, Interval, Insert, InsertAll, ReuseModel} = editActions;
+var {List,Reuse,New,Concat,Keep,Prepend, Append,Remove,RemoveExcept,RemoveAll,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Replace, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, isFinal, debug, Interval, Insert, InsertAll, ReuseModel, ReuseAsIs, transform} = editActions;
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
+
+shouldBeEqual(stringOf(Down.pure("a", 1)), "Down.pure(\"a\", 1)");
+shouldBeEqual(stringOf(Down.pure("a", true)), "Down(\"a\", true)");
+shouldBeEqual(stringOf(Reuse({a: 0})), "Reuse({\na: 0})");
+
 
 shouldBeEqual(
   stringOf(New(undefined)), "New(undefined)"
@@ -195,7 +200,7 @@ shouldBeEqual(
     1: New(2),
     2: New(1)}),
   Keep(1, Reuse({
-      3: New(0)}))));
+      3: 0}))));
 
 shouldBeEqual(
   andThen(
@@ -937,9 +942,19 @@ testBackPropagate(
 )
 
 testBackPropagate(
-  Down("x", "b", Reuse({a: Up("a", "b", Down("c"))})), New({wrap: New({wrap2: Reuse({a: New({d: Reuse()})})})}),
-  Reuse({x: Reuse({b: New({wrap: New({wrap2: Reuse()})}),
-                   c: New({d: Reuse()})
+  Down("x", "b", Reuse({
+    a: Up("a", "b", Down("c"))})),
+  New({
+    wrap: New({
+      wrap2: Reuse({
+        a: New({
+          d: Reuse()})})})}),
+  Reuse({
+    x: Reuse({
+      b: New({
+        wrap: New({
+          wrap2: Reuse()})}),
+      c: New({d: Reuse()})
   })})
 )
 
@@ -1101,7 +1116,7 @@ ea = Reuse({a: Custom(Up("a", New([Down("x"), Down("y")])),
   update: (newEdit, oldInput, oldOutput) => {
     if(isIdentity(newEdit)) return newEdit;
     if(newEdit.ctor == editActions.Type.New) {
-      return Reuse({0: newEdit.model - oldInput[1]});
+      return Reuse({0: newEdit.model.value - oldInput[1]});
     }
   }
 })});
@@ -2192,14 +2207,10 @@ testBackPropagate(
                                    node: Up("hd", "stack", Down( "heap", 1, "values", 1))}),
                          tl: Reuse({hd: Reuse({resultIsSpread: New(false),
                                                indexToEval: New(1)})})})}),
-    Reuse({heap: Reuse({1: Reuse({values: Keep(1,
-                                                 0, New({ 0: New({ ctor: "Raw",
-                                                                   value: 2})}, []),
-                                                    Reuse())})})}),
-    Reuse({heap: Reuse({1: Reuse({values: Keep(1,
-                                                     0, New({ 0: New({ ctor: "Raw",
-                                                                       value: 2})}, []),
-                                                        Reuse())})})})
+    Reuse({heap: Reuse({1: Reuse({values: Keep(1, Prepend(1, New([New({ ctor: "Raw",
+                                                                   value: 2})])))})})}),
+    Reuse({heap: Reuse({1: Reuse({values: Keep(1, Prepend(1, New([New({ ctor: "Raw",
+                                                                       value: 2})])))})})})
 , "heap update")
 
 testBackPropagate(
@@ -2323,7 +2334,7 @@ shouldBeEqual(apply(array1to2, array1), array2);
 
 shouldBeEqual(
   first(diff(array1, array2, {maxCloneDown: 0})),
-  Keep(2, Prepend(1, New([New(["h2", New([]), New([New(["TEXT", "Hello world"])])])]))));
+  Keep(2, Prepend(1, New([New([New("h2"), New([]), New([New([New("TEXT"), New("Hello world")])])])]))));
 // andThen with ReuseArray
 
 shouldBeEqual(andThen(
@@ -2365,7 +2376,7 @@ shouldBeEqual(andThen(
 // First cut after second cut, full overlap, only reuse
 shouldBeEqual(andThen(
      Keep(6, Reuse({1: Reuse({b: Up("b", Down( "a"))})})),
-     Replace(10, 10, Reuse({7: New({a: New(2), b: New(3)})}), Reuse())
+     Replace(10, 10, Reuse({7: New({a: 2, b: New(3)})}), Reuse())
   ), Replace(10, 10, Keep(6, Reuse({1: New({ a: 2, b: 2})}))), "andThen_ReuseArray7");
 
 // Reaching outside of ReuseArray after deletion
@@ -2398,7 +2409,7 @@ shouldBeEqual(andThen(
 
 // If first action is a New, then result should be the computation of applying the edit action
 shouldBeEqual(andThen(
-     Keep(3, Remove(1, Prepend(1, New([11]), Reuse({1: New(4)})))),
+     Keep(3, Remove(1, Prepend(1, New([11]), Reuse({1: 4})))),
      New([0,0,0,1, 2, 3])
   ), New([0,0,0,11, 2, 4]));
 
@@ -2445,7 +2456,7 @@ shouldBeEqual(
 
 shouldBeEqual(
   diff(["link", "meta"], ["script", "script", "link", "meta"], {maxDepth: 0, onlyReuse: true}),
-  Prepend(2, New(["script", "script"]))
+  Prepend(2, New([New("script"), New("script")]))
 );
 
 shouldBeEqual(
@@ -2485,14 +2496,17 @@ shouldBeEqual(
 
 shouldBeEqual(
   andThen(Down("f", Reuse({a: Up("a", Down( "b"))})), Down("g", Reuse({f: New({a: New(1), b: New(2)})}))),
-  New({a: New(2), b: New(2)}));
+  Down("g", "f", New({a: New(2), b: New(2)})));
 
 addLens = {
   apply: function add([{value: left}, {value: right}]) { return {value: left + right}; },
   update: function (editAction, [{value: left}, {value: right}], {value: oldValue}) {
-        if(editAction.ctor === "Reuse" && editAction.childEditActions.value && editAction.childEditActions.value.ctor == "New") {
-          let newValue = editAction.childEditActions.value.model;
-          return Reuse({0: Reuse({value: New(left + newValue - oldValue)})});
+        if(transform.isReuse(editAction)) {
+          let newValueEdit = transform.childIfReuse(editAction, "value");
+          if(transform.isNew(newValueEdit)) {
+            let newValue = transform.valueIfNew(newValueEdit);
+            return Reuse({0: Reuse({value: New(left + newValue - oldValue)})});
+          }
         }
         console.log(editAction);
         throw "Edit action not supported in + lens";
@@ -2517,7 +2531,7 @@ shouldBeEqual(
       b: Up("b", Down( "a"))}),
     New({a: Reuse()})),
   New({a: Reuse({c: New(1)}), b: Reuse()})
-)
+);
 
 var thisObj = { ctor: "Ref", heapIndex: 8}
 
@@ -2610,7 +2624,7 @@ s20 = New({ stack: New({ hd: New({ ctor: "ComputationNode", node: Down("body", 0
 s30 = New({ stack: New({ hd: New({ ctor: "ComputationNode",
                              node: Down("body", 0, "expression")}),
                    tl: New({ ctor: "Statements",
-                             statements: undefined})})}, {env:1, heap: 1})
+                             statements: New(undefined)})})}, {env:1, heap: 1})
 shouldBeEqual(andThen(s3, s20), s30);
 
 // Back-propagation
@@ -2723,17 +2737,29 @@ shouldBeEqual(backPropagate(
       b: Reuse({
         d: Up("d", Down("e", Reuse({
           p: Up("p", "e", Down("d"))}))),
-        e: Up("e", Down( "d"))})})})),
-// This test will pass when we will have the possibility say that New can reuse all fields, but does not generate a new back-propagation rule.
+        e: Up("e", Down("d"))})})})),
   Reuse({
     f: Up("f", Down("c", "e")),
     c: Reuse({
-      e: Up("e", "c", Down("f"))})})
-  /*Reuse({
-    f: Up("f", Down("c", "e", Reuse({
-      p: Up("p", "e", "c", Down("f"))}))),
+      e: Up("e", "c", Down("f"))})}));
+  
+// Weird: Why Down("e") disappears?)
+shouldBeEqual(backPropagate(
+  New({
+    a: New({
+      b: Down("c", Reuse({
+        d: Up("d", "c", Down("f"))})) })}),
+  Reuse({
+    a: Reuse({
+      b: Reuse({
+        d: Up("d", Down("e", ReuseAsIs({
+          p: Up("p", "e", Down("d"))}))),
+        e: Up("e", Down( "d"))})})})),
+  Reuse({
+    f: Up("f", Down("c", ReuseAsIs({
+      p: Up("p", "c", Down("f"))}))),
     c: Reuse({e: Up("e","c", Down("f"))})
-  })*/);
+  }));
 
 shouldBeEqual(backPropagate(
   Reuse({
@@ -2784,8 +2810,8 @@ shouldBeEqual(backPropagate(
 
 shouldBeEqual(backPropagate(
     New({b: Down("a"), c: Down("a")}),
-    Reuse({b: New(2), c: New({d: Reuse()})})),
-    Reuse({a: New({d: New(2)})})
+    Reuse({b: New(2), c: Insert("d", {d: Reuse()})})),
+    Reuse({a: Insert("d", {d: New(2)})})
   )
 
 // ReuseArray
@@ -2885,7 +2911,7 @@ var plusEditAction =
            ({left, right}) => left + right,
            function(outputDiff, {left, right}, outputOld) {
              if(outputDiff.ctor === Type.New) {
-               let diff = outputDiff.model - outputOld;
+               let diff = outputDiff.model.value - outputOld;
                return Choose(Reuse({left: New(left + diff)}), Reuse({right: New(right + diff)}));
              } else {
                console.log(stringOf(outputDiff));
@@ -2905,21 +2931,16 @@ shouldBeEqual(
   )
 )
 
-e();
 // Custom composed with Reuse
 var step1 = Reuse({b: Custom(Reuse(),
   { apply: x => ({a: x + 1}),
-    update: editOut => 
-      New(editOut.childEditActions[a].model.value - 1),
+    update: editOut => New(transform.valueIfNew(transform.childIfReuse(editOut, "a")) - 1),
     name: "Wrap and add 1"
   })});
 var step2 = Reuse({c: Up("c", Down("b", Reuse({c: Up("c", Down("a"))})))});
-n()
 var combined = andThen(step2, step1);
-shouldBeEqual(apply(combined, {b: 1}), {b: {a: 2}, c: {a: 2}});
-e()
-shouldBeEqual(backPropagate(combined, Reuse({b: Reuse({c: Reuse({a: New(3)})})})), Reuse({b: New(2)}))
-
+shouldBeEqual(apply(combined, {b: 1}), {b: {a: 2}, c: {a: 2, c: 2}});
+shouldBeEqual(backPropagate(combined, Reuse({b: Reuse({a: New(3)})})), Reuse({b: New(2)}))
 
 shouldBeEqual(
   editActions.__ReuseUp(Up(3, Up(Offset(2))), Up(3, Offset(2), Down(0))),

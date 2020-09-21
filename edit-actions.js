@@ -208,8 +208,9 @@ var editActions = {};
     Reuse: "Reuse",
     Insert: "Insert"
   }
-  function ReuseModel() {
-    return {ctor: TypeNewModel.Reuse};
+  // Create means that, during back-propagation, we keep the changes of the interpreter edit action (by default). Else, we just replace an interpreter's Reuse by Reuse();
+  function ReuseModel(create = false) {
+    return {ctor: TypeNewModel.Reuse, create};
   }
   editActions.ReuseModel = ReuseModel;
   function InsertModel(value) {
@@ -306,7 +307,11 @@ var editActions = {};
   }
   editActions.Up = Up;
   
-  function DownLike(isRemove) {
+  function isPathElement(elem) {
+    return typeof elem == "string" || typeof elem == "number" || isOffset(elem);
+  }
+  
+  function DownLike(isRemove, rewriteArgs = true) {
     return function Down(keyOrOffset, subAction) {
       if(isRemove && !isOffset(keyOrOffset)) {
         console.trace("/!\\ warning, use of RemoveExcept on non-offset");
@@ -314,8 +319,10 @@ var editActions = {};
       if(arguments.length == 1) subAction = Reuse();
       //printDebug("Down", isRemove, arguments);
       let subActionIsPureEdit = isEditAction(subAction);
-      if(arguments.length > 2 || arguments.length == 2 && !subActionIsPureEdit && (typeof subAction == "string" || typeof subAction == "number" || isOffset(subAction))) {
-        return Down(arguments[0], Down(...[...arguments].slice(1)));
+      if(rewriteArgs) {
+        if(arguments.length > 2 || arguments.length == 2 && !subActionIsPureEdit && isPathElement(subAction)) {
+          return Down(arguments[0], Down(...[...arguments].slice(1)));
+        }
       }
       if(isOffset(keyOrOffset) && isOffsetIdentity(keyOrOffset)) return subAction;
       let ik = isOffset(keyOrOffset);
@@ -355,10 +362,12 @@ var editActions = {};
       return {ctor: Type.Down, keyOrOffset: keyOrOffset, subAction: subAction, isRemove: isRemove ? true : false};
     }
   }
-  var Down = DownLike(false);
+  var Down = DownLike(false, false);
+  var ForgivingDown = DownLike(false);
   var RemoveExcept = DownLike(true);
-  editActions.Down = Down;
+  editActions.Down = ForgivingDown;
   editActions.RemoveExcept = RemoveExcept;
+  editActions.Down.pure = Down;
 
   function SameDownAs(editActionOrIsRemove) {
     if(typeof editActionOrIsRemove == "object" && editActionOrIsRemove.ctor == Type.Down) {
@@ -367,16 +376,16 @@ var editActions = {};
     return editActionOrIsRemove ? RemoveExcept : Down;
   }
   
-  function optimizeConcatNew(first, second) {
-    let bothWereNonEditActions = true;
+  function optimizeConcatNew(first, second, firstWasRaw, secondWasRaw) {
     if(!isEditAction(first)) {
       first = New(first);
-      bothWereNonEditActions = false;
+      firstWasRaw = true;
     }
     if(!isEditAction(second)) {
       second = New(second);
-      bothWereNonEditActions = false;
+      secondWasRaw = true;
     }
+    let bothWereNonEditActions = typeof firstWasRaw == "boolean" && typeof secondWasRaw == "boolean" && firstWasRaw && secondWasRaw;
     if(typeof first.model.value == "string" && typeof second.model.value == "string") {
       let result = first.model.value + second.model.value;
       if(bothWereNonEditActions) return result;
@@ -417,11 +426,13 @@ var editActions = {};
         secondReuse = undefined;
       }
     }
-    if(!isEditAction(first)) first = New(first);
-    if(!isEditAction(second)) second = New(second);
+    let firstWasRaw = false;
+    let secondWasRaw = false;
+    if(!isEditAction(first)) {firstWasRaw = true; first = New(first); };
+    if(!isEditAction(second)) {secondWasRaw = true; second = New(second); };
     if(replaceCount === undefined) {
       if(first.ctor == Type.New && second.ctor == Type.New) {
-        let optimized = optimizeConcatNew(first, second);
+        let optimized = optimizeConcatNew(first, second, firstWasRaw, secondWasRaw);
         if(optimized !== undefined) return optimized;
       }
     }
@@ -448,7 +459,7 @@ var editActions = {};
     if(secondReuse && !firstReuse) {
       // A prepend. Maybe the second one is an prepend?
       if(isNew(first) && isPrepend(second) && isNew(second.first)) {
-        let optimizedConcat = optimizeConcatNew(first, second.first);
+        let optimizedConcat = optimizeConcatNew(first, second.first, firstWasRaw, undefined);
         if(optimizedConcat !== undefined) {
           return Prepend(count + second.count, optimizedConcat, second.second);
         }
@@ -456,7 +467,7 @@ var editActions = {};
     }
     if(firstReuse && !secondReuse) {
       if(isNew(second) && isAppend(first) && isNew(first.second)) {
-        let optimizedConcat = optimizeConcatNew(first.second, second);
+        let optimizedConcat = optimizeConcatNew(first.second, second, undefined, secondWasRaw);
         if(optimizedConcat !== undefined) {
           return Append(first.count, first.first, optimizedConcat);
         }
@@ -489,9 +500,9 @@ var editActions = {};
        lens = {apply: applyOrLens, update: update, name: (applyOrLens && applyOrLens.name) || (update && update.name) || name ||  "<anonymou>"};
      }
      let ap = lens.apply;
-     lens.apply = function(input) {
+     lens.apply = function(input, r, rCtx) {
        lens.cachedInput = input;
-       let output = ap(input);
+       let output = ap(input, r, rCtx);
        lens.cachedOutput = output;
        return output;
      }
@@ -511,16 +522,16 @@ var editActions = {};
   // = apply(e2, apply(e1, x, xctx), apply(ectx, x, xctx))
   function Sequence(firstAction, secondAction, firstActionContext) {
     return Custom(firstAction,
-      {apply: (x, r, rCtx) =>
-        apply(secondAction, x, apply(firstActionContext, r, rCtx)),
+      {apply: (x, r, rCtx) => apply(secondAction, x, apply(firstActionContext, r, rCtx)),
        backPropagate: (backPropagate, U, oldInput, oldOutput, firstAction, firstActionContext) => {
+         printDebug("backPropagate inside Sequence!", U, oldInput, oldOutput, firstAction, firstActionContext);
          // TODO: Test this
          let UBeforeSecond = backPropagate(secondAction, U, firstActionContext);
          // Top-level needs top-level propagation.
          let [E, initUp] = originalFirstActionAndContext(firstAction, firstActionContext);
          return backPropagate(E, UBeforeSecond, initUp);
        },
-      name: "Follow this by " + stringOf(secondAction) + " under " + stringOf(firstActionContext)});
+      name: () => "Follow this by " + stringOf(secondAction) + " under " + stringOf(firstActionContext)});
   }
   editActions.Sequence = Sequence;
   
@@ -561,13 +572,23 @@ var editActions = {};
   // apply(Reuse({a: New(1)}), {a: 2, b: 3}) = {a: 1, b: 3}
   function Reuse(childEditActions) {
     let newChildEditActions = mapChildren(
+      childEditActions, (k, c) => Down(k, c),
+      /*canReuse*/false,
+      (newChild, k) => !isObject(newChild) || newChild.ctor !== Type.Down || newChild.keyOrOffset !== k || !isIdentity(newChild.subAction)
+      );
+    return New(newChildEditActions, ReuseModel(false));
+  }
+  editActions.Reuse = Reuse;
+  
+  function ReuseAsIs(childEditActions) {
+    let newChildEditActions = mapChildren(
       childEditActions, (k, c) => typeof c != "object" ? Down(k, New(c)) : Down(k, c),
       /*canReuse*/false,
       (newChild, k) => !isObject(newChild) || newChild.ctor !== Type.Down || newChild.keyOrOffset !== k || !isIdentity(newChild.subAction)
       );
-    return New(newChildEditActions, ReuseModel());
+    return New(newChildEditActions, ReuseModel(true));
   }
-  editActions.Reuse = Reuse;
+  editActions.ReuseAsIs = ReuseAsIs;
   
   // A constant, useful for pretty-printing
   var WRAP = true;
@@ -1342,7 +1363,7 @@ var editActions = {};
           */
           let k = secondAction.keyOrOffset;
           let E2 = secondAction.subAction;
-          let E1 = k in firstAction.childEditActions ? Up(k, firstAction.childEditActions[k]) : Reuse();
+          let E1 = childIfReuse(firstAction.childEditActions, k);
           return Down(k, recurse(E2, E1, Up(k, AddContext(k, firstAction, firstActionContext))));
         }
       }
@@ -1440,7 +1461,7 @@ var editActions = {};
         });
         forEachChild(secondAction, (secondChild, k) => {
           if(!(k in firstAction.childEditActions)) {
-            newChildren[k] = recurse(secondChild, New(undefined), AddContext(k, firstAction, firstActionContext));
+            newChildren[k] = recurse(Up(k, secondChild), New(undefined), AddContext(k, firstAction, firstActionContext));
           }
         });
         return rawIfPossible(New(newChildren, firstAction.model), isFirstRaw);
@@ -1829,14 +1850,15 @@ var editActions = {};
   // Change all the fields of an object.
   // If fields are unchanged, guarantees to return te same object.
   function mapChildren(object, callback, canReuse = true, filter = undefined) {
-    let o = {};
+    let t = treeOpsOf(object);
+    let o = t.init();
     let same = canReuse;
-    for(let k in object) {
-      let newOk = callback(k, object[k]);
-      if(filter && filter(newOk, k) === false) { same = false; continue; }
-      same = same && newOk == object[k];
-      o[k] = newOk;
-    }
+    forEach(object, (child, k) => {
+      let newOk = callback(k, t.access(object, k));
+      if(filter && filter(newOk, k) === false) { same = false; return; }
+      same = same && newOk === object[k];
+      t.update(o, k, newOk);
+    });    
     if(same) return object;
     return o;
   }
@@ -2157,7 +2179,7 @@ var editActions = {};
           = apply(E, x, (key, r)::rCtx)
           QED;  it used to be defined.
       */
-      return key in editAction.childEditActions ? Up(key, editAction.childEditActions[key]) : Reuse();
+      return childIfReuse(editAction, key);
     } else if(isReplace(editAction)) {
       let [inCount, outCount, left, right] = argumentsIfReplace(editAction);
       if(inCount <= key) {
@@ -3211,7 +3233,11 @@ var editActions = {};
       console.log("<="+addPadding(stringOf(U), "  "));
       console.log("-|"+addPadding(stringOf(ECtx), "  "));
     }
-    if(typeof U !== "object") U = New(U); 
+    let wasRaw = false;
+    if(!isEditAction(U)) {
+      wasRaw = true;
+      U = New(U);
+    }
     if(U.ctor == Type.Up) {
       if(ECtx === undefined) {
         console.trace("/!\\ Error, trying to go up " + keyOrOffsetToString(U.keyOrOffset) + " but empty context");
@@ -3232,13 +3258,6 @@ var editActions = {};
       let [E1p, E1Ctxp, newSecondUpOffset] = walkUpActionCtx(U.keyOrOffset, E, ECtx);
       return partitionEdit(E1p, newSecondUpOffset ? Up(newSecondUpOffset, U.subAction) : U.subAction, E1Ctxp);
     }
-    if(isReuse(U)) {
-      let buildPart = buildingPartOf(E);
-      if(editActions.__debug) {
-        console.log("Recovered a build part: " + stringOf(buildPart));
-      }
-      return [buildPart, [[E, U, ECtx]], ECtx];
-    }
     // From now, everything is likely to go down. We first follow E to factor things out.
     /*if(E.ctor == Type.Up) {
     }*/
@@ -3254,6 +3273,13 @@ var editActions = {};
       }
       return partitionEdit(E1p,  U.subAction,  E1Ctxp);
     }
+    if(isReuse(U) && !U.model.create) {
+      let buildPart = buildingPartOf(E);
+      if(editActions.__debug) {
+        console.log("Recovered a build part: " + stringOf(buildPart));
+      }
+      return [buildPart, [[E, U, ECtx]], ECtx];
+    }
     if(U.ctor == Type.New) {
       let o = {};
       let next = [];
@@ -3265,7 +3291,7 @@ var editActions = {};
         o[k] = subK;
         next.push(...nexts);
       }
-      return [New(o, U.model), next, ECtx];
+      return [rawIfPossible(New(o, U.model), wasRaw), next, ECtx];
     }
     if(U.ctor == Type.Concat) {
       // Even replaces, we treat them like Concat when we try to resolve partitionEdit. At this point, we are already creating something new from old pieces.
@@ -3303,6 +3329,9 @@ var editActions = {};
       return Down(E.keyOrOffset, buildingPart);
     }
     if(E.ctor == Type.New) {
+      if(isReuse(E) && !E.model.create) {
+        return Reuse();
+      }
       let o = {};
       for(let k in E.childEditActions) {
         o[k] = buildingPartOf(E.childEditActions[k]);
@@ -3310,7 +3339,7 @@ var editActions = {};
       return New(o, E.model);
     }
     if(E.ctor == Type.Reuse) {
-      return Reuse(); // Since we are reusing, we dont back-propagate evaluation edits.
+      return Reuse();
     }
     if(E.ctor == Type.Concat) {
       let left = buildingPartOf(E.first);
@@ -3342,8 +3371,10 @@ var editActions = {};
   }
   
   function backPropagate(E, U, ECtx = undefined) {
+    let wasRaw = false, Uraw = U;
     if(typeof U !== "object") {
-      console.trace("non existent U");
+      U = New(U);
+      wasRaw = true;
     }
     if(editActions.__debug) {
       console.log("backPropagate");
@@ -3353,10 +3384,10 @@ var editActions = {};
     }
     // We remove downs and ups to make them part of the context.
     if(E.ctor == Type.Down) {
-      return backPropagate(E.subAction, U, Up(E.keyOrOffset, ECtx));
+      return backPropagate(E.subAction, Uraw, Up(E.keyOrOffset, ECtx));
     }
     if(E.ctor == Type.Up) {
-      return backPropagate(E.subAction, U, Down(E.keyOrOffset, ECtx))
+      return backPropagate(E.subAction, Uraw, Down(E.keyOrOffset, ECtx))
     }
     if(U.ctor == Type.Choose && (E.ctor != Type.Custom || !E.lens.single)) {
       return Choose(...Collection.map(U.subActions, childU => backPropagate(E, childU, ECtx)));
@@ -3373,10 +3404,10 @@ var editActions = {};
       }
       */
       if("update" in E.lens) {
-        let newU = E.lens.update(U, E.lens.cachedInput, E.lens.cachedOutput);
+        let newU = E.lens.update(Uraw, E.lens.cachedInput, E.lens.cachedOutput);
         return backPropagate(E.subAction, newU, ECtx);
       } else {
-        return E.lens.backPropagate(backPropagate, U, E.lens.cachedInput, E.lens.cachedOutput, E.subAction, ECtx);
+        return E.lens.backPropagate(backPropagate, Uraw, E.lens.cachedInput, E.lens.cachedOutput, E.subAction, ECtx);
       }
     }
     if(U.ctor == Type.Choose) {
@@ -3456,7 +3487,7 @@ var editActions = {};
       }
     } else {
     // At this point, we have New, Up, Down, and Concats.
-      [s, probs, newECtx] = partitionEdit(E, U, ECtx);
+      [s, probs, newECtx] = partitionEdit(E, Uraw, ECtx);
       solution = prefixReuse(newECtx, s);
       subProblems = probs;
     }
@@ -5125,23 +5156,20 @@ var editActions = {};
     return typeof editAction === "object" && editAction.ctor == Type.Down;
   }
   function isReuse(editAction) {
-    return isNew(editAction) && editAction.model.ctor === TypeNewModel.Reuse;
+    return typeof editAction == "object" && editAction.ctor == Type.New && editAction.model.ctor === TypeNewModel.Reuse;
   }
   function isNew(editAction) {
-    return isObject(editAction) && editAction.ctor == Type.New || !isEditAction(editAction);
+    return isObject(editAction) && editAction.ctor == Type.New && editAction.model.ctor == TypeNewModel.Insert || !isEditAction(editAction);
   }
   function valueIfNew(editAction) {
     return isEditAction(editAction) ? editAction.model.value : editAction;
   }
   function isInsert(editAction) {
-    if(!isNew(editAction)) return;
+    if(!isNew(editAction)) return false;
     let numberKeyWrapping = 0;
-    let model = editAction.model;
-    for(let k in model.value) {
-      if(model.value[k]) {
-        numberKeyWrapping++;
-      }
-    }
+    forEach(editAction.model.value, (child, k) => {
+      if(child) { numberKeyWrapping++; }
+    });
     return numberKeyWrapping == 1;
   }
   function isInsertAll(editAction) {
@@ -5349,7 +5377,7 @@ var editActions = {};
           return "Remove(" + self.keyOrOffset.count + c + ")";
         }
       }
-      let str = self.isRemove ? "RemoveExcept(" : "Down(";
+      let str = ""; // We'll prepend the Down( later.
       let selfIsIdentity = false;
       let removeStart = self.isRemove;
       while(self && self.ctor == Type.Down && self.isRemove == removeStart) {
@@ -5361,6 +5389,8 @@ var editActions = {};
       }
       if(!selfIsIdentity) str += stringOf(self);
       str += ")";
+      // Numbers and strings are interpreted as path elements.
+      str = (removeStart ? "RemoveExcept(" : (isPathElement(self) ? "Down.pure" : "Down") +"(") + str;
       return str;
     } else if(self.ctor == Type.New) { // New or Reuse
       let model = self.model;
@@ -5369,7 +5399,7 @@ var editActions = {};
       let selfIsInsert = false;
       let selfIsInsertAll = false;
       if(selfIsReuse) {
-        str = "Reuse(";
+        str = model.create ? "ReuseAsIs(" : "Reuse(";
       } else {
         if(typeof model.value != "object") {
           str += "New(" + uneval(model.value);
@@ -5509,7 +5539,7 @@ var editActions = {};
       let str = "Custom(";
       let outerPadding = toSpaces(str);
       str += addPadding(stringOf(self.subAction), outerPadding);
-      str += ", " + self.lens.name + ")";
+      str += ", " + (typeof self.lens.name == "function" ? self.lens.name() : self.lens.name) + ")";
       return str;
     } else if(self.ctor == Type.Choose) {
       var str = "Choose(";
@@ -5731,6 +5761,65 @@ var editActions = {};
     /** Proof: Trivial case*/
     return Up(keyOrOffset, subAction);
   }
+  
+  /** How to traverse and manipulate edit actions */
+  // Low-level
+  var transform = {};
+  transform.isReuse = isReuse;
+  transform.isNew = isNew;
+  transform.valueIfNew = valueIfNew;
+  function childIfReuse(editAction, key) {
+    return key in editAction.childEditActions ? Up(key, editAction.childEditActions[key]) : Reuse();
+  }
+  transform.childIfReuse = childIfReuse;
+  function isRaw(editAction) {
+    return !isEditAction(editAction);
+  }
+  transform.isRaw = isRaw;
+  
+  transform.forEachChild = forEachChild;
+  transform.forEach = forEach;
+  transform.extractKeep = argumentsIfKeep;
+  transform.extractReplace = argumentsIfReplace;
+  // High-level
+  function preMap(editAction, f, inContext) {
+    editAction = f(editAction, inContext);
+    if(!isEditAction(editAction)) return editAction;
+    if(editAction.ctor == Type.New) {
+      if(isReuse(editAction)) {
+        return New(mapChildren(editAction.childEditActions,
+        (child, k) => preMap(Up(k, child), f, Up(k, inContext))), editAction.model);
+      } else {
+        return New(mapChildren(editAction.childEditActions,
+        (child, k) => preMap(child, f, inContext)), editAction.model);
+      }
+    }
+    if(editAction.ctor == Type.Down) {
+      return SameDownAs(editAction)(
+        editAction.keyOrOffset, preMap(editAction.subAction, f, Up(editAction.keyOrOffset, inContext)));
+    }
+    if(editAction.ctor == Type.Up) {
+      return Up(editAction.keyOrOffset, preMap(editAction.subAction, f, Down(editAction.keyOrOffset, inContext)));
+    }    
+    if(editAction.ctor == Type.Concat) {
+      let newFirst = preMap(editAction.first, f, inContext);
+      let newSecond = preMap(editAction.second, f, inContext);
+      let newFirstLength = outLength(newFirst);
+      if(newFirstLength === undefined) newFirstLength = editAction.count;
+      return Concat(newFirstLength, newFirst, newSecond)
+    }
+    if(editAction.ctor == Type.Custom) {
+      let newSub = preMap(editAction.subAction, f, inContext);
+      return Custom(newSub, editAction.lens);
+    }
+    if(editAction.ctor == Type.Choose) {
+      let newSubs = Collection.map(editAction.subActions, subAction => preMap(subAction, f, inContext));
+      return Choose(newSubs);
+    }
+    return editAction;
+  }
+  transform.preMap = preMap;
+  editActions.transform = transform;
   
 })(editActions)
 
