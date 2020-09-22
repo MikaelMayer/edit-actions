@@ -5173,20 +5173,18 @@ var editActions = {};
     return numberKeyWrapping == 1;
   }
   function isInsertAll(editAction) {
-    if(!isNew(editAction)) return;
+    if(!isNew(editAction)) return false;
     // We detect inserts.
     let keyWrapping = undefined;
     let numberKeyWrapping = 0;
     let numberKeys = 0;
-    for(let k in editAction.childEditActions) {
+    forEach(editAction.childEditActions, (child, k) => {
       numberKeys++;
-    }
+    });
     let model = editAction.model;
-    for(let k in model.value) {
-      if(model.value[k]) {
-        numberKeyWrapping++;
-      }
-    }
+    forEach(editAction.model.value, (child, k) => {
+      if(child) { numberKeyWrapping++; }
+    });
     return numberKeyWrapping == numberKeys;
   }
   function keyInsertedIfInsert(editAction) {
@@ -5198,7 +5196,14 @@ var editActions = {};
     }
     return undefined;
   }
-  
+  function isPureNew(editAction) {
+    if(!isNew(editAction)) return false;
+    let numberKeyWrapping = 0;
+    forEach(editAction.model.value, (child, k) => {
+      if(child) numberKeyWrapping++;
+    });
+    return numberKeyWrapping === 0;
+  }
   
   function printDebug() {
     if(editActions.__debug) {
@@ -5398,6 +5403,7 @@ var editActions = {};
       let str = "";
       let selfIsInsert = false;
       let selfIsInsertAll = false;
+      let selfIsPureNew = false;
       if(selfIsReuse) {
         str = model.create ? "ReuseAsIs(" : "Reuse(";
       } else {
@@ -5411,7 +5417,8 @@ var editActions = {};
             selfIsInsert = true;
             str += "Insert(" + uneval(keyInsertedIfInsert(self)) + ", ";
           } else {
-            str += "New("
+            str += "New(";
+            selfIsPureNew = isPureNew(self);
           }
         }
       }
@@ -5446,7 +5453,8 @@ var editActions = {};
         }
         
         let selfIsMap = !selfIsReuse && model.value instanceof Map;
-        if(!selfIsInsert && !selfIsReuse && !selfIsInsertAll || selfIsMap) {
+        let secondParamNecessary = !selfIsInsert && !selfIsReuse && !selfIsPureNew && !selfIsInsertAll || selfIsMap;
+        if(secondParamNecessary) {
           let insertModelNecessary = !Array.isArray(model.value) && !(model.value instanceof Map) && isObject(model.value) && "ctor" in model.value;
           str += ", " + (insertModelNecessary ? "InsertModel(" : "");
           if(Array.isArray(model.value)) {

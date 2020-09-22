@@ -270,7 +270,7 @@ one could use the following edit action, among others:
 
 ## Compute edit actions automatically
 
-editActions has some support to compute deterministic and non-deterministic edit actions from two values. Here is how it works:
+editActions has some support to compute deterministic and non-deterministic edit actions from two values. Here is how it works. The function `diff(x, y)` returns an edit such that `apply(diff(x, y), x)` always equals to `y`. Since some nodes might be `Choose`.
 
     > diff(1, 2)
     New(2)
@@ -307,9 +307,10 @@ It's possible to add options as the third parameter.
 The option `onlyReuse` (default: false) prunes out all New solutions if there are solutions that use Reuse:
 
     > diff([2, 1], [1, 2], {onlyReuse: true})
-    [Reuse({0: [Reuse(up, 1)],
+    Choose(
+     Reuse({0: [Reuse(up, 1)],
             1: [Reuse(up, 0)]}),
-     ReuseArray(0, [New({ 0: [Reuse(up, 1)]}, [])],
+     Insert(2, [New([[Reuse(up, 1)]]),
                    [ReuseArray(1, [Reuse()],
                                   [New([])])]),
      ReuseArray(1, [New([])],
