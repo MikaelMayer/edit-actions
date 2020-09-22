@@ -6,7 +6,7 @@ var bs = "\\\\";
 var failAtFirst = true;
 
 shouldBeEqual(stringOf(New([1, 2])), "New([1, 2])");
-
+shouldBeEqual(stringOf(New({1: New(2)}, [])), "New([undefined, New(2)])")
 shouldBeEqual(stringOf(Down.pure("a", 1)), "Down.pure(\"a\", 1)");
 shouldBeEqual(stringOf(Down.pure("a", true)), "Down(\"a\", true)");
 shouldBeEqual(stringOf(Reuse({a: 0})), "Reuse({\na: 0})");

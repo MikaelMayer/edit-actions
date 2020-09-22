@@ -270,65 +270,55 @@ one could use the following edit action, among others:
 
 ## Compute edit actions automatically
 
-editActions has some support to compute deterministic and non-deterministic edit actions from two values. Here is how it works. The function `diff(x, y)` returns an edit such that `apply(diff(x, y), x)` always equals to `y`. Since some nodes might be `Choose`.
+editActions has some support to compute deterministic and non-deterministic edit actions from two values. Here is how it works. The function `diff(x, y)` returns an edit such that `apply(diff(x, y), x)` always equals to `y`.
 
     > diff(1, 2)
     New(2)
     > diff(1, 1)
     Reuse()
     > diff(1, [1, 2])
-    New({ 0: Reuse(), 1: 2}, [])
+    New([Reuse(),  New(2)])
     > diff([1, 2], 1)
-    Reuse(0)
+    Choose(Down(0), New(1))
 
-It is also possible to ask for all edit actions it can find:
+It's interesting to note that the last edit action uses Choose. It is the way it can encode ambiguity in such a way it can be back-propagated, merged, and decided later.
+To remove Choose, one cane use `first()`:
 
-    > diff(1, 2)
-    [New(2)]
-    > diff(1, 1)
-    [Reuse()]
+    > first(diff([1, 2], 1))
+    Down(0)
+
+Here are other examples.
+
     > diff([2, 1], [1, 2])
-    [Reuse({0: [Reuse(up, 1),
-                New(1)],
-            1: [Reuse(up, 0),
-                New(2)]}),
-     ReuseArray(0, [New({ 0: [Reuse(up, 1),
-                              New(1)]}, [])],
-                   [ReuseArray(1, [Reuse()],
-                                  [New([])])]),
-     ReuseArray(1, [New([])],
-                   [ReuseArray(1, [Reuse()],
-                                  [New({ 0: [Reuse(up, 0),
-                                             New(2)]}, [])])]),
-     New({ 0: [Reuse(1)],
-           1: [Reuse(0)]}, [])]
-
+    Choose(
+      Remove(1, Keep(1, Prepend(1, New([Choose(
+              Up(Interval(2), Down(0)),
+              New(1))])))),
+      New([Down(1), Down(0)])
 It's possible to add options as the third parameter.  
-The option `onlyReuse` (default: false) prunes out all New solutions if there are solutions that use Reuse:
+The option `onlyReuse` (default: false) prunes out all New solutions if there are solutions that use some kind of Reuse:
 
     > diff([2, 1], [1, 2], {onlyReuse: true})
-    Choose(
-     Reuse({0: [Reuse(up, 1)],
-            1: [Reuse(up, 0)]}),
-     Insert(2, [New([[Reuse(up, 1)]]),
-                   [ReuseArray(1, [Reuse()],
-                                  [New([])])]),
-     ReuseArray(1, [New([])],
-                   [ReuseArray(1, [Reuse()],
-                                  [New({ 0: [Reuse(up, 0)]}, [])])])]
+    Remove(1, Keep(1, Prepend(1, New([Up(Interval(2), Down(0))]))))
 
 The option `maxCloneUp` (default: 2) specifies the number of maximum depth traversal when going up, when looking for clones.
 
-    > diff([1, [[2]]], [1, [[1]]], {maxCloneUp: 2})
-    Reuse({1: Reuse({0: Reuse({0: New(1)})})})
-    > diff([1, [[2]]], [1, [[1]]], {maxCloneUp: 3})
-    Reuse({1: Reuse({0: Reuse({0: Reuse(up, up, up, 0)})})})
+    > diff([1, [[2]]], [1, [[1]]], {maxCloneUp: 2, onlyReuse: true})
+    Reuse({
+    1: Reuse({
+      0: Reuse({
+        0: New(1)})})})
+    > diff([1, [[2]]], [1, [[1]]], {maxCloneUp: 3, onlyReuse: true})
+    Reuse({
+    1: Reuse({
+      0: Reuse({
+        0: Up(0, 0, 1, Down(0))})})})
 
 The option `maxCloneDown` (default: 2) specifies the number of maximum depth traversal when going down (even after going up), when looking for clones.
 
-    > diff([1], 1, {maxCloneDown: 1})
-    Reuse("0")
-    > diff([1], 1, {maxCloneDown: 0})
+    > diff([1], 1, {maxCloneDown: 1, onlyReuse: true})
+    Down(0)
+    > diff([1], 1, {maxCloneDown: 0, onlyReuse: true})
     New(1)
 
 ## Aligning elements when diffing.
@@ -336,82 +326,27 @@ The option `maxCloneDown` (default: 2) specifies the number of maximum depth tra
 When diffing arrays of elements, the options
 
     {isCompatibleForReuseObject: (oldValue, newValue) => Boolean,
-     isCompatibleForReuseArray: (oldValue, newValue) => Boolean,
+     isCompatibleForReplace: (oldValue, newValue) => Boolean,
     }
     
-respectively indicates to `diff` if it can try an alignment using `Reuse` (if it shares the same keys) and `ReuseArray` for arrays. By default, this option is enabled for all arrays. A useful use case is to make a function `isCompatibleForReuseArray` return false if one of the value is not really an array but a tuple, e.g. `["tag", [...attributes], [...children]]]`. That way, it prevents a lot of comparisons.
-
-Another useful option is:
-
-    {findNextSimilar: (array: Array[A], element: A, fromIndex: Int) => (newIndex: Int | -1)}
-
-It takes an array, an index from which it searches the element A, and return the first index at which it finds it. By default, the element must be exactly the same for an alignment to occur; but it might be useful to specify a function to find a partial match, especially if the match changed as well.
+respectively indicates to `diff` if it can try an alignment using `Reuse` (if it shares the same keys) and `Replace`, `Prepend` and `Remove` for arrays. By default, this option is enabled for all arrays. A useful use case is to make a function `isCompatibleForReplace` return false if one of the value is not really an array but a tuple, e.g. `["tag", [...attributes], [...children]]]` and they don't have the same tag. That way, it prevents a lot of comparisons and undesired diffs.
 
 ## Debugging edit actions
 
-Tip: Use `bam.stringOf(...)` to convert an edit action to its string representation, or use `bam.debug(...)` to directly pretty-print an edit action to the standard output.
+Tip: Use `stringOf(...)` to convert an edit action to its string representation, or use `debug(...)` to directly pretty-print an edit action to the standard output.
 
 ## Operations on edit actions
 
 ### Combination
 
-    andThen(b, a)
+    andThen(b, a[, C = undefined])
 
-is defined so that
+is guaranteed to satisfy the following specification:
 
-    apply(b, apply(a, x)) == apply(andThen(b, a), x)
+    apply(b, apply(a, x, xCtx), apply(C, x, xCtx)) == apply(andThen(b, a, C), x, xCtx)
 
 Note that `andThen` simplifies at the maximum the resulting edit action. If you do not want to simplify, use the equivalent:
 
     Sequence(a, b)
 
-### Test commutativity
-
-    commute(a, b)
-
-returns true if we can guarantee that, for all x,
-
-    apply(b, apply(a, x)) == apply(a, apply(b, x))
-
-
-# Advanced: Language example
-
-In this example, let us have a dummy program `{a: 1}` that an interpreted transforms into `{b: 1, c: 1}` in one step.
-We are interested in how to propagates changes from the output back to the program.
-
-1. First, we rewrite the interpreter so that it does not output the result anymore, it outputs a term in our Edit Action language (`evalStep`) that transforms the program to the result. This step is explained later in this README.
-2. For example, `evalStep = New({b: Reuse("a"), c: Reuse("a")});`, meaning the `1` was cloned from field `a`.
-3. A user modifies the output so that it becomes `{b: 2, c: {d: 1}}`.
-4. Suppose that `userStep = nd.Reuse({b: nd.New(2), c: New({d: nd.or(nd.Reuse(), nd.Reuse("..", "b"))})});` is the edit action associated to this transformation.
-   It encodes two possibilities: Either the 1 came from wrapping the field "c" (more likely) or was simply cloned from the field "b".
-   "nd" stands for "non-deterministic", i.e. we can offer multiple variants. Using "nd" only makes sense for user steps.
-
-We are interested to replicate the user step but on the program level. This library enables it in the following way:
-
-    var program1 = {a: 1};
-    var {Reuse, New, apply, backpropagate, nd, up} = bam;
-    var evalStep = New({b: Reuse("a"), c: Reuse("a")});
-    var output1 = apply(evalStep, program1);
-    
-    console.log(output1);       // Displays: {b: 1, c: 1}
-    
-    var userStep = nd.Reuse({b: nd.New(2), c: nd.New({d: nd.or(nd.Reuse(), nd.Reuse("..", "b"))})});
-    var output2 = nd.apply(userStep, output1); // Applies the first variant.
-    
-    console.log(output2);       // Displays: {b: 2, c: {d: 1}}
-    
-    var userStepOnProgram = backpropagate(evalStep, userStep);
-    
-    console.log(userStepOnProgram);
-                                // Displays: nd.Reuse({a: nd.New({d: nd.New(2)})})
-    
-    var program2 = nd.apply(userStepOnProgram, program1);
-    
-    console.log(program2);      // Displays: Reuse({a: {d: 2}})
-    
-    var output3 = apply(evalStep, program2); // You'd run the evaluator instead, in case some conditions changes...
-    
-    console.log(output3);       // Displays: {b: {d: 2}, c: {d: 2}}
-
-This concludes a basic illustration of this API.
 
