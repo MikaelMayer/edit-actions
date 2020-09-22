@@ -15,7 +15,7 @@ Edit actions also extend to [monoids](https://en.wikipedia.org/wiki/Monoid) like
 Edit actions can be
 - applied to record, strings and arrays
 - composed in an associative way
-- merged to a certain extent
+- merged using hints
 - back-propagated.
 
 # Sandbox online
@@ -24,7 +24,7 @@ The [sandbox](https://mikaelmayer.github.io/bam/sandbox.html) is a nice place to
 
 To illustrate the example explained in details below:
 * Put `{a: 1}` in the top left box
-* Put `New({b: Down("a"), c: Down("a")})` in the top middle box
+* Put `Down("a", New({b: Reuse(), c: Reuse()}))` in the top middle box
 * Press the button `bam.apply(evaluation step, program)`.
 * Now in the bottom right box, replace the program with `{b: 2, c: {d: 1}}`
   The middle right box is filled automatically
@@ -80,24 +80,21 @@ apply({Reuse({a: Up("a", Down("b")))}), {a: {}, b: "cd"}) = {a: "cd", b: "cd"}
 apply({Reuse({stack: Up("stack", Down("state", "hd"))}), {stack: 1, state: { hd: 2} }) = {stack: 2, state: { hd: 2 } }
 ```
 
-We can handle string and arrays similarly, using `Offset`s instead of fields, and the `Concat` operator:
+We can handle string and arrays similarly, using `Interval`s instead of fields, and various operations:
 
 ```
-apply(Down(Offset(1, 3)), "ABCDefghij") = "BCD"
-apply(Down(Offset(5)), "ABCDefghij") = "fghij"
-apply(Concat(3, Down(Offset(1, 3)), Down(Offset(5))), "ABCDefghij") = "BCDfghij"
+apply(Down(Interval(1, 4)), "ABCDefghij") = "BCD"
+apply(Down(Interval(5)), "ABCDefghij") = "fghij"
+apply(Concat(3, Down(Interval(1, 4)), Down(Interval(5))), "ABCDefghij") = "BCDfghij"
 
-apply(Concat(2, Down(Offset(0, 2)),      // The first two elements
-        Down(Offset(2),                  // For the remaining elements
-        Concat(0, Down(Offset(0, 0, 3)), // Delete three next elements
-          Down(Offset(3),                // For the remaining elements
-            Concat(1, New([Up(Offset(5), Down(0))]), // Insert a sub-array containing the first element 
-              Reuse()))))),              // Just keep the rest of the array
-  ["a", "b", "c", "d", "e", "f", "g"]) =
-  ["a", "b", "a", "f", "g"]
+apply(Keep(2, Remove(3, Prepend(1, [Up(Interval(5), Down(0))], RemoveAll()))),              // Just keep the rest of the array
+  ["a", "b", "c", "d", "e", "f", "g", "x", "z"]) =
+//  |\___|___        ______/ ____/
+//  |    |   \      /       /
+  ["a", "b", "a", "f",   "g"]
 ```
 
-# Language API
+# Language Library
 
 ## Edit Actions
 
@@ -105,12 +102,14 @@ An "edit action" transforms a record, a scalar, a string or an array into a mix 
 
 A core edit action `EA` works on records and scalars, and consists of either:
 - `New({a = EA, b = EA})` or `New(3)`:  Create a new record or scalar. If record, fields are also edit actions
-- `Reuse({a = EA, b = EA})`: Reuse an record, modifying a subset of its fields by other edit actions
+- `Reuse({a = EA, b = EA})`: Reuse a record, modifying a subset of its fields by other edit actions
 - `Up("a", EA)` / `Down("a", EA)`: Navigate the original record up/down a field to recover another record and performing another edit action on it. First argument is a field, second is an edit action.
 
-*** Array and string extension ***: Arrays and strings can be extracted and rebuilt using the following primitive operations:
+*** Array and string extension ***: Arrays and strings can be extracted and rebuilt using the following primitive operations.
 - `Down(Offset(count, newLength, oldLength), EA)`: Takes the substring or slice `[count, count + newLength-1]` of the given array or string, and then apply `EA` to it. `oldLength` can be `undefined`, and if so, `newLength` can be `undefined` as well, meaning we just skip `count` characters or elements.
 - `Up(Offset(count, newLength, oldLength), EA)`: Assuming we are observing a slice [count', count'+newLength'-1], look at the context to take the slice [count'-count, count'-count + oldLength - 1] for the given array or string, and then apply `EA`.
+
+Note that there are lots of syntactic sugar to use the array operations (Prepend, Append, Remove, Remove, RemoveAll...), and you should use this syntactic sugar whenever possible. See section syntactic sugar below.
 
 In this section, all functions are accessible under `editActions.*`, for example `New` means `editActions.New`.
 
@@ -129,32 +128,22 @@ For records, `New()` takes a record whose values are edit actions:
 
 `New()` can also take an extra argument which is the skeleton it should build the value from.
 
-    apply(New({a: New(1)}, {b: 3}), 42) == {a: 1, b: 3}
-    apply(New({}, {a: 1, b: 3}), 42) == {a: 1, b: 3}
-    apply(New({}, {b: 1, c: 3}), 42) == {b: 1, c: 3}
+    apply(New({1: New(2)}, {}), 42) == {1: 2}
+    apply(New({1: New(2)}, []), 42) == [undefined, 2]
+    apply(New({1: New(2)}, new Map()), 42) == new Map([[1, 2]]);
 
-This is especially useful in the case of arrays or JavaScript Maps.
-By passing an array or a Map as the second argument,
-the record of edit actions will be interpreted as actions to perform on the provided array or Map:
-
-    apply(New({0: New(1)}, []), 42) == [1]
-    apply(New({1: New(3)}, [1]), 42) == [1, 3]
-
-    apply(New({1: New(3)}, new Map()), 42) == new Map([[1, 3]])
-    apply(New({2: New(5)}, new Map([[2, 4], [1, 3]])), 42) == new Map([[2, 5], [1, 3]])
-
-The reason to provide a non-empty Map as a skeleton is that it keeps the key ordering.
+A reason to provide a non-empty Map as a skeleton is that it keeps the key ordering.
 Now that we know how to create new values from scratch using edit actions, we'll see in the next section how we can reuse values.
 
 ## `Reuse`
 
-To reuse a value, we build `Reuse()` with one argument, which is a record of edit actions that should apply on the modified fields.
+To reuse a value, we write `Reuse()` with one argument, which is a record of edit actions that should apply on the modified fields, possibly extending them.
 
     apply( Reuse({c: New(4)}), {a: 1, b: 2, c: 42} ) == {a: 1, b: 2, c: 4}
     apply( Reuse({1: New(54)}), [40,30,90] ) == [40,54,90]
     apply( Reuse({key: New(true)}), new Map([["key", false]])) == new Map([["key", true]])
 
-`Reuse()` can be used to create new keys as well, including new numeric keys. However, one might consider the operators `Keep, Insert, Delete` below more suited for array and strings operations.
+`Reuse()` can be used to create new keys as well, including new numeric keys. However, one might consider the operators `Keep, Append, Prepend, Remove` below more suited for array and strings operations.
 
 ## `Down` and `Up`
 
@@ -194,16 +183,27 @@ Since `Offset(...)` is just a path element, further modifications can be done, e
     apply(Down(Offset(1, 2), Reuse({ 1: Reuse({0: Up(0, 1, Offset(1, 2), Down(0))})}),
       [0, 1, [2, 3]]) = [1, [2, 0]]
 
-**Syntactic sugars**
+## Choose
 
-We offer the following syntactic sugars:
+It can be handy to provide several variants that produce edit actions. The construct `Choose` can handle that: `Choose(EA1, EA2...)`
 
-* `Fork(n, m, EA1, EA2)` = `Concat(m, Down(Offset(0, n), EA1), Down(Offset(n), EA2))` to perform two edit actions `EA1` and `EA2` on two non-overlapping parts of the array or string, split at index `n`.
-* `Keep(n, EA2)` = `Fork(n, n, Reuse(), EA2)` to just keep the first `n` elements of the string or array as such, and to perform `EA2` on the remaining
-* `Delete(n, EA2)` = `Fork(n, 0, Down(Offset(0, 0, n)), EA2)` to delete the first `n` elements of the string or array as such, and to perform `EA2` on the remaining. `EA2` can be omitted.
-* `Insert(n, I, EA2)` = `Fork(0, n, I, EA2)` inserts the result of applying I before the array, and applies `EA2` on the array itself. If I is New(scalar), the New can be omitted.
+## Syntactic sugars and variants
 
-These syntactic sugars are not just sugar actually. In the case of back-propagation, if a `Concat` is interpreted as a `Fork`, then it will split the back-propagation algorithm in two parts.
+We offer the following syntactic sugars and variants.
+By `~=`, we mean they have the same semantics when applied, but they are merged and back-propagated differently.
+
+* `"march"` ~= `New("march")` and `16` ~= `New(16)`. Yes, scalars are edit actions by themselves, that produce themselves, you can use them if you have New. It also works for arrays and objects, where keys might also be edit actions or scalars.
+* `Interval(start[, endExcluded])` = `Offset(start, endExcluded-start, undefined)` is arguably a nicer way to present offsets. However, Offsets have the power to represent the assumption of the old length, which Interval do not.
+* `Replace(n, m, EA1[, EA2])` ~= `Concat(m, Down(Interval(0, n), EA1), Down(Interval(n), EA2 | Reuse()))` to perform an edit actions `EA1` on the first n elements. If provided, `EA2` performs an edit on the remaining elements. Whereas the `Replace` actually forks the back-propagation mechanism into two back-propagation problems, Concat alone starts creating an expression to back-propagate at the current location.
+* `Keep(n, EA2)` = `Replace(n, n, Reuse(), EA2)` to just keep the first `n` elements of the string or array as such, and to perform `EA2` on the remaining
+* `RemoveExcept(offset, EA2)` ~= `Down(offset, EA2)` except that `Down` says "just replace the array there by the elements at this offset after applying EA2 to it", whereas `RemoveExcept` says "Remove everything that is not in the offset, and apply EA2 to the remaining".
+* `Remove(n, EA2)` = `RemoveExcept(Offset(n), EA2)` to delete the first `n` elements of the string or array as such, and to perform `EA2` on the remaining. `EA2` can be omitted.
+* `RemoveAll(EA2[, n])` = `RemoveExcept(Offset(0, 0[, n]), EA2)` to delete all elements of the array, possibly providing the length `n` of the string or array, and to perform `EA2` on the remaining, typically an insertion. `EA2` can be omitted.
+* `Prepend(n, I, EA2)` ~= `Concat(n, I, EA2)` inserts the result of applying I before the array, and applies `EA2` on the array itself.
+* `Append(n, EA1, I)` ~= `Concat(n, EA1, I)` inserts the result of applying I before the array, and applies `EA2` on the array itself. If I is New(scalar), the New can be omitted.
+* `Insert(d, {...d: EA...})` ~= `New({...d: EA...})` except that we explicitely say that the current record is wrapped in EA.
+* `InsertAll({...d: EA...})` ~= `New({...d: EA...})` except that we explicitely say that every key in the record depends on the current record.
+
 
 **Full example**
 
@@ -213,20 +213,20 @@ Here is an illustrative example, featuring deleting, keeping, cloning, inserting
 var prog = ["A", "B", "C", "D"];
 n();
 var step = 
-    Delete(1,                                // Delete "A"
+    Remove(1,                                // Remove "A"
     Keep(1,                                  // Use "B"
-    Delete(1,                                // Delete "C"
+    Remove(1,                                // Remove "C"
     Keep(1,                                  // Use "D". The remaining of array is empty
-    Insert(2, Up(Offset(3, undefined, 2)),   // Inserts ["B", "C"]
-    Insert(1, New([Up(Offset(4, 0, 1), Down(0))]), // Inserts ["A"]
-    Insert(1, New([New("G")])) // Inserts ["G"]
+    Prepend(2, Up(Offset(3, undefined, 2)),   // Inserts ["B", "C"]
+    Prepend(1, New([Up(Offset(4), Down(0))]), // Inserts ["A"]
+    Prepend(1, New(["G"])) // Inserts ["G"]
     ))))));
 // Displays
 // ["B", "D", "B", "C", "A", "G"]```
 
 ### Special case: Strings
 
-Strings can be treated either as primitives (for a full replacement regardless of how the string was edited), or using the operators `Down(Offset(...), ...), Concat, Fork, Insert, Keep, Delete` described before.  
+Strings can be treated either as primitives (for a full replacement regardless of how the string was edited), or using the operators `Down(Interval(...), ...), Concat, Replace, Prepend, Append, Keep, Remove` described before.  
 For example, to transform:
 
     "Hello world! ?"
@@ -239,13 +239,13 @@ one could use the following edit action, among others:
 
     Keep(
       5, // "Hello"
-      Fork(6, 21,
-        Insert(
+      Replace(6, 21,
+        Prepend(
           15, "big world, nice", // insertion, New is implicit
           Reuse()                // " world"
        ),
        Keep(2,                   // The string "! "
-       Insert(1, "?"            // The inserted string "?"
+       Prepend(1, "?"            // The inserted string "?"
     ))))
 
 ## Custom lenses
@@ -262,89 +262,11 @@ one could use the following edit action, among others:
     > apply(minEditAction, {type: "min", args: {left: 1, right: 3}});
     1
 
-    > backPropagate(minEditAction, New(2));
+    > var x = backPropagate(minEditAction, New(2));
     Reuse({args: Reuse({left: New(2)})})
-
-## Language API: Non-deterministic variants
-
-`nd.New`, `nd.Reuse` and `nd.ReuseArray` are the non-deterministic variants of the constructs mentioned above.
-Non-determinism means that wherever edit actions were needed in argument, arrays of edit actions should be used,
-and these `nd.*` constructs all return an array of edit action.
-The original edit actions are useful to describe unambiguous interpreter steps,
-whereas the non-deterministic variant is useful to describe the ambiguous user-defined transformations.
-
-Example:
-
-    `nd.New(42)`
-    `nd.Reuse(1)`
-
-Non-deterministic edit actions can be combined using the `nd.or` operator -- or the JavaScript's native concat operator:
-
-    `nd.or(nd.New(42), nd.Reuse(1))`
-    `nd.New(42).concat(nd.Reuse(1))`
-
-
-For example, a more complete non-deterministic edit action associated to the transformation of the string:
-
-    "Hello world! 1"
     
-to
-
-    "Hello big world, nice world! ??"
-
-one can use the following edit action:
-
-    nd.ReuseArray(
-      5, Reuse(),
-      6, nd.or(                         // " world"
-        nd.ReuseArray(
-          0, New(" big world, nice"),   // insertion
-          6, Reuse()                    // " world"
-        ),
-        nd.ReuseArray(
-          1, Reuse(),                   // " "
-          0, New("big world, nice "),   // insertion
-          5, Reuse()                    // "world"
-        ),
-        nd.ReuseArray(
-          1, Reuse(),
-          0, New("big "),
-          
-        )
-        )
-      2, nd.Reuse(), // The string "! "
-      1, nd.or(
-        nd.ReuseArray(
-          0, New("?"),
-          1, Reuse()
-        ),
-        nd.ReuseArray(
-          0, Reuse(),
-          1, New("?")
-        ))
-    )
-
-There are several ways to apply a non-deterministic edit action to a program, depending on the expected result.
-
-1. To obtain the first result, just use `nd.apply`
-
-       `nd.apply(nd.or(nd.New(42), nd.Reuse(1)), [41, 43]) == 42`
-
-2. To obtain the last result, use `nd.apply` and provide `true` as an extra argument:
-
-       `nd.apply(nd.or(nd.New(42), nd.Reuse(1)), [41, 43], true) == 43`
-
-3. To list all results, use `nd.applyAll`:
-
-       `nd.applyAll(nd.or(nd.New(42), nd.Reuse("b")), {a: 41, b: 43}) == [42, 43]
-
-4. To list all results as a record where all fields are arrays of possibilities, use `nd.applyVSA` (VSA stands for Version Space Algebra):
-
-       ```
-       nd.applyVSA(nd.or(nd.New({b: nd.or(nd.Reuse("a"), nd.New(43))}),
-                         nd.New({c: nd.Reuse("a")})), {a: 42}) == [{b: [42, 43]}, {c: [42]}]```
-
-Note that the last will fail in the case of a non-deterministic `nd.ReuseArray` applied to a string. Use one of the other three versions instead.
+    > apply(x, {type: "min", args: {left: 1, right: 3}})
+    {type: "min", args: {left: 2, right: 3}}
 
 ## Compute edit actions automatically
 
@@ -361,11 +283,11 @@ editActions has some support to compute deterministic and non-deterministic edit
 
 It is also possible to ask for all edit actions it can find:
 
-    > bam.nd.diff(1, 2)
+    > diff(1, 2)
     [New(2)]
-    > bam.nd.diff(1, 1)
+    > diff(1, 1)
     [Reuse()]
-    > bam.nd.diff([2, 1], [1, 2])
+    > diff([2, 1], [1, 2])
     [Reuse({0: [Reuse(up, 1),
                 New(1)],
             1: [Reuse(up, 0),
@@ -384,7 +306,7 @@ It is also possible to ask for all edit actions it can find:
 It's possible to add options as the third parameter.  
 The option `onlyReuse` (default: false) prunes out all New solutions if there are solutions that use Reuse:
 
-    > bam.nd.diff([2, 1], [1, 2], {onlyReuse: true})
+    > diff([2, 1], [1, 2], {onlyReuse: true})
     [Reuse({0: [Reuse(up, 1)],
             1: [Reuse(up, 0)]}),
      ReuseArray(0, [New({ 0: [Reuse(up, 1)]}, [])],
