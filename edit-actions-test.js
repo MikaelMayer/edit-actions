@@ -1,9 +1,13 @@
 var editActions = require("./edit-actions.js");
-var {List,Reuse,New,Concat,Keep,Prepend, Append,Remove,RemoveExcept,RemoveAll,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Replace, splitAt, downAt, offsetAt, stringOf, Sequence, ActionContextElem, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, isFinal, debug, Interval, Insert, InsertAll, ReuseModel, ReuseAsIs, transform} = editActions;
+var {List,Reuse,New,Concat,Keep,Prepend, Append,Remove,RemoveExcept,RemoveAll,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Replace, splitAt, downAt, offsetAt, stringOf, Sequence, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, debug, Interval, Insert, InsertAll, ReuseModel, ReuseAsIs, transform} = editActions;
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
+
+shouldBeEqual(
+  apply(Down.pure("a", "b", 1), {a: {b: {"1": 2}}}), 1
+);
 
 shouldBeEqual(stringOf(New([1, 2])), "New([1, 2])");
 shouldBeEqual(stringOf(New({1: New(2)}, [])), "New([undefined, New(2)])")
@@ -244,13 +248,6 @@ shouldBeEqual(
   stringOf(Prepend(1, "k")), "Prepend(1, \"k\")"
 );
 
-shouldBeEqual(
-  isFinal(New(1)), true);
-shouldBeEqual(
-  isFinal(New([])), true);
-shouldBeEqual(
-  isFinal(New([New(1)])), true);
-shouldBeEqual(isFinal([1]), false);
 shouldBeEqual(
   stringOf(Up(Offset(0, 0), New([New(1)]))), "Up(Interval(0, 0), New([New(1)]))"
 );
