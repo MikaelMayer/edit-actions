@@ -1990,13 +1990,13 @@ var editActions = {};
     if(isPrepend(editAction)) {
       let [o2, l2, r2] = splitIn(n, editAction.second);
       if(r2 !== undefined) {
-        return [o2 + editAction.count, Prepend(editAction.count, UpIfNecessary(Offset(0, 0), editAction.first), l2), r2];
+        return [o2 + editAction.count, Prepend(editAction.count, editAction.first, l2), r2];
       }
     }
     if(isAppend(editAction)) {
       let [o2, l2, r2] = splitIn(n, editAction.first);
       if(r2 !== undefined) {
-        return [o2, l2, Append(editAction.count, UpIfNecessary(Offset(0, 0), r2), editAction.second)]
+        return [o2, l2, Append(editAction.count, r2, editAction.second)]
       }
     }
     if(isReuse(editAction)) {
@@ -2265,6 +2265,11 @@ var editActions = {};
       return [SameDownAs(isRemove)(Offset(0, 0)), editAction];
     }
     var left, right;
+    var wasRaw = true;
+    if(!isEditAction(editAction)) {
+      wasRaw = true;
+      editAction = New(editAction);
+    }
     switch(editAction.ctor) {
     case Type.New:
       if(isReuse(editAction)) {
@@ -2344,7 +2349,7 @@ var editActions = {};
           = "abcdnef"
           = apply(editAction, r, rCtx)
         */
-        return [New(editAction.model.value.substring(0, count)), New(editAction.model.value.substring(count))];
+        return [rawIfPossible(New(editAction.model.value.substring(0, count)), wasRaw), rawIfPossible(New(editAction.model.value.substring(count)), wasRaw)];
       } else {
         /** n = count
         Proof: (f < n, g >= n)
@@ -2383,7 +2388,7 @@ var editActions = {};
         })
         // Proof: editAction = New({fi = ei}i, [])
         //                   = Concat(count, Down(Offset(0, count), New({fi = ei, if fi < count}i)), Down(Offset(count), New({(fi-count) = ei, if fi >= count})))
-        return [New(left, InsertModel(leftModelValue)), New(right, InsertModel(rightModelValue))];
+        return [rawIfPossible(New(left, InsertModel(leftModelValue)), wasRaw), rawIfPossible(New(right, InsertModel(rightModelValue)), wasRaw)];
       }
     case Type.Concat:
       if(editAction.count == count) {
@@ -5747,6 +5752,7 @@ var editActions = {};
   // apply(Up(k, E), r, rCtx)
   // == apply(UpIfNecessary(k, E), r, rCtx)
   function UpIfNecessary(keyOrOffset, subAction) {
+    if(!isEditAction(subAction)) return subAction;
     if(subAction.ctor == Type.New && !isReuse(subAction)) {
       /** Proof:
         apply(UpIfNecessary(k, New({f=E})), r[k], (k, r)::rCtx)

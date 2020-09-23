@@ -213,7 +213,6 @@ shouldBeEqual(
   Prepend(5, "abcde")
 );
 
-n()
 shouldBeEqual(
   andThen(
     Keep(1, Prepend(2, "ab")),
@@ -258,7 +257,7 @@ shouldBeEqual(
 
 shouldBeEqual(
   diff(["a", "b", "c", "d"], ["a", "k", "c", "d"]),
-  Choose(Reuse({1: Remove(1, Prepend(1, "k"))}),
+  Choose(Reuse({1: Remove(1, Prepend(1, New("k")))}),
     New([Down(0), New("k"), Down(2), Down(3)]))
 );
 
@@ -269,7 +268,7 @@ shouldBeEqual(
 
 shouldBeEqual(
   first(diff(["a", "b",  "c", "d"], ["a", "b", "k", "m", "c", "d"])),
-  Keep(2, Prepend(2, [New("k"), New("m")]))
+  Keep(2, Prepend(2, New([New("k"), New("m")])))
 );
 
 shouldBeEqual(
@@ -277,10 +276,10 @@ shouldBeEqual(
              [["x", ["p", "test"]], ["i", "hello"], "d", "blah"])),
   Replace(1, 1,
     Reuse({0: New([New("x"), Reuse()])}),
-    Prepend(1, [New([New("i"), New("hello")])],
+    Prepend(1, New([New([New("i"), New("hello")])]),
       Replace(2, 2, 
           Reuse({1:
-            Keep(2, Remove(1, Prepend(1, "a")))}),
+            Keep(2, Remove(1, Prepend(1, New("a"))))}),
             Remove(1))))
 );
 
@@ -705,7 +704,7 @@ shouldBeEqual(
     Reuse({a: Keep(1, Prepend(2, New([8, 9])))}),
     Reuse({a: Concat(0, Up("a", Down("b")), New([1, 2]))})),
     Reuse({
-  a: Concat(1,  Concat(0, Up("a", Down("b")), New([1, 8, 9, 2])))})
+  a: Concat(0, Up("a", Down("b")), New([1, 8, 9, 2]))})
 );
 
 /* // Todo: make it work.
@@ -722,7 +721,7 @@ shouldBeEqual(
     Keep(2, New("def"))      
   ),
   Replace(2, 3,
-    RemoveAll(Prepend(3, "abc"), 3),
+    RemoveAll(Prepend(3, New("abc")), 3),
     New("def"))
 );
 
@@ -1503,8 +1502,8 @@ testMerge(
   Prepend(3, New("abc")),
   Prepend(2, Down(Offset(3, 2)), RemoveExcept(Offset(0, 3))),
   Choose(
-    Prepend(3, "abc", Prepend(2, Down(Interval(3, 5)), RemoveExcept(Interval(0, 3)))),
-    Prepend(2, Down(Interval(3, 5)), Prepend(3, "abc", RemoveExcept(Interval(0, 3))))),
+    Prepend(3, New("abc"), Prepend(2, Down(Interval(3, 5)), RemoveExcept(Interval(0, 3)))),
+    Prepend(2, Down(Interval(3, 5)), Prepend(3, New("abc"), RemoveExcept(Interval(0, 3))))),
   "Permutation and prepend 1");
 
 testMergeAndReverse(
@@ -1921,7 +1920,7 @@ user = Reuse({
 testBackPropagate(step, user,
   Reuse({
     1: Reuse({
-      2: Keep(20, Remove(1, Prepend(1, "\"", Remove(1, Prepend(1, "\"", Keep(45, Prepend(1, "\"", Remove(1, Keep(3, Remove(1, Prepend(1, "\"", Keep(57, Remove(1, Prepend(1, "\"", Keep(3, Remove(1, Prepend(1, "\"", Keep(46, Remove(1, Prepend(1, "\"", Keep(3, Remove(1, Prepend(1, "\"")))))))))))))))))))))))})}), "editActionOutLength == 0");
+      2: Keep(20, Remove(1, Prepend(1, New("\""), Remove(1, Prepend(1, New("\""), Keep(45, Prepend(1, New("\""), Remove(1, Keep(3, Remove(1, Prepend(1, New("\""), Keep(57, Remove(1, Prepend(1, New("\""), Keep(3, Remove(1, Prepend(1, New("\""), Keep(46, Remove(1, Prepend(1, New("\""), Keep(3, Remove(1, Prepend(1, New("\""))))))))))))))))))))))))})}), "editActionOutLength == 0");
 
 shouldBeEqual(
   andThen(
@@ -2062,9 +2061,9 @@ var m5 = Keep(2,
 var m45 = andThen(m5, m4);
 shouldBeEqual(m45, Replace(3, 2,
   Keep(2, RemoveAll()),
-  Prepend(2, "Gr")), "m45");
+  Prepend(2, New("Gr"))), "m45");
 var m345 = andThen(m45, m3);
-shouldBeEqual(m345, Keep(1, Remove(1, Prepend(3, " Gr"))), "m345");
+shouldBeEqual(m345, Keep(1, Remove(1, Prepend(3, New(" Gr")))), "m345");
 var m2345 = andThen(m345, m2);
 shouldBeEqual(m2345, Keep(1, Prepend(2, New(" G"), Prepend(1, New("r")))), "m2345");
 var m12345 = andThen(m2345, m1);
@@ -2076,12 +2075,12 @@ var m7b = Keep(6, Prepend(1, New("o")));
 var m8b = Keep(2, Remove(1, Prepend(1, New("G"))));
 var m7b8b = andThen(m8b, m7b);
 shouldBeEqual(m7b8b, Replace(6, 6,
-  Keep(2, RemoveExcept(Interval(1, 4), Prepend(1, "G"))),
-  Prepend(1, "o")), "m7b8b");
+  Keep(2, RemoveExcept(Interval(1, 4), Prepend(1, New("G")))),
+  Prepend(1, New("o"))), "m7b8b");
 var m6b7b8b = andThen(m7b8b, m6b);
 shouldBeEqual(m6b7b8b, Replace(4, 4,
-  Keep(2, RemoveExcept(Interval(1, 2), Prepend(1, "G"))),
-  Remove(1, Prepend(3, " wo"))), "m6b7b8b");
+  Keep(2, RemoveExcept(Interval(1, 2), Prepend(1, New("G")))),
+  Remove(1, Prepend(3, New(" wo")))), "m6b7b8b");
 
 shouldBeEqual(
   andThen(
