@@ -40,7 +40,7 @@ shouldBeEqual(
   stringOf(Append(3, "abc")), "Append(3, \"abc\")" 
 );
 shouldBeEqual(
-  stringOf(Append(3, Prepend(1, "d"), New("abc"))), "Append(3, \n  Prepend(1, \"d\"),\n  \"abc\")" 
+  stringOf(Append(3, Prepend(1, "d"), New("abc"))), "Append(3, \n  Prepend(1, \"d\"),\n  New(\"abc\"))" 
 );
 shouldBeEqual(
   andThen(
@@ -204,6 +204,7 @@ shouldBeEqual(
   Keep(1, Reuse({
       3: 0}))));
 
+
 shouldBeEqual(
   andThen(
     Prepend(2, "ab"),
@@ -212,6 +213,7 @@ shouldBeEqual(
   Prepend(5, "abcde")
 );
 
+n()
 shouldBeEqual(
   andThen(
     Keep(1, Prepend(2, "ab")),

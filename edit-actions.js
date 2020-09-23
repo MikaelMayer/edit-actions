@@ -136,9 +136,6 @@ var editActions = {};
       }
       return result || defaultValue;
     },
-    onlyElemOfCollectionOrDefaultCallback: function(c, defaultValue, callback) {
-      return callback(Collection.Collection.onlyElemOrDefault(c, defaultValue));
-    },
     firstOrDefault: function firstOrDefault(c, defaultValue) {
       const it = c[Symbol.iterator]();
       for(let elem of it) {
@@ -147,7 +144,7 @@ var editActions = {};
       return defaultValue;
     },
     firstOrDefaultCallback: function firstOrDefaultCallback(c, defaultValue, callback) {
-      return callback(Collection.firstOrDefault);
+      return callback(Collection.firstOrDefault(c, defaultValue));
     },
     from: function collectionFrom() {
       let args = arguments;
@@ -228,7 +225,7 @@ var editActions = {};
     }
     if(arguments.length == 1) {
       if(typeof childEditActions == "object") {
-        return New(childEditActions, Array.isArray(childEditActions) ? [] : {});
+        return New(childEditActions, InsertModel(Array.isArray(childEditActions) ? [] : {}));
       } else {
         return New({}, InsertModel(childEditActions));
       }
@@ -255,23 +252,23 @@ var editActions = {};
     return offset.count == 0 && offset.oldLength === offset.newLength;
   }
   
+  function isPathElement(elem) {
+    return typeof elem == "string" || typeof elem == "number" || isOffset(elem);
+  }
+  
   function Up(keyOrOffset, subAction) {
     if(arguments.length == 1) subAction = Reuse();
     let subActionIsPureEdit = isEditAction(subAction);
-    if(arguments.length > 2 || arguments.length == 2 && !subActionIsPureEdit && (typeof subAction == "string" || typeof subAction == "number" || isOffset(subAction))) {
+    if(arguments.length > 2 || arguments.length == 2 && !subActionIsPureEdit && isPathElement(subAction)) {
       return Up(arguments[0], Up(...[...arguments].slice(1)));
     }
-    if(isOffset(keyOrOffset) && isOffsetIdentity(keyOrOffset)) return subAction;
     let ik = isOffset(keyOrOffset);
+    if(ik && isOffsetIdentity(keyOrOffset)) return subAction;
     if(subActionIsPureEdit) {
       if(subAction.ctor == Type.Up) {
         let isk = isOffset(subAction.keyOrOffset);
         if(ik && isk) {
           let newOffset = upUpOffset(keyOrOffset, subAction.keyOrOffset);
-          /*if(editActions.__debug) {
-            console.log("upUpOffset "+keyOrOffsetToString(keyOrOffset) + " "  + keyOrOffsetToString(subAction.keyOrOffset));
-            console.log("=> "+ keyOrOffsetToString(newOffset));
-          }*/
           let newDownOffset = upToDownOffset(newOffset);
           if(newDownOffset !== undefined) {
             return Down(newDownOffset, subAction.subAction);
@@ -307,13 +304,10 @@ var editActions = {};
   }
   editActions.Up = Up;
   
-  function isPathElement(elem) {
-    return typeof elem == "string" || typeof elem == "number" || isOffset(elem);
-  }
-  
   function DownLike(isRemove, rewriteArgs = true) {
     return function Down(keyOrOffset, subAction) {
-      if(isRemove && !isOffset(keyOrOffset)) {
+      let ik = isOffset(keyOrOffset);
+      if(isRemove && !ik) {
         console.trace("/!\\ warning, use of RemoveExcept on non-offset");
       }
       if(arguments.length == 1) subAction = Reuse();
@@ -324,8 +318,7 @@ var editActions = {};
           return Down(arguments[0], Down(...[...arguments].slice(1)));
         }
       }
-      if(isOffset(keyOrOffset) && isOffsetIdentity(keyOrOffset)) return subAction;
-      let ik = isOffset(keyOrOffset);
+      if(ik && isOffsetIdentity(keyOrOffset)) return subAction;
       if(subActionIsPureEdit) {
         if(subAction.ctor == Type.Down && (!isRemove && !subAction.isRemove || isRemove && subAction.isRemove)) {
           let isk = isOffset(subAction.keyOrOffset);
@@ -417,11 +410,11 @@ var editActions = {};
   // apply(Concat(1, New([Down(5)]), Reuse()), [0, 1, 2, 3, 4, x]) = [x] ++ [0, 1, 2, 3, 4, x]
   function Concat(count, first, second, replaceCount, firstReuse, secondReuse) {
     if(replaceCount !== undefined) {
-      if(firstReuse !== undefined) {
+      if(firstReuse) {
         console.trace("/!\\ Warning, unexpected firstReuse with a Replace");
         firstReuse = undefined;
       }
-      if(secondReuse !== undefined) {
+      if(secondReuse) {
         console.trace("/!\\ Warning, unexpected secondReuse with a Replace")
         secondReuse = undefined;
       }
@@ -443,7 +436,7 @@ var editActions = {};
         count = first.count;
         first = first.first;
       }
-      if(first.ctor == Type.Down && second.ctor == Type.Down && first.isRemove === second.isRemove && replaceCount === undefined) {
+      if(first.ctor == Type.Down && second.ctor == Type.Down && first.isRemove === second.isRemove) {
         if(isOffset(first.keyOrOffset) && isOffset(second.keyOrOffset)) {
           let {count: c1, newLength: n1, oldLength: o1} = first.keyOrOffset;
           let {count: c2, newLength: n2, oldLength: o2} = second.keyOrOffset;
@@ -473,7 +466,7 @@ var editActions = {};
         }
       }
     }
-    let result = {ctor: Type.Concat, count, first, second, replaceCount, firstReuse, secondReuse};
+    let result = {ctor: Type.Concat, count, first: rawIfPossible(first, firstWasRaw), second: rawIfPossible(second, secondWasRaw), replaceCount, firstReuse, secondReuse};
     if(replaceCount !== undefined) {
       let [inCount, outCount, left, right] = argumentsIfReplace(result);
       if(right !== undefined) {
@@ -600,20 +593,20 @@ var editActions = {};
   function Insert(key, childEditActions) {
     if(!isObject(childEditActions)) return New(childEditActions);
     let treeOps = treeOpsOf(childEditActions);
-    let modelValue = Array.isArray(childEditActions) ? [] : childEditActions instanceof Map ? new Map() : {};
+    let modelValue = treeOps.init();
     treeOps.update(modelValue, key, WRAP);
-    modelValue[key] = WRAP;
     return New(childEditActions, InsertModel(modelValue));
   }
   editActions.Insert = Insert;
   
   function InsertAll(childEditActions) {
     if(!isObject(childEditActions)) return New(childEditActions);
-    let o = {};
-    for(let k in childEditActions) {
-      o[k] = WRAP;
-    }
-    return New(childEditActions, InsertModel(o));
+    let treeOps = treeOpsOf(childEditActions);
+    let modelValue = treeOps.init();
+    treeOps.forEach(childEditActions, (c, k) => {
+      treeOps.update(modelValue, k, WRAP);
+    });
+    return New(childEditActions, InsertModel(modelValue));
   }
   editActions.InsertAll = InsertAll;
  
@@ -629,7 +622,7 @@ var editActions = {};
     if(isIdentity(first) && isIdentity(second)) {
       return second;
     }
-    if(isEditAction(outCount) && second === undefined) {
+    if(isEditAction(outCount) && arguments.length == 3) {
       second = first;
       first = outCount;
       outCount = outLength(first, inCount);
@@ -638,6 +631,7 @@ var editActions = {};
         outCount = inCount;
       }
     }
+    // Should we keep empty replaces?
     if(inCount == 0 && outCount == 0) return second;
      // Optimization that is nice to remove empty first actions. But do we want to remove empty first actions?
     /*if(outCount == 0) {
@@ -674,17 +668,9 @@ var editActions = {};
     //printDebug("argumentsIfReplaceIsKeep success", [inCount, second]);
     return [inCount, second];
   }
-
-  function argumentsIfReplaceIsPrepend(inCount, outCount, first, second) {
-    if(outCount > 0 && inCount === 0) {
-      return [outCount, first, second];
-    }
-    return [];
-  }
   
   // first is the thing to prepend (in the current context of the slice), second is the remaining (default is Reuse()).
   function Prepend(count, first, second = Reuse()) {
-    if(!isEditAction(first)) first = New(first);
     return Concat(count, first, second, undefined, false, true);
   }
   function Append(count, first, second) {
@@ -2813,8 +2799,10 @@ var editActions = {};
   // applyZ(merge(E1, E2), (r, rCtx))
   // = three way merge of r, applyZ(E1, (r, rCtx)) and applyZ(E2, (r, rCtx));
   
-  // Meaning of abbreviations:
-  // Action resulting if we applied E1 and E2 in parallel and merged the result.
+  
+  // Soft specification:
+  // if applyZ(E1, rrCtx) and applyZ(E2, rrCtx) is defined
+  // then applyZ(merge(E1, E2), rrCtx) is defined.
   var merge = addLogMerge(function mergeRaw(E1, E2) {
     if(editActions.__debug) {
       console.log("merge");
@@ -2822,23 +2810,36 @@ var editActions = {};
       editActions.debug(E2);
       if(isReplace(E2) && stringOf(E2).startsWith("Concat")) console.trace("Weird concat");
     }
-    if(typeof E1 !== "object") E1 = New(E1);
-    if(typeof E2 !== "object") E2 = New(E2);
+    let E1IsRaw = false;
+    let E2IsRaw = false;
+    if(typeof E1 !== "object") { E1IsRaw = true; E1 = New(E1); }
+    if(typeof E2 !== "object") { E2IsRaw = true; E2 = New(E2); }
     if(E1.ctor == Type.Choose) {
+      /** Proof:
+          applyZ(merge(E1, E2), rrCtx)
+        = apply(Choose(map(E1.subActions, x => merge(x, E2))), rrCtx)
+        = apply(map(E1.subActions, x => merge(x, E2))[0], rrCtx)
+        = apply(merge(E1.subActions[0], E2), rrCtx)
+        Now, since applyZ(E1, rrCtx) = applyZ(E1.subActions[0],rrCtx) is defined,
+        by induction, we obtain the result. QED;
+      */
       return Choose(...Collection.map(E1.subActions, x => merge(x, E2)));
     }
     if(E2.ctor == Type.Choose) {
+      /** Proof: Same as above. */
       return Choose(...Collection.map(E2.subActions, x => merge(E1, x)));
     }
     let result = [];
     merge_cases: {
       // (E1, E2) is [R, N, F, C, U, D, UR] x [R, N, F, C, U, D, UR]
       if(isIdentity(E1)) {
+        /** Proof: applyZ(merge(E1, E2), rrCtx) = apply(E2, rrCtx) */
         result.push(E2);
         break merge_cases;
       }
       // (E1, E2) is [R*, N, F, C, U, D, UR] x [R, N, F, C, U, D, UR]
       if(isIdentity(E2)) {
+        /** Proof: applyZ(merge(E1, E2), rrCtx) = apply(E1, rrCtx) */
         result.push(E1);
         break merge_cases;
       }
@@ -2869,6 +2870,14 @@ var editActions = {};
           if(child) E1IsReusingBelow = true;
         });
         if(E1IsReusingBelow) {
+          /** Proof:
+              applyZ(merge(E1, E2), rrCtx)
+            = applyZ(merge(New({k: ck}_k), E2), rrCtx)
+            = applyZ(New({k: merge(ck, E2) | ck}_k), rrCtx)
+            = New{k: applyZ(merge(ck, E2) | ck, rrCtx)}_k
+            Since applyZ(E1, rrCtx) was defined, applyZ(ck, rrCtx) was defined. By induction, we conclude.
+            QED;
+          */
           result.push(New(mapChildren(E1.childEditActions, (k, c) => access(E1.model.value, k) ? merge(c, E2) : c), E1.model));
         }
       }
@@ -2878,17 +2887,22 @@ var editActions = {};
           if(child) E2IsReusingBelow = true;
         });
         if(E2IsReusingBelow) {
+          /** Proof: Same as above*/
           result.push(New(mapChildren(E2.childEditActions, (k, c) => access(E2.model.value, k) ? merge(E1, c) : c), E2.model));
         }
       }
       if(!E1IsReusingBelow && !E2IsReusingBelow) {
         if(E1IsInsert) {
+          /** Proof: Trivial */
           result.push(E1);
         }
         if(E2IsInsert) {
+          /** Proof: Trivial */
           result.push(E2);
         }
         if(E1IsInsert || E2IsInsert) {
+          /** Proof that result is not empty:
+              if E1IsInsert, then result contains E1. If E2IsInsert, then result contains E2. QED */
           break merge_cases;
         }
       }
@@ -5350,13 +5364,6 @@ var editActions = {};
     }
     if(!(isEditAction(self))) { return uneval(self, ""); }
     let isNew = self.ctor == Type.New;
-    let childIsSimple = child => 
-      typeof child == "object" &&
-      child.ctor == Type.New && (
-            child.model.ctor == TypeNewModel.Insert && (
-            typeof child.model.value == "boolean" || 
-            typeof child.model.value == "string" || 
-            typeof child.model.value == "number" || typeof child.model.value == "undefined"));
     if(self.ctor == Type.Up) {
       let str = "Up(";
       let selfIsIdentity = false;
@@ -5518,7 +5525,7 @@ var editActions = {};
           let inserted = self.first;
           let second = self.second;
           str += "Prepend(" + self.count + ", ";
-          let childStr = addPadding(childIsSimple(inserted) ? uneval(inserted.model.value) : stringOf(inserted), "  ");
+          let childStr = addPadding(stringOf(inserted), "  ");
           str += childStr;
           let extraSpace = childStr.indexOf("\n") >= 0 ? "\n " : "";
           if(!isIdentity(second)) {
@@ -5534,7 +5541,7 @@ var editActions = {};
           if(!isIdentity(first)) {
             str += addPadding("\n" + stringOf(first), "  ") + ",\n  ";
           }
-          str += childIsSimple(inserted) ? uneval(inserted.model.value) : stringOf(inserted);
+          str += stringOf(inserted);
           str += ")";
         } else {
           str = "Concat(" + self.count + ", ";
