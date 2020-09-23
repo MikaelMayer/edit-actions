@@ -684,6 +684,8 @@ var editActions = {};
   editActions.Append = Append;
   
   function Keep(count, subAction) {
+    if(count == 0) return subAction;
+    if(isIdentity(subAction)) return subAction;
     return Replace(count, count, Reuse(), subAction);
     // Concat(count, Down(Offset(0, count)), Down(Offset(count, subAction))
   }
@@ -697,15 +699,12 @@ var editActions = {};
   editActions.Remove = Remove;
   
   function RemoveAll(subAction, oldLength) {
-    if(typeof subAction === "number") {
+    if(isEditAction(oldLength) || typeof subAction == "number") {
       let tmp = subAction;
-      oldLength = subAction;
-      subAction = tmp;
-      if(arguments.length === 1) {
-        subAction = Reuse();
-      }
+      subAction = oldLength;
+      oldLength = tmp;
     }
-    if(arguments.length == 0) {
+    if(subAction === undefined) {
       subAction = Reuse();
     }
     return RemoveExcept(Offset(0, 0, oldLength), subAction);
