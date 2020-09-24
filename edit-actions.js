@@ -127,14 +127,16 @@ var editActions = {};
       if(!c || !(Symbol.iterator in c)) return c;
       const it = c[Symbol.iterator]();
       let result = undefined;
+      let found = false;
       for(let elem of it) {
-        if(!result) {
+        if(!found) {
           result = elem;
+          found = true;
           continue;
         }
         return defaultValue;
       }
-      return result || defaultValue;
+      return found ? result : defaultValue;
     },
     firstOrDefault: function firstOrDefault(c, defaultValue) {
       const it = c[Symbol.iterator]();
@@ -428,7 +430,7 @@ var editActions = {};
     if(!isEditAction(first)) {firstWasRaw = true; first = New(first); };
     if(!isEditAction(second)) {secondWasRaw = true; second = New(second); };
     if(replaceCount === undefined) {
-      if(first.ctor == Type.New && second.ctor == Type.New) {
+      if(isNew(first) && isNew(second)) {
         let optimized = optimizeConcatNew(first, second, firstWasRaw, secondWasRaw);
         if(optimized !== undefined) return optimized;
       }
@@ -1619,7 +1621,7 @@ var editActions = {};
         return [newFirstAction, newFirstActionContext, newUpOffset];
       }
       return [
-        offsetAt(newDownOffset, newFirstAction), 
+        offsetAt(newDownOffset, newFirstAction, false), 
         AddContext(newDownOffset, newFirstAction, newFirstActionContext)];
     }
     // !isOffset(upKeyOrOffset)
@@ -2304,8 +2306,8 @@ var editActions = {};
         // left: Down(Offset(0, n), Reuse({f: Up(f, Offset(0, n), Down(f, Ef))}))
         // right: Down(Offset(n), Reuse({(g-n): Up(g-n, Offset(n), Down(g, Eg))}))
        
-        return [SameDownAs(isRemove)(Offset(0, count), New(left, ReuseModel())),
-                SameDownAs(isRemove)(Offset(count), New(right, ReuseModel()))];
+        return [SameDownAs(isRemove)(Offset(0, count), New(left, editAction.model)),
+                SameDownAs(isRemove)(Offset(count), New(right, editAction.model))];
       } else if(typeof editAction.model.value === "string") {
         /** Proof
           editAction = New("abcdnef");
@@ -2741,7 +2743,7 @@ var editActions = {};
         }
       }
       let E2IsReusingBelow = false;
-      if(E2.ctor == Type.New) {
+      if(E2IsInsert) {
         forEach(E2.model.value, (child, k) => {
           if(child) E2IsReusingBelow = true;
         });
@@ -3232,9 +3234,12 @@ var editActions = {};
   
   function backPropagate(E, U, ECtx = undefined) {
     let wasRaw = false, Uraw = U;
-    if(typeof U !== "object") {
+    if(!isEditAction(U)) {
       U = New(U);
       wasRaw = true;
+    }
+    if(!isEditAction(E)) {
+      E = New(E);
     }
     if(editActions.__debug) {
       console.log("backPropagate");
