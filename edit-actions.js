@@ -490,6 +490,15 @@ var editActions = {};
   }
   editActions.Concat = Concat;
   
+  /** We will have by definition:
+     apply(Custom(S, ap, up), r, rCtx)
+   = ap(apply(S, r, rCtx))
+
+   update should satisfy the following law:
+   if apply(U, apply(Custom{S, ap, up), r, rCtx), CTX) is defined, then
+   apply(up(U), apply(S, r, rCtx), CTX) is defined
+  */
+  
   // apply(Custom(Down("x"), n => n + 1, ean => New(ean.model - 1)), {x: 2}) = 3
   function Custom(subAction, applyOrLens, update, name) {
      var lens;
@@ -729,11 +738,21 @@ var editActions = {};
           replaced = offset.newLength;
         }
       }
-      let wrapped;
+      let wrapped = subAction;
       if(replaced === 0) {
-        wrapped = Remove(offset.newLength);
-      } else {
-        wrapped = Replace(offset.newLength, replaced, subAction, Reuse());
+        if(isDown(wrapped)) { // We just take the sub action here. It's either Append, Prepend or Reuse
+          wrapped = wrapped.subAction;
+        }
+          
+        wrapped = Remove(offset.newLength, wrapped);
+      } else { // replaced > 0
+        if(offset.newLength > 0) {
+          wrapped = Replace(offset.newLength, replaced, wrapped);
+        } else {
+          if(!isPrepend(wrapped)) {
+            wrapped = Prepend(replaced, wrapped);
+          }
+        }
       }
       if(offset.count > 0) {
         wrapped = Keep(offset.count, wrapped);
@@ -2780,6 +2799,42 @@ var editActions = {};
       // A regular Concat is like a New.
       // We only merge children that have reuse in them. The other ones, we don't merge.
       let E1IsConcatReuse = E1IsContactNotReplace && (E1.firstReuse || E1.secondReuse);
+      let E2IsConcatReuse = E2IsContactNotReplace && (E2.firstReuse || E2.secondReuse);
+      let E1IsPrepend = E1IsConcatReuse && isPrepend(E1);
+      let E2IsPrepend = E2IsConcatReuse && isPrepend(E2);
+      let E1IsAppend = E1IsConcatReuse && isAppend(E1);
+      let E2IsAppend = E2IsConcatReuse && isAppend(E2);
+      if(E1IsAppend && E2IsAppend) {
+        let newRemaining = merge(E1.first, E2.first);
+        // There might be only one solution is the prepended thing is the same.
+        if(isNew(E1.second) && isNew(E2.second)) {
+          let v1 = valueIfNew(E1.second);
+          let v2 = valueIfNew(E2.second);
+          if(typeof v1 == "string" && v1 + v2 == v2 + v1) {
+            result.push(Append(MinUndefined(E1.count, E2.count), newRemaining, v1 + v2));
+            break merge_cases;
+          } else if(typeof v1 == "string") {
+            result.push(Append(MinUndefined(E1.count, E2.count), newRemaining, Choose(v1 + v2, v2 + v1), newRemaining));
+            break merge_cases;
+          }
+        }
+      }
+      if(E1IsPrepend && E2IsPrepend) {
+        let newRemaining = merge(E1.second, E2.second);
+        // There might be only one solution is the prepended thing is the same.
+        if(isNew(E1.first) && isNew(E2.first)) {
+          let v1 = valueIfNew(E1.first);
+          let v2 = valueIfNew(E2.first);
+          if(typeof v1 == "string" && v1 + v2 == v2 + v1) {
+            result.push(Prepend(v1.length + v2.length, v1 + v2, newRemaining));
+            break merge_cases;
+          } else if(typeof v1 == "string") {
+            result.push(Prepend(v1.length + v2.length, Choose(v1 + v2, v2 + v1), newRemaining));
+            break merge_cases;
+          }
+        }
+      }
+      // Particular case for two Prepend and two Append so that we don't compute them.
       if(E1IsConcatReuse) {
         let newLeft = E1.firstReuse ? merge(E1.first, E2) : E1.first;
         let newLeftLength = outLength(newLeft);
@@ -2788,7 +2843,6 @@ var editActions = {};
           Concat(newLeftLength, newLeft,
                  E1.secondReuse ? merge(E1.second, E2) : E1.second, undefined, E1.firstReuse, E1.secondReuse));
       }
-      let E2IsConcatReuse = E2IsContactNotReplace && (E2.firstReuse || E2.secondReuse);
       if(E2IsConcatReuse) {
         let newLeft = E2.firstReuse ? merge(E1, E2.first) : E2.first;
         let newLeftLength = outLength(newLeft);
@@ -2812,39 +2866,43 @@ var editActions = {};
       
       // We will deal with RemoveExcept later. Let's deal with regular Down
       // For now, it looks like
-      if(E1.ctor == Type.Down && E2.ctor == Type.Down && keyOrOffsetAreEqual(E1.keyOrOffset, E2.keyOrOffset) && (isRemoveExcept(E1) == isRemoveExcept(E2))) {
-        result.push((SameDownAs(E1))(E1.keyOrOffset, merge(E1.subAction, E2.subAction)));
+      let E1IsPureDown = isDown(E1) && !isRemoveExcept(E1);
+      let E2IsPureDown = isDown(E2) && !isRemoveExcept(E2);
+      if(E1IsPureDown && E2IsPureDown && keyOrOffsetAreEqual(E1.keyOrOffset, E2.keyOrOffset)) {
+        result.push(Down(E1.keyOrOffset, merge(E1.subAction, E2.subAction)));
       } else {
         // Not the same keys or offsets.
-        if(E1.ctor == Type.Down && !isRemoveExcept(E1)) {
+        if(E1IsPureDown) {
           // Let's see if we can apply the key or offset to E2.
           let E2changed = keyOrOffsetIn(E1.keyOrOffset, E2);
           result.push(Down(E1.keyOrOffset, merge(E1.subAction, E2changed)));
         }
-        if(E2.ctor == Type.Down && !isRemoveExcept(E2)) {
+        if(E2IsPureDown) {
           // Let's see if we can apply the key or offset to E2.
           let E1changed = keyOrOffsetIn(E2.keyOrOffset, E1);
           result.push(Down(E2.keyOrOffset, merge(E1changed, E2.subAction)));
         }
       }
-      if(E1.ctor == Type.Down && !isRemoveExcept(E1) ||
-         E2.ctor == Type.Down && !isRemoveExcept(E2)) {
+      if(E1IsPureDown ||
+         E2IsPureDown) {
         break merge_cases;   
       }
       // No more pure Down now.
       
-      if(E1.ctor == Type.Up && E2.ctor == Type.Up && keyOrOffsetAreEqual(E1.keyOrOffset, E2.keyOrOffset)) {
+      let E1IsUp = E1.ctor == Type.Up;
+      let E2IsUp = E2.ctor == Type.Up;
+      if(E1IsUp && E2IsUp && keyOrOffsetAreEqual(E1.keyOrOffset, E2.keyOrOffset)) {
         result.push(Up(E1.keyOrOffset, merge(E1.subAction, E2.subAction)));
       } else { // If they are both Up and not equal, it means they are different offsets.
-        if(E1.ctor == Type.Up) {
+        if(E1IsUp) {
           result.push(E1);
         }
-        if(E2.ctor == Type.Up) {
+        if(E2IsUp) {
           result.push(E2);
         }
       }
-      if(E1.ctor == Type.Up ||
-         E2.ctor == Type.Up) {
+      if(E1IsUp ||
+         E2IsUp) {
         break merge_cases;   
       }
       
@@ -3232,6 +3290,17 @@ var editActions = {};
     return ReuseUp(pathAt(ctx), editAction);;
   }
   
+  /** Specifications:
+    Assuming apply(E, r, rCtx) is defined, and
+    apply(U, apply(E, r, rCtx), apply(ECtx, r, rCtx)) is defined
+    
+    then apply(backPropagate(E, U, ECtx), firstRecord(r, rCtx)) is defined,
+    
+    where
+    
+    firstRecord(r, []) = r
+    firstRecord(_, (k, r)::ctx) = firstRecord(r, ctx);
+  */
   function backPropagate(E, U, ECtx = undefined) {
     let wasRaw = false, Uraw = U;
     if(!isEditAction(U)) {
@@ -3249,12 +3318,48 @@ var editActions = {};
     }
     // We remove downs and ups to make them part of the context.
     if(E.ctor == Type.Down) {
+      /** Proof:
+        Since we assume apply(Down(ko, subAction), r, rCtx) is defined, it implies that
+        apply(subAction, r[ko], (ko, r)::rCtx) is defined
+        
+        Since we assume that apply(U, apply(Down(ko, subAction, r, rCtx)), apply(ECtx, r, rCtx)) is defined, it is equal to:
+        = apply(U, apply(subAction, r[ko], (ko, r)::rCtx), apply(Up(ko, ECtx), r[ko], (ko, r)::Ctx))
+        is defined.
+        Thus, by induction,
+        
+        apply(backPropagate(subAction, U, Up(ko, ECtx)), firstRecord(r[ko], (ko, r)::rCtx)) is defined
+        = apply(backPropagate(subAction, U, Up(ko, ECtx)), firstRecord(r, rCtx))
+        = apply(backPropagate(E, U, ECtx), firstRecord(r, rCtx))
+        QED;
+      */
       return backPropagate(E.subAction, Uraw, Up(E.keyOrOffset, ECtx));
     }
     if(E.ctor == Type.Up) {
+      /** Proof:
+        Since we assume apply(Up(ko, subAction), r[ko], (ko, r)::rCtx) is defined, it implies that
+        apply(subAction, r, rCtx) is defined
+        
+        Furthermore, we assume that apply(U, apply(Up(ko, subAction), r[ko], (ko, r)::rCtx), apply(ECtx, r[ko], (ko, r)::rCtx)) is defined, which is equal to:
+        apply(U, apply(subAction, r, rCtx), apply(Down(ko, ECtx), r, rCtx))
+        
+        By induction, we obtain that
+        apply(backPropagate(subAction, U, Down(ko, ECtx)), r, rCtx) is defined
+        = apply(backPropagate(E, U, ECtx), r, rCtx)
+        QED;
+      */
       return backPropagate(E.subAction, Uraw, Down(E.keyOrOffset, ECtx))
     }
     if(U.ctor == Type.Choose && (E.ctor != Type.Custom || !E.lens.single)) {
+      /** Proof:
+        Assuming that apply(E, r, rCtx) is defined,
+        Assuming that apply(Choose(subActions), apply(E, r, rCtx), apply(ECtx, r, rCtx)) is defined, which is equal to:
+        apply(subActions[i], apply(E, r, rCtx), apply(ECtx, r, rCtx)) for some i.
+        by induction,
+        apply(backPropagate(E, subAction[i], ECtx), r, rCtx) is defined
+        Since this is true for any i, it is true for the Choose and thus
+        apply(Choose(backPropagate(E, subAction[i], ECtx))_i, r, rCtx) is defined
+        QED;
+      */
       return Choose(...Collection.map(U.subActions, childU => backPropagate(E, childU, ECtx)));
     }
     if(E.ctor == Type.Custom) {
@@ -3270,12 +3375,25 @@ var editActions = {};
       */
       if("update" in E.lens) {
         let newU = E.lens.update(Uraw, E.lens.cachedInput, E.lens.cachedOutput);
+        /** Proof:
+           apply(Lens (ap, up) ESub, r, rCtx) is defined
+           = ap(apply(ESub, r, rCtx)) and thus apply(ESub, r, rCtx) is defined.
+           apply(U, apply(Lens (ap, up) ESub, r, rCtx), apply(ECtx, r, rCtx)) is defined,
+           = apply(U, ap(apply(ESub, r, rCtx)), apply(ECtx, r, rCtx)) is defined.
+           Thus,
+           apply(update(U), apply(ESub, r, rCtx), apply(ECtx, r, rCtx)) is defined.
+           By induction,
+           Thus, apply(backPropagate(ESub, update(U), ECtx); r, rCtx) is defined.
+           = apply(backPropagate(E, U, ECtx), r, rCtx)
+           QED;
+        */
         return backPropagate(E.subAction, newU, ECtx);
       } else {
         return E.lens.backPropagate(backPropagate, Uraw, E.lens.cachedInput, E.lens.cachedOutput, E.subAction, ECtx);
       }
     }
     if(U.ctor == Type.Choose) {
+      /** Proof: same as above for the Choose case */
       return Choose(...Collection.map(U.subActions, childU => backPropagate(E, childU, ECtx)));
     }
     if(isReuse(U)) {
@@ -3285,19 +3403,43 @@ var editActions = {};
         let tmp = backPropagate(Ep, Up(k, child), ECtxp);
         result = merge(result, tmp);
       });
+      /** Proof:
+          Assume apply(E, r, rCtx) is defined hence, apply(E, r, rCtx)[f] is defined for every f,
+          and apply(downAt(f, E), r, rCtx) is defined for every f.
+          Assume apply(U, apply(E, r, rCtx), apply(ECtx, r, rCtx)) is defined
+          The latest is equal to:
+          apply(Reuse({f: Uf}_f), apply(E, r, rCtx), apply(ECtx, r, rCtx))
+          = {f: applyZ(Uf, apply(E, r, rCtx)[f], (f, apply(E, r, rCtx))::apply(ECtx, r, rCtx))}_f
+          = {f: applyZ(Uf, apply(downAt(f, E), r, rCtx), apply((f, E)::ECtx, r, rCtx))}_f
+          Hence all these applyZ are defined, and thus
+          
+          backPropagate(downAt(f, E), Uf, (f, E)::ECtx) is defined.
+          Thus the merge of all of them is defined and thus
+          backPropagate(E, U, ECtx) is defined.
+          QED;
+      */
       return result;
     }
+    /** Specification: all [E, U, ECtx] satisfy backPropagate requirements.
+        Specification: apply(solution, r, rCtx) is valid*/
     let solution = Reuse(), subProblems = [];
     if(isRemoveExcept(U)) {
       printDebug("removeExcept case")
       let {count, newLength, oldLength} = U.keyOrOffset;
       // Base case where we remove everything from the array, possibly prepending something else at the given offset.
       if(newLength === 0) {
-        printDebug("Empty")
         if(E.ctor == Type.Concat) {
           let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, E.count), E, ECtx);
           let [ERight, ECtxRight]= walkDownActionCtx(Offset(E.count), E, ECtx);
           solution = Reuse();
+          /** Proof:
+              Assume apply(E@Concat(n, ELeft, ERight), r, rCtx) is defined
+              Assume apply(U@RemoveExcept(Offset(0, 0), subU), apply(E, r, rCtx), apply(ECtx, r, rCtx)) is defined
+              = apply(U@RemoveExcept(Offset(0, 0), subU), apply(ELeft, r, rCtx) ++n apply(ERight, r, rCtx), apply(ECtx, r, rCtx)) is defined
+              
+              
+              
+          */
           subProblems.push([ELeft, U, ECtxLeft]);
           subProblems.push([ERight, U, ECtxRight]);
         } else {

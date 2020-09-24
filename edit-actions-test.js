@@ -908,6 +908,18 @@ function testBackPropagate(e, u, res, name) {
 }
 
 testBackPropagate(
+  Concat(5, Reuse(), Reuse()),
+  RemoveAll(Prepend(1, "a")),
+  Prepend(2, "aa", RemoveAll())
+);
+
+testBackPropagate(
+  Concat(5, Reuse(), Reuse()),
+  Prepend(1, "a", Keep(5, Prepend(1, "b"))),
+  Prepend(2, Choose("ab", "ba"))
+);
+
+testBackPropagate(
   Down("a", "b"),
   Choose(New(1), New(2)),
   Choose(Reuse({a: Reuse({b: New(1)})}),
@@ -2220,7 +2232,7 @@ testBackPropagate(
     Keep(1, Replace(0, 1, New([New({ ctor: "Raw",
                                  value: 2})]))),
     Reuse({heap: Reuse({"1": Reuse({values: 
-      Keep(1, Replace(0, 1, New([New({ ctor: "Raw",
+      Keep(1, Prepend(1, New([New({ ctor: "Raw",
                                  value: 2})]))
     )})})}),
     "heap update X"
@@ -2471,9 +2483,7 @@ shouldBeEqual(
     Keep(1, Replace(0, 1, New([2])))
   ),
   Reuse({
-    heap: Keep(1,
-      Replace(0, 1,
-      New([2])))})
+    heap: Keep(1, Prepend(1, New([2])))})
 );
 
 shouldBeEqual(
