@@ -728,6 +728,9 @@ var editActions = {};
   
   // ReuseOffset(offset, X) is to Down(offset, X)
   // what Reuse({key: X}) is to Down(key, X)
+  // Specification:
+  // apply(ReuseOffset(Offset(c, n, o), replaced, subAction), r, rCtx)
+  // = apply(Down(Offset(0, c, o)), r, rCtx) ++c apply(subAction, r[c..c+n], (Offset(c, n, o), r):: rCtx) ++replaced apply(Down(Offset(c+n, o-(c+n), o)), r, rCtx)
   function ReuseOffset(offset, replaced, subAction) {
     if(offset.newLength !== undefined) {
       if(typeof subAction === "undefined" && isEditAction(replaced)) {
@@ -740,11 +743,7 @@ var editActions = {};
       }
       let wrapped = subAction;
       if(replaced === 0) {
-        if(isDown(wrapped)) { // We just take the sub action here. It's either Append, Prepend or Reuse
-          wrapped = wrapped.subAction;
-        }
-          
-        wrapped = Remove(offset.newLength, wrapped);
+        wrapped = Remove(offset.newLength);
       } else { // replaced > 0
         if(offset.newLength > 0) {
           wrapped = Replace(offset.newLength, replaced, wrapped);
@@ -757,6 +756,22 @@ var editActions = {};
       if(offset.count > 0) {
         wrapped = Keep(offset.count, wrapped);
       }
+      /**
+        Proof: when replaced == 0 and subAction is Down
+        apply(ReuseOffset(Offset(c, n, o), 0, U), r, rCtx)
+        = apply(Keep(c, Remove(n)), r, rCtx)
+        = apply(Down(Offset(0, c)), r, rCtx) ++c
+          apply(Down(Offset(c), Remove(n)), r, rCtx)
+        = apply(Down(Offset(0, c)), r, rCtx) ++c
+          apply(subAction, r[c..c+n], (Offset(c, n, o), r):: rCtx) ++0
+          apply(Down(Offset(c), Down(Offset(n),)), r, rCtx)
+        = apply(Down(Offset(0, c)), r, rCtx) ++c
+          apply(subAction, r[c..c+n], (Offset(c, n, o), r):: rCtx) ++0
+          apply(Down(Offset(c+n)), r, rCtx)
+        QED;
+        
+        
+      */
       return wrapped;
     } else {
       if(typeof subAction === "undefined" && isEditAction(replaced)) {
@@ -1701,6 +1716,7 @@ var editActions = {};
   // apply(downAt(f, E1), r, rCtx)
   // = apply(E1, r, rCtx)[f]
   function downAt(key, editAction) {
+    if(!isEditAction(editAction)) editAction = New(editAction);
     switch(editAction.ctor) {
     case Type.New:
       /** Proof: For New
@@ -3122,7 +3138,7 @@ var editActions = {};
       if(editActions.__debug) {
         console.log("ReuseUp goes up " + keyOrOffsetToString(finalUp.keyOrOffset) + " on " + stringOf(action));
       }
-      /** Proof:
+      /** Proof for keys.
         apply(rev(Up(k, X), acc), applyZ(ReuseUp(Up(k, X), E), <r, rCtx>), [])
         = apply(rev(X, Down(k, acc)),
           applyZ(ReuseUp(X, Reuse({k: E})), <r, rCtx>), [])
@@ -3134,6 +3150,9 @@ var editActions = {};
         = apply(acc, applyZ(E,  walkDownPath(rev(Up(k, X), Reuse()), <r, rCtx>)), (k, applyZ(Reuse({k: E}), walkDownPath(rev(X, Reuse()), <r, rCtx>)))::InvariantHelper(X, Down(k, acc), Reuse({k: E}), r, rCtx))
         = apply(acc, applyZ(E, walkDownPath(rev(Up(k, X), Reuse()), <r, rCtx>)), InvariantHelper(Up(k, X), acc, E, r, rCtx))
         QED;
+        
+        Proofs for offsets: TODO:
+        
       */
       action = ReuseKeyOrOffset(finalUp.keyOrOffset, action);
       finalUp = finalUp.subAction;
@@ -3152,10 +3171,21 @@ var editActions = {};
   }
   editActions.__ReuseUp = ReuseUp;
   
-  /* Returns [e', subs, initUp] where
+  /* Returns [e', subs] where
      e' is an edit built from U suitable to apply on the given context.
      subs are the sub back-propagation problems to solve and merge to the final result
-     */
+  
+  */
+  /** Specification:
+    Assuming apply(E, r, rCtx) is defined,
+    Assuming apply(U, apply(E, r, rCtx), apply(ECtx, r, rCtx)) is defined,
+    
+    partitionEdit returns a triplet [E', sub, ECtx']
+    such that:
+    apply(prefixReuse(ECtx', E'), firstRecord(r, rCtx)) is correctly defined.
+    
+    and sub are well-defined backPropagate problems.
+  */
   function partitionEdit(E, U, ECtx) {
     if(editActions.__debug) {
       console.log("partitionEdit");
@@ -3284,6 +3314,9 @@ var editActions = {};
   }
   
   // Converts an edit action relative to the ECtx to a edit action that can apply on the top-level.
+  /** Specifically:
+  
+  */
   function prefixReuse(ctx, editAction) {
     // First, build a path out of all the relative paths
     // Then, apply this path

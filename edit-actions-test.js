@@ -5,6 +5,18 @@ var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
 
+dummyLens = {
+  apply: x => x,
+  update: e => e,
+  name: "identity"
+};
+n();
+shouldBeEqual(
+  andThen(Down(0), [Custom(Reuse(), dummyLens)]),
+  Custom(Reuse(), dummyLens)
+);
+e();
+
 shouldBeEqual(
   apply(Down.pure("a", "b", 1), {a: {b: {"1": 2}}}), 1
 );
