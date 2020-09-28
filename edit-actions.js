@@ -1372,59 +1372,7 @@ var editActions = {};
       // secondAction is Reuse, New, UseResult
     } else if(isReuse(secondAction)) {
       // Special case of New. We should keep the structure of the first action, just modify certain things.
-      if(isReuse(firstAction)) {
-        /** Proof (key, context does not contain offset)
-          apply(andThen(Reuse({f: E2}), Reuse({f: E1}), E2Ctx), {...f: x...}, rCtx)
-        = apply(Reuse({f: andThen(E2, E1, Up(f, (f, Reuse({f: E1}))::E2Ctx))}), {...f: x...}, rCtx)   -- AndThen-Copy-Copy
-        = {...f: apply(andThen(E2, E1, Up(f, (f, Reuse({f: E1}))::E2Ctx)), X, (f, {...f: x...})::rCtx)...}  -- Copy
-        =  {...f: apply(E2, apply(E1, x, (f, {...f: x...})::rCtx), apply(Up(f, (f, Reuse({f: E1}))::E2Ctx), x, (f, {...f:x...})::rCtx)...}  -- IND
-        =  {...f: apply(E2, apply(E1, x, (f, {...f: x...})::rCtx), apply((f, Reuse({f: E1}))::E2Ctx, {...f:x...}, rCtx))...} -- UP
-        =  {...f: apply(E2, apply(E1, x, (f, {...f: x...})::rCtx), (f, apply(Reuse({f: E1}),  {...f: x...}, rCtx))::apply(E2Ctx, {...f:x...}, rCtx))...} -- NEW x 2
-        =  {...f: apply(E2, apply(E1, x, (f, {...f: x...})::rCtx), (f, {...f: apply(E1, x, (f, {...f: x...})::rCtx)...})::apply(E2Ctx, {...f: x...}, rCtx))...} -- Copy
-        = apply(Reuse({f: E2}), {...f: apply(E1, x, (f, {...f: x...})::rCtx)...}, apply(E2Ctx, {...f: x...}, rCtx)) -- Copy
-   GOAL = apply(Reuse({f: E2}), apply(Reuse({f: E1}), {...f: x...}, rCtx), apply(E2Ctx, {...f: x...}, rCtx));
-        QED.
-        */
-        
-        /** Unproof (key, context contain offset)
-          apply(andThen(Reuse({f: E2}), Reuse({f: E1}), (Offset(a, n), E0, X)::E2Ctx), {...f: x...}, rCtx)
-        = apply(Reuse({f: andThen(E2, E1, (f+a, E0, Up(f, X))::E2Ctx)}), {...f: x...}, rCtx)   -- AT-REU 
-        = {...f: apply(andThen(E2, E1, (f+a, E0, Up(f, X))::E2Ctx), X, (f, {...f: x...})::rCtx)...}  -- AP-REU
-        = {...f: apply(E2, apply(E1, x, (f, {...f: x...})::rCtx), apply((f+a, E0, Up(f, X))::E2Ctx, x, (f, {...f:x...})::rCtx)...}        
-        = {...f: apply(E2, apply(E1, x, (f, {...f: x...})::rCtx), apply((f+a, E0, X)::E2Ctx, {...f:x...}, rCtx))...}
-        Problem: Got (f+a, E0, X)::E2Ctx instead of (f, Reuse({f: E1}), Reuse())::(Offset(a, n), E0, X)::E2Ctx
-        
-        = {...f: apply(E2, apply(E1, x, (f, {...f: x...})::rCtx), apply((f, Reuse({f: E1}), Reuse())::(Offset(a, n), E0, X)::E2Ctx, {...f: x...}, rCtx))...}
-        = {...f: apply(E2, apply(E1, x, (f, {...f: x...})::rCtx), (f, apply(Reuse({f: E1}), {...f: x...}, rCtx))::apply((Offset(a, n), E0, X)::E2Ctx, {...f: x...}, rCtx))...}
-        = {...f: apply(E2, apply(E1, x, (f, {...f: x...})::rCtx), (f, {...f:apply(E1, x, (f, {...f: x})::rCtx)...})::apply((Offset(a, n), E0, X)::E2Ctx, {...f: x...}, rCtx))...};
-        = apply(Reuse({f: E2}), {...f:apply(E1, x, (f, {...f: x})::rCtx)...}, apply((Offset(a, n), E0, X)::E2Ctx, {...f: x...}, rCtx));
-   GOAL = apply(Reuse({f: E2}), apply(Reuse({f: E1}), {...f: x...}, rCtx), apply((Offset(a, n), E0, X)::E2Ctx, {...f: x...}, rCtx));
-        QED.
-        */
-        let newChildren = {};
-        forEach(firstAction.childEditActions, (firstChild, k) => {
-          if(k in secondAction.childEditActions) {
-            let secondChild = secondAction.childEditActions[k];
-            let newCtx = AddContext(k, firstActionOriginal, firstActionContext);
-            if(editActions.__debug) {
-              console.log("Inside Reuse({ " + k + ": ");
-            }
-            newChildren[k] = recurse(Up(k, secondChild), firstChild, newCtx);
-          } else {
-            newChildren[k] = firstChild;
-          }
-        })
-        forEach(secondAction.childEditActions, (secondChild, k) => {
-          if(!(k in firstAction.childEditActions)) {
-            if(editActions.__debug) {
-              console.log("Inside Reuse({ " + k + ": ");
-            }
-            newChildren[k] = recurse(Up(k, secondChild), Down(k), AddContext(k, firstActionOriginal, firstActionContext));
-          }
-        });
-        return New(newChildren, ReuseModel(secondAction.model.create || firstAction.model.create));
-      } else if(firstAction.ctor == Type.New) {
-        // Not a Reuse
+      if(firstAction.ctor == Type.New) {
         /** Proof (key)
           apply(andThen(Reuse({f: E2}), New({f: E1}), E2Ctx), r, rCtx)
         = apply(New({f: andThen(E2, E1, (f, New({f: E1}), Reuse())::E2Ctx)}), r, rCtx) -- AT-REUSE-NEW1
@@ -1436,23 +1384,31 @@ var editActions = {};
         = apply(Reuse({f: E2}), apply(New({f: E1}), r, rCtx), apply(E2Ctx, r, rCtx)) -- GOAL
         */
         let newChildren = {};
-        forEachChild(firstAction, (firstChild, k) => {
+        forEach(firstAction.childEditActions, (firstChild, k) => {
           if(k in secondAction.childEditActions) {
             let secondChild = secondAction.childEditActions[k];
+            let newCtx = AddContext(k, firstActionOriginal, firstActionContext);
             if(editActions.__debug) {
               console.log("Inside New({ " + k + ": ");
             }
-            newChildren[k] = recurse(Up(k, secondChild), firstChild, AddContext(k, firstActionOriginal, firstActionContext));
+            newChildren[k] = recurse(Up(k, secondChild), firstChild, newCtx);
           } else {
             newChildren[k] = firstChild;
           }
         });
         forEach(secondAction.childEditActions, (secondChild, k) => {
           if(!(k in firstAction.childEditActions)) {
-            newChildren[k] = recurse(Up(k, secondChild), New(undefined), AddContext(k, firstActionOriginal, firstActionContext));
+            if(editActions.__debug) {
+              console.log("Inside Reuse({ " + k + ": ");
+            }
+            newChildren[k] = recurse(secondChild, firstActionOriginal, firstActionContext);
           }
         });
-        return rawIfPossible(New(newChildren, firstAction.model), isFirstRaw);
+        if(isReuse(firstAction)) {
+          return New(newChildren, ReuseModel(secondAction.model.create || firstAction.model.create));
+        } else {
+          return rawIfPossible(New(newChildren, firstAction.model), isFirstRaw);
+        }
       } else if(firstAction.ctor == Type.Concat) {
         /** Assume f < n, g >= n
           //   apply(Reuse({k: Ek}), r, rCtx)
