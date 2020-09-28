@@ -1402,26 +1402,26 @@ var editActions = {};
         QED.
         */
         let newChildren = {};
-        forEach(secondAction.childEditActions, (f, k) => {
-          if(k in firstAction.childEditActions) {
-            let g = firstAction.childEditActions[k];
+        forEach(firstAction.childEditActions, (firstChild, k) => {
+          if(k in secondAction.childEditActions) {
+            let secondChild = secondAction.childEditActions[k];
             let newCtx = AddContext(k, firstActionOriginal, firstActionContext);
             if(editActions.__debug) {
               console.log("Inside Reuse({ " + k + ": ");
             }
-            newChildren[k] = recurse(Up(k, f), g, newCtx);
+            newChildren[k] = recurse(Up(k, secondChild), firstChild, newCtx);
           } else {
+            newChildren[k] = firstChild;
+          }
+        })
+        forEach(secondAction.childEditActions, (secondChild, k) => {
+          if(!(k in firstAction.childEditActions)) {
             if(editActions.__debug) {
               console.log("Inside Reuse({ " + k + ": ");
             }
-            newChildren[k] = recurse(Up(k, f), Down(k), AddContext(k, firstActionOriginal, firstActionContext));
+            newChildren[k] = recurse(Up(k, secondChild), Down(k), AddContext(k, firstActionOriginal, firstActionContext));
           }
         });
-        forEach(firstAction.childEditActions, (g, k) => {
-          if(!(k in secondAction.childEditActions)) {
-            newChildren[k] = g;
-          }
-        })
         return New(newChildren, ReuseModel(secondAction.model.create || firstAction.model.create));
       } else if(firstAction.ctor == Type.New) {
         // Not a Reuse
@@ -1447,7 +1447,7 @@ var editActions = {};
             newChildren[k] = firstChild;
           }
         });
-        forEachChild(secondAction, (secondChild, k) => {
+        forEach(secondAction.childEditActions, (secondChild, k) => {
           if(!(k in firstAction.childEditActions)) {
             newChildren[k] = recurse(Up(k, secondChild), New(undefined), AddContext(k, firstActionOriginal, firstActionContext));
           }

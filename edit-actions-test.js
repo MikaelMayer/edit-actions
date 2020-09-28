@@ -328,7 +328,7 @@ shouldBeEqual(
 
 shouldBeEqual(
   andThen({hd: "hello", 1: Reuse({c: Up("c", Down("a"))})}, Reuse({a: Up("a", Down("b"))})),
-  {hd: "hello", 1: Reuse({c: Up("c", Down("b")), a: Up("a", Down("b")), })}
+  {hd: "hello", 1: Reuse({a: Up("a", Down("b")), c: Up("c", Down("b"))})}
 );
 
 // I want an example where:
@@ -519,8 +519,8 @@ shouldBeEqual(andThen(Keep(2, Up(Offset(2))), Reuse({1: New(1), 3: Up(3, Down(0)
   )
 
 shouldBeEqual(andThen(Reuse({x: Reuse({y: Up("y", "x", Down("c"))})}), Reuse({c: Up("c", Down("x", "y", "z", Reuse()))})),
-              Reuse({x: Reuse({y: Down("z", Reuse())}),
-                     c: Up("c", Down("x", "y", "z", Reuse()))
+              Reuse({c: Up("c", Down("x", "y", "z", Reuse())),
+                     x: Reuse({y: Down("z", Reuse())})
               }))
 
 shouldBeEqual(
@@ -577,16 +577,16 @@ shouldBeEqual(
     Reuse({a: Sequence(Up("a", Down("b")),Reuse({d: New(1)}), {hd: {keyOrOffset: "a", prog: Reuse()}, tl: undefined})})
   ),
   Reuse({
-  c: Up("c", Down("a", Sequence(
-    Up("a", Down("b")),
-    Reuse({
-      d: New(1)}), List.fromArray([
-    __ContextElem("a",Reuse(), Reuse())])))),
   a: Sequence(
     Up("a", Down("b")),
     Reuse({
       d: New(1)}), List.fromArray([
-    __ContextElem("a",Reuse(), Reuse())]))})
+    __ContextElem("a",Reuse(), Reuse())])),
+  c: Up("c", Down("a", Sequence(
+    Up("a", Down("b")),
+    Reuse({
+      d: New(1)}), List.fromArray([
+    __ContextElem("a",Reuse(), Reuse())]))))})
 )
   // [A,B,C,D,E,F,G,H]
   // [[D],B, 1, 2, 3]
@@ -1633,10 +1633,10 @@ var globalStep2 = Reuse(
   {body: Down("arg", Reuse(
     {body: Reuse(
       {body: Up("body", "body", "arg", "body", Down( "arg", "body", Reuse(
-        {arg: Reuse(
+        {argName: New("a"),
+         arg: Reuse(
           {fun: Up("fun", Up("arg", "body", "arg", Down("body", "arg", "body", "body", "arg"))),
            arg: Up("arg", Up("arg", "body", "arg", Down("body",/*+>*/ "arg", "body", "body", "arg")))}),
-         argName: New("a"),
          body: Reuse({fun: New("a")})})))})}))});
 
 var expBeforeStep = apply(globalStep1, exp1);
@@ -2483,7 +2483,7 @@ shouldBeEqual(
 
 shouldBeEqual(
   andThen(Reuse({a: Up("a", Down( "b"))}), Reuse({b: Up("b", Down( "c")), a: New(1) })),
-  Reuse({a: Up("a", Down( "c")), b: Up("b", Down( "c"))}));
+  Reuse({b: Up("b", Down( "c")), a: Up("a", Down( "c"))}));
 
 shouldBeEqual(
   backPropagate(
