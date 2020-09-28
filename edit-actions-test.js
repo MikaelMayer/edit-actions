@@ -10,12 +10,11 @@ dummyLens = {
   update: e => e,
   name: "identity"
 };
-n();
+
 shouldBeEqual(
   andThen(Down(0), [Custom(Reuse(), dummyLens)]),
   Custom(Reuse(), dummyLens)
 );
-e();
 
 shouldBeEqual(
   apply(Down.pure("a", "b", 1), {a: {b: {"1": 2}}}), 1
@@ -219,7 +218,6 @@ shouldBeEqual(
     2: New(1)}),
   Keep(1, Reuse({
       3: 0}))));
-
 
 shouldBeEqual(
   andThen(

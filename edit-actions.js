@@ -1052,9 +1052,11 @@ var editActions = {};
     }
     let recurse = /*customRecurse || */editActions.__debug ? andThenWithLog : andThen;
     let isSecondRaw = !isEditAction(secondAction);
+    let secondActionOriginal = secondAction;
     if(isSecondRaw) { // Happens when secondAction is a context, or other cases.
       secondAction = New(secondAction);
     }
+    let firstActionOriginal = firstAction;
     let isFirstRaw = !isEditAction(secondAction);
     if(isFirstRaw) {
       firstAction = New(firstAction);
@@ -1064,12 +1066,12 @@ var editActions = {};
         = apply(E1, r, rCtx)
         = apply(Reuse(), apply(E1, r, rCtx), apply(ECtx, r, rCtx))
     */
-    if(isIdentity(secondAction)) return firstAction;
+    if(isIdentity(secondAction)) return firstActionOriginal;
       
     if(secondAction.ctor == Type.Choose) {
-      return Choose(...Collection.map(secondAction.subActions, subAction => andThen(subAction, firstAction, firstActionContext)));
+      return Choose(...Collection.map(secondAction.subActions, subAction => andThen(subAction, firstActionOriginal, firstActionContext)));
     } else if(firstAction.ctor == Type.Choose) {
-      return Choose(...Collection.map(firstAction.subActions, subAction => andThen(secondAction, subAction, firstActionContext)));
+      return Choose(...Collection.map(firstAction.subActions, subAction => andThen(secondActionOriginal, subAction, firstActionContext)));
     } else if(secondAction.ctor == Type.Up) {
       if(firstActionContext === undefined) {
         console.trace("Error empty context for Up in andThen", firstAction, ";", secondAction);
@@ -1089,8 +1091,8 @@ var editActions = {};
         }
         return Up(firstActionContext.keyOrOffset,
           recurse(
-            secondAction,
-            Down(firstActionContext.keyOrOffset, firstAction),
+            secondActionOriginal,
+            Down(firstActionContext.keyOrOffset, firstActionOriginal),
             firstActionContext.subAction));
       }
       if(firstActionContext.ctor == Type.Down) {
@@ -1104,12 +1106,12 @@ var editActions = {};
           QED
         */
         if(editActions.__debug) {
-          console.log("Pre-pending Down("+keyOrOffsetToString(firstActionContext.keyOrOffset), ", |)");
+          console.log("[ctx] Pre-pending Down("+keyOrOffsetToString(firstActionContext.keyOrOffset), ", |)");
         }
         return Down(firstActionContext.keyOrOffset,
           recurse(
-            secondAction,
-            Up(firstActionContext.keyOrOffset, firstAction),
+            secondActionOriginal,
+            Up(firstActionContext.keyOrOffset, firstActionOriginal),
             firstActionContext.subAction));
       }
       /** Proof:
@@ -1119,7 +1121,7 @@ var editActions = {};
         = applyZ(Up(ko, E2), applyZip((E1, EECtx), (r, rCtx)))
         QED;      
       */
-      let [finalFirstAction, finalFirstActionContext, newSecondUpOffset] = walkUpActionCtx(secondAction.keyOrOffset, firstAction, firstActionContext);
+      let [finalFirstAction, finalFirstActionContext, newSecondUpOffset] = walkUpActionCtx(secondAction.keyOrOffset, firstActionOriginal, firstActionContext);
       return recurse(
             newSecondUpOffset ? Up(newSecondUpOffset, secondAction.subAction) : secondAction.subAction,finalFirstAction, finalFirstActionContext);
       // firstAction is Reuse, New, Custom, Concat, UseResult
@@ -1149,9 +1151,9 @@ var editActions = {};
           QED.
         */
         if(editActions.__debug) {
-          console.log("Pre-pending Down("+keyOrOffsetToString(firstAction.keyOrOffset)+", |)");
+          console.log("[first down offset] Pre-pending Down("+keyOrOffsetToString(firstAction.keyOrOffset)+", |)");
         }
-        return SameDownAs(firstAction)(firstAction.keyOrOffset, recurse(secondAction, firstAction.subAction, Up(firstAction.keyOrOffset, firstActionContext)));
+        return SameDownAs(firstAction)(firstAction.keyOrOffset, recurse(secondActionOriginal, firstAction.subAction, Up(firstAction.keyOrOffset, firstActionContext)));
       } else {
         /** Proof:
           apply(andThen(E2, Down(f, E1), (k, E0, X)::ECtx), r, rCtx)
@@ -1163,9 +1165,9 @@ var editActions = {};
           QED.
         */
         if(editActions.__debug) {
-          console.log("Pre-pending Down("+ keyOrOffsetToString(firstAction.keyOrOffset)+", |)");
+          console.log("[first down key] Pre-pending Down("+ keyOrOffsetToString(firstAction.keyOrOffset)+", |)");
         }
-        return Down(firstAction.keyOrOffset, recurse(secondAction, firstAction.subAction, Up(firstAction.keyOrOffset, firstActionContext)));
+        return Down(firstAction.keyOrOffset, recurse(secondActionOriginal, firstAction.subAction, Up(firstAction.keyOrOffset, firstActionContext)));
       }
       // firstAction is Up, Reuse, New, Custom, Concat, UseResult
     } else if(firstAction.ctor == Type.Up) {
@@ -1197,7 +1199,7 @@ var editActions = {};
         = apply(Custom(E, (A, B)), applyZ(E1, rrCtx), apply(ECtx, rrCtx))
         QED;
       */
-      return Custom(recurse(secondAction.subAction, firstAction, firstActionContext), {...secondAction.lens});
+      return Custom(recurse(secondAction.subAction, firstActionOriginal, firstActionContext), {...secondAction.lens});
       // firstAction is Reuse, New, Custom, Concat, UseResult
       // secondAction is Up, Down, Reuse, New, Concat, UseResult
     } else if(secondAction.ctor == Type.Concat) {
@@ -1223,11 +1225,11 @@ var editActions = {};
             */
           let fc = firstAction.count;
           let fi = 0, lf = firstAction.first, rf = firstAction.second;
-          let [os, ls, rs] = splitIn(fc, secondAction);
+          let [os, ls, rs] = splitIn(fc, secondActionOriginal);
           if(rs !== undefined) {
             let ECtx = firstActionContext;
-            let firstSubContext = AddContext(Offset(0, fc), firstAction, ECtx);
-            let secondSubContext = AddContext(Offset(fc), firstAction, ECtx);
+            let firstSubContext = AddContext(Offset(0, fc), firstActionOriginal, ECtx);
+            let secondSubContext = AddContext(Offset(fc), firstActionOriginal, ECtx);
             /*Prepend(os, andThen(ls, if, (Offset(0, fc), Prepend(fc, if, rf))::ECtx), andThen(ls, rf, (Offset(fc), Prepend(fc, if, rf))::ECtx))*/
             if(editActions.__debug) {
               console.log("Filling Prepend("+fc+", |, ...)");
@@ -1255,11 +1257,11 @@ var editActions = {};
             if(editActions.__debug) {
               console.log("Pre-pending Re("+secondAction.count+", | , ..., "+secondAction.replaceCount+")");
             }
-            let newSecondFirst = recurse(secondAction.first, firstAction, firstActionContext);
+            let newSecondFirst = recurse(secondAction.first, firstActionOriginal, firstActionContext);
             if(editActions.__debug) {
               console.log("Filling Concat("+secondAction.count+", ... , |, "+secondAction.replaceCount+")", secondAction.count);
             }
-            let newSecondSecond = recurse(secondAction.second, firstAction, firstActionContext);
+            let newSecondSecond = recurse(secondAction.second, firstActionOriginal, firstActionContext);
             return Concat(secondAction.count, newSecondFirst, newSecondSecond, secondAction.replaceCount);
           } else if(rf !== undefined && rs !== undefined) {
             // If two replaces, we can keep the replace structure.
@@ -1314,8 +1316,8 @@ var editActions = {};
                 QED;
             */
             let ECtx = firstActionContext;
-            let firstSubContext = Up(Offset(0, fi), AddContext(Offset(0, fc), firstAction, ECtx));
-            let secondSubContext = Up(Offset(fi), AddContext(Offset(fc), firstAction, ECtx));
+            let firstSubContext = Up(Offset(0, fi), AddContext(Offset(0, fc), firstActionOriginal, ECtx));
+            let secondSubContext = Up(Offset(fi), AddContext(Offset(fc), firstActionOriginal, ECtx));
             if(editActions.__debug) {
               console.log("Filling Replace("+fi+", " + os + ", |, ...)");
             }
@@ -1342,11 +1344,11 @@ var editActions = {};
       if(editActions.__debug) {
         console.log("Pre-pending Concat("+secondAction.count+", | , ...)");
       }
-      let newSecondFirst = recurse(secondAction.first, firstAction, firstActionContext);
+      let newSecondFirst = recurse(secondAction.first, firstActionOriginal, firstActionContext);
       if(editActions.__debug) {
         console.log("Filling Concat("+secondAction.count+", ... , |)", secondAction.count);
       }
-      let newSecondSecond = recurse(secondAction.second, firstAction, firstActionContext);
+      let newSecondSecond = recurse(secondAction.second, firstActionOriginal, firstActionContext);
       let firstReuse = secondAction.firstReuse || firstAction.firstReuse;
       let secondReuse = !firstReuse && (secondAction.secondReuse || firstAction.secondReuse);
       return Concat(secondAction.count, newSecondFirst, newSecondSecond, undefined, firstReuse, secondReuse);
@@ -1364,7 +1366,7 @@ var editActions = {};
       = apply(Down(keyOrOffset, E2), apply(E1, r, rCtx), apply(E1Ctx, r, rCtx))
       QED;
       */
-      let [newFirstAction, newFirstActionContext] = walkDownActionCtx(f, firstAction, firstActionContext, secondAction.isRemove);
+      let [newFirstAction, newFirstActionContext] = walkDownActionCtx(f, firstActionOriginal, firstActionContext, secondAction.isRemove);
       return recurse(secondAction.subAction, newFirstAction, newFirstActionContext);
       // firstAction is Reuse, New, Concat, Custom, UseResult
       // secondAction is Reuse, New, UseResult
@@ -1402,17 +1404,17 @@ var editActions = {};
         let newChildren = {};
         forEach(secondAction.childEditActions, (f, k) => {
           if(k in firstAction.childEditActions) {
-            let g = Up(k, firstAction.childEditActions[k]);
-            let newCtx = Up(k, AddContext(k, firstAction, firstActionContext));
+            let g = firstAction.childEditActions[k];
+            let newCtx = AddContext(k, firstActionOriginal, firstActionContext);
             if(editActions.__debug) {
               console.log("Inside Reuse({ " + k + ": ");
             }
-            newChildren[k] = Down(k, recurse(Up(k, f), g, newCtx));
+            newChildren[k] = recurse(Up(k, f), g, newCtx);
           } else {
             if(editActions.__debug) {
               console.log("Inside Reuse({ " + k + ": ");
             }
-            newChildren[k] = Down(k, recurse(Up(k, f), Reuse(), Up(k, AddContext(k, firstAction, firstActionContext))));
+            newChildren[k] = recurse(Up(k, f), Down(k), AddContext(k, firstActionOriginal, firstActionContext));
           }
         });
         forEach(firstAction.childEditActions, (g, k) => {
@@ -1440,14 +1442,14 @@ var editActions = {};
             if(editActions.__debug) {
               console.log("Inside New({ " + k + ": ");
             }
-            newChildren[k] = recurse(Up(k, secondChild), firstChild, AddContext(k, firstAction, firstActionContext));
+            newChildren[k] = recurse(Up(k, secondChild), firstChild, AddContext(k, firstActionOriginal, firstActionContext));
           } else {
             newChildren[k] = firstChild;
           }
         });
         forEachChild(secondAction, (secondChild, k) => {
           if(!(k in firstAction.childEditActions)) {
-            newChildren[k] = recurse(Up(k, secondChild), New(undefined), AddContext(k, firstAction, firstActionContext));
+            newChildren[k] = recurse(Up(k, secondChild), New(undefined), AddContext(k, firstActionOriginal, firstActionContext));
           }
         });
         return rawIfPossible(New(newChildren, firstAction.model), isFirstRaw);
@@ -1565,11 +1567,11 @@ var editActions = {};
         if(editActions.__debug) {
           console.log("Inside left of Concat(" + firstAction.count, ", |, ...)");
         }
-        let newFirst = recurse(New(leftChildren, ReuseModel()), firstAction.first, AddContext(Offset(0, firstAction.count), firstAction, firstActionContext));
+        let newFirst = recurse(New(leftChildren, ReuseModel()), firstAction.first, AddContext(Offset(0, firstAction.count), firstActionOriginal, firstActionContext));
         if(editActions.__debug) {
           console.log("Inside right of Concat(" + firstAction.count, ", ..., |)");
         }
-        let newSecond = recurse(New(rightChildren, ReuseModel()), firstAction.second, AddContext(Offset(firstAction.count), firstAction, firstActionContext));
+        let newSecond = recurse(New(rightChildren, ReuseModel()), firstAction.second, AddContext(Offset(firstAction.count), firstActionOriginal, firstActionContext));
         
         return Concat(firstAction.count, newFirst, newSecond, firstAction.replaceCount, firstAction.firstReuse, firstAction.secondReuse);
       } else {
@@ -1584,7 +1586,7 @@ var editActions = {};
           QED;
         */ 
         // However, it does not reduce the size of the expression, really.
-        return Sequence(firstAction, secondAction, firstActionContext);
+        return Sequence(firstActionOriginal, secondActionOriginal, firstActionContext);
       }
       // firstAction is Reuse, New, Custom, Concat or UseResult
       // secondAction is New, or UseResult
@@ -1605,7 +1607,7 @@ var editActions = {};
         if(editActions.__debug) {
           console.log((notFirst ? "Back i" : notFirst++ || "I")+"nside New({ "+g+":... })");
         }
-        newChildren[g] = recurse(secondAction.childEditActions[g], firstAction, firstActionContext);
+        newChildren[g] = recurse(secondAction.childEditActions[g], firstActionOriginal, firstActionContext);
       }
       return rawIfPossible(New(newChildren, secondAction.model), isSecondRaw);
       // firstAction is Reuse, New, Custom, Concat or UseResult
@@ -1619,7 +1621,7 @@ var editActions = {};
          = apply(E1, apply(E0, r, rCtx), apply(E0Ctx, r, rCtx))
          QED;
     */      
-    return Sequence(firstAction, secondAction, firstActionContext);
+    return Sequence(firstActionOriginal, secondActionOriginal, firstActionContext);
   }
   editActions.andThen = andThenWithLog//andThen;
   
