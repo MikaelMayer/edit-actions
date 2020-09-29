@@ -578,7 +578,7 @@ var editActions = {};
   // Extend, Reuse, Replace, Interval Prepend, Keep, Remove, RemoveAll, RemoveExcept
  
   function Extend(childEditActions, create=false) {
-    return New(newChildEditActions, ReuseModel(create));
+    return New(childEditActions, ReuseModel(create));
   }
   
   // apply(Reuse({a: New(1)}), {a: 2, b: 3}) = {a: 1, b: 3}

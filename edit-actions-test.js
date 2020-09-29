@@ -5,6 +5,25 @@ var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
 
+n()
+shouldBeEqual(
+  backPropagate(
+    [Down(Interval(1, 2)),
+     [[Down(Interval(3, 8)), Down(Interval(10, 22))]],
+     [["TEXT", Down(Interval(26, 35))]]
+    ],
+    Reuse({1: Reuse({0: Reuse({1: Append(12, "font-family: \"Comic Sans\"")})}),
+    2: Reuse({0: Reuse({1: 
+      Keep(3, Remove(1, Prepend(1, "<")))
+    })})})
+  ),
+  Keep(10, Replace(12, 37,
+    Append(12, "font-family: \"Comic Sans\""),
+    Keep(7, Remove(1, Prepend(1, "<")))))
+);
+e();
+
+
 dummyLens = {
   apply: x => x,
   update: e => e,
