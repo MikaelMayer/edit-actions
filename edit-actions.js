@@ -575,16 +575,20 @@ var editActions = {};
   editActions.first = first;
   
   //// HELPERS and syntactic sugar:
-  // Reuse, Replace, Interval Prepend, Keep, Remove, RemoveAll, RemoveExcept
+  // Extend, Reuse, Replace, Interval Prepend, Keep, Remove, RemoveAll, RemoveExcept
  
+  function Extend(childEditActions, create=false) {
+    return New(newChildEditActions, ReuseModel(create));
+  }
+  
   // apply(Reuse({a: New(1)}), {a: 2, b: 3}) = {a: 1, b: 3}
-  function Reuse(childEditActions) {
+  function Reuse(childEditActions, create=false) {
     let newChildEditActions = mapChildren(
       childEditActions, (k, c) => Down(k, c),
       /*canReuse*/false,
       (newChild, k) => !isObject(newChild) || newChild.ctor !== Type.Down || newChild.keyOrOffset !== k || !isIdentity(newChild.subAction)
       );
-    return New(newChildEditActions, ReuseModel(false));
+    return Extend(newChildEditActions, create);
   }
   editActions.Reuse = Reuse;
   
@@ -1384,27 +1388,22 @@ var editActions = {};
         = apply(Reuse({f: E2}), apply(New({f: E1}), r, rCtx), apply(E2Ctx, r, rCtx)) -- GOAL
         */
         let newChildren = {};
+        let firstIsReuse = isReuse(firstAction);
         forEach(firstAction.childEditActions, (firstChild, k) => {
-          if(k in secondAction.childEditActions) {
-            let secondChild = secondAction.childEditActions[k];
-            let newCtx = AddContext(k, firstActionOriginal, firstActionContext);
-            if(editActions.__debug) {
-              console.log("Inside New({ " + k + ": ");
-            }
-            newChildren[k] = recurse(Up(k, secondChild), firstChild, newCtx);
-          } else {
+          if(!(k in secondAction.childEditActions)) {
             newChildren[k] = firstChild;
+          } else {
+            // For key ordering, first actions come first.
+            newChildren[k] = undefined;
           }
         });
         forEach(secondAction.childEditActions, (secondChild, k) => {
-          if(!(k in firstAction.childEditActions)) {
-            if(editActions.__debug) {
-              console.log("Inside Reuse({ " + k + ": ");
-            }
-            newChildren[k] = recurse(secondChild, firstActionOriginal, firstActionContext);
+          if(editActions.__debug) {
+            console.log("Inside "+(firstIsReuse ? "Reuse" : "New")+"({ " + k + ": ");
           }
+          newChildren[k] = recurse(secondChild, firstActionOriginal, firstActionContext);
         });
-        if(isReuse(firstAction)) {
+        if(firstIsReuse) {
           return New(newChildren, ReuseModel(secondAction.model.create || firstAction.model.create));
         } else {
           return rawIfPossible(New(newChildren, firstAction.model), isFirstRaw);
