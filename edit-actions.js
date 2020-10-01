@@ -2587,13 +2587,11 @@ var editActions = {};
   
   // Merge function, but with logs of outputs
   function addLogMerge(fun) {
-    return function(E1, E2) {
-      let res = fun(E1, E2);
+    return function(E1, E2, keepFirst) {
+      let res = fun(E1, E2, keepFirst);
       if(editActions.__debug) {
-        console.log("  merge returns");
-        console.log(addPadding("  " + stringOf(E1), "  "));
-        console.log(addPadding("  " + stringOf(E2), "  "));
-        console.log(addPadding("  =>" + stringOf(res), "  =>"));
+        
+        printDebug("merge "+keepFirst+" returns", E1, E2, "=>", res);
       }
       return res;
     }
@@ -2654,21 +2652,21 @@ var editActions = {};
   // applyZ(merge(E1, E2), (r, rCtx))
   // = three way merge of r, applyZ(E1, (r, rCtx)) and applyZ(E2, (r, rCtx));
   
+  var KEEP_E1 = true;
+  var KEEP_E2 = false;
   
   // Soft specification:
   // if applyZ(E1, rrCtx) and applyZ(E2, rrCtx) is defined
   // then applyZ(merge(E1, E2), rrCtx) is defined.
-  var merge = addLogMerge(function mergeRaw(E1, E2) {
+  var merge = addLogMerge(function mergeRaw(E1, E2, keepFirst) {
+    // keepFirst is either undefined, true (we keep E1 if necessary, we disregard E2) or false (we keep E2 if necessary, we diregard E1).
     if(editActions.__debug) {
-      console.log("merge");
-      editActions.debug(E1);
-      editActions.debug(E2);
-      if(isReplace(E2) && stringOf(E2).startsWith("Concat")) console.trace("Weird concat");
+      printDebug("merge "+keepFirst, E1, E2);
     }
-    let E1IsRaw = false;
-    let E2IsRaw = false;
-    if(typeof E1 !== "object") { E1IsRaw = true; E1 = New(E1); }
-    if(typeof E2 !== "object") { E2IsRaw = true; E2 = New(E2); }
+    let E1IsRaw = false, E1Original = E1;
+    let E2IsRaw = false, E2Original = E2;
+    if(!isEditAction(E1)) { E1IsRaw = true; E1 = New(E1); }
+    if(!isEditAction(E2)) { E2IsRaw = true; E2 = New(E2); }
     if(E1.ctor == Type.Choose) {
       /** Proof:
           applyZ(merge(E1, E2), rrCtx)
@@ -2678,22 +2676,22 @@ var editActions = {};
         Now, since applyZ(E1, rrCtx) = applyZ(E1.subActions[0],rrCtx) is defined,
         by induction, we obtain the result. QED;
       */
-      return Choose(...Collection.map(E1.subActions, x => merge(x, E2)));
+      return Choose(...Collection.map(E1.subActions, x => merge(x, E2Original)));
     }
     if(E2.ctor == Type.Choose) {
       /** Proof: Same as above. */
-      return Choose(...Collection.map(E2.subActions, x => merge(E1, x)));
+      return Choose(...Collection.map(E2.subActions, x => merge(E1Original, x)));
     }
     let result = [];
     merge_cases: {
       if(isIdentity(E1)) {
         /** Proof: applyZ(merge(E1, E2), rrCtx) = apply(E2, rrCtx) */
-        result.push(E2);
+        result.push(E2Original);
         break merge_cases;
       }
       if(isIdentity(E2)) {
         /** Proof: applyZ(merge(E1, E2), rrCtx) = apply(E1, rrCtx) */
-        result.push(E1);
+        result.push(E1Original);
         break merge_cases;
       }
       
@@ -2719,9 +2717,11 @@ var editActions = {};
       let E2IsInsert = isNew(E2) && E2.model.ctor == TypeNewModel.Insert;
       let E1IsReusingBelow = false;
       if(E1IsInsert) {
-        forEach(E1.model.value, (child, k) => {
-          if(child) E1IsReusingBelow = true;
-        });
+        if(isObject(E1.model.value)) {
+          forEach(E1.model.value, (child, k) => {
+            if(child) E1IsReusingBelow = true;
+          });
+        }
         if(E1IsReusingBelow) {
           /** Proof:
               applyZ(merge(E1, E2), rrCtx)
@@ -2731,48 +2731,52 @@ var editActions = {};
             Since applyZ(E1, rrCtx) was defined, applyZ(ck, rrCtx) was defined. By induction, we conclude.
             QED;
           */
-          result.push(New(mapChildren(E1.childEditActions, (k, c) => access(E1.model.value, k) ? merge(c, E2) : c), E1.model));
+          printDebug("#1");
+          result.push(New(mapChildren(E1.childEditActions, (k, c) => merge(c, E2, access(E1.model.value, k) ? undefined : KEEP_E1)), E1.model));
         }
       }
       let E2IsReusingBelow = false;
       if(E2IsInsert) {
-        forEach(E2.model.value, (child, k) => {
-          if(child) E2IsReusingBelow = true;
-        });
+        if(isObject(E2.model.value)) {
+          forEach(E2.model.value, (child, k) => {
+            if(child) E2IsReusingBelow = true;
+          });
+        }
         if(E2IsReusingBelow) {
           /** Proof: Same as above*/
-          result.push(New(mapChildren(E2.childEditActions, (k, c) => access(E2.model.value, k) ? merge(E1, c) : c), E2.model));
+          result.push(New(mapChildren(E2.childEditActions, (k, c) => merge(E1, c, access(E2.model.value, k) ? undefined : KEEP_E2)), E2.model));
         }
       }
       if(!E1IsReusingBelow && !E2IsReusingBelow) {
-        if(E1IsInsert) {
+        if(E1IsInsert && keepFirst !== KEEP_E2) {
           /** Proof: Trivial */
-          result.push(E1);
+          result.push(E1Original);
         }
-        if(E2IsInsert) {
+        if(E2IsInsert && keepFirst !== KEEP_E1) {
           /** Proof: Trivial */
-          result.push(E2);
+          result.push(E2Original);
         }
-        if(E1IsInsert || E2IsInsert) {
+        if(E1IsInsert && keepFirst !== KEEP_E2|| E2IsInsert && keepFirst !== KEEP_E1) {
           /** Proof that result is not empty:
               if E1IsInsert, then result contains E1. If E2IsInsert, then result contains E2. QED */
           break merge_cases;
         }
       }
       
-      let E1IsContactNotReplace = E1.ctor == Type.Concat && !isReplace(E1);
-      let E2IsContactNotReplace = E2.ctor == Type.Concat && !isReplace(E2);
-      if(E1IsContactNotReplace && E2IsContactNotReplace) {
+      let E1IsConcatNotReplace = E1.ctor == Type.Concat && !isReplace(E1);
+      let E2IsConcatNotReplace = E2.ctor == Type.Concat && !isReplace(E2);
+      if(E1IsConcatNotReplace && E2IsConcatNotReplace) {
         if(!E1.firstReuse && !E1.secondReuse && !E2.firstReuse && !E2.secondReuse) {
           result.push(E1);
           result.push(E2);
           break merge_cases;
         }
       }
+      // Prepend are cancelled if there is a Down that removes the first offset.
       // A regular Concat is like a New.
       // We only merge children that have reuse in them. The other ones, we don't merge.
-      let E1IsConcatReuse = E1IsContactNotReplace && (E1.firstReuse || E1.secondReuse);
-      let E2IsConcatReuse = E2IsContactNotReplace && (E2.firstReuse || E2.secondReuse);
+      let E1IsConcatReuse = E1IsConcatNotReplace && (E1.firstReuse || E1.secondReuse);
+      let E2IsConcatReuse = E2IsConcatNotReplace && (E2.firstReuse || E2.secondReuse);
       let E1IsPrepend = E1IsConcatReuse && isPrepend(E1);
       let E2IsPrepend = E2IsConcatReuse && isPrepend(E2);
       let E1IsAppend = E1IsConcatReuse && isAppend(E1);
@@ -2783,12 +2787,15 @@ var editActions = {};
         if(isNew(E1.second) && isNew(E2.second)) {
           let v1 = valueIfNew(E1.second);
           let v2 = valueIfNew(E2.second);
-          if(typeof v1 == "string" && v1 + v2 == v2 + v1) {
-            result.push(Append(MinUndefined(E1.count, E2.count), newRemaining, v1 + v2));
-            break merge_cases;
-          } else if(typeof v1 == "string") {
-            result.push(Append(MinUndefined(E1.count, E2.count), newRemaining, Choose(v1 + v2, v2 + v1), newRemaining));
-            break merge_cases;
+          let secondWasRaw = !isEditAction(E1.second) && !isEditAction(E2.second);
+          if(typeof v1 == "string" && typeof v2 == "string") {
+            if(v1 + v2 == v2 + v1) {
+              result.push(Append(MinUndefined(E1.count, E2.count), newRemaining, rawIfPossible(New(v1 + v2), secondWasRaw)));
+              break merge_cases;
+            } else {
+              result.push(Append(MinUndefined(E1.count, E2.count), newRemaining, Choose(rawIfPossible(New(v1 + v2), secondWasRaw), rawIfPossible(New(v2 + v1), secondWasRaw)), newRemaining));
+              break merge_cases;
+            }
           }
         }
       }
@@ -2798,42 +2805,57 @@ var editActions = {};
         if(isNew(E1.first) && isNew(E2.first)) {
           let v1 = valueIfNew(E1.first);
           let v2 = valueIfNew(E2.first);
-          if(typeof v1 == "string" && v1 + v2 == v2 + v1) {
-            result.push(Prepend(v1.length + v2.length, v1 + v2, newRemaining));
-            break merge_cases;
-          } else if(typeof v1 == "string") {
-            result.push(Prepend(v1.length + v2.length, Choose(v1 + v2, v2 + v1), newRemaining));
-            break merge_cases;
+          let firstWasRaw = !isEditAction(E1.first) && !isEditAction(E2.first);
+          if(typeof v1 == "string" && typeof v2 == "string") {
+            if(v1 + v2 == v2 + v1) {
+              result.push(Prepend(v1.length + v2.length, rawIfPossible(New(v1 + v2), firstWasRaw), newRemaining));
+              break merge_cases;
+            } else {
+              result.push(Prepend(v1.length + v2.length, Choose(rawIfPossible(New(v1 + v2), firstWasRaw), rawIfPossible(New(v2 + v1), firstWasRaw)), newRemaining));
+              break merge_cases;
+            }
           }
         }
       }
       // Particular case for two Prepend and two Append so that we don't compute them.
       if(E1IsConcatReuse) {
-        let newLeft = E1.firstReuse ? merge(E1.first, E2) : E1.first;
-        let newLeftLength = outLength(newLeft);
-        if(newLeftLength === undefined) newLeftLength = E1.count;
-        result.push(
-          Concat(newLeftLength, newLeft,
-                 E1.secondReuse ? merge(E1.second, E2) : E1.second, undefined, E1.firstReuse, E1.secondReuse));
+        let E2IsDownOffset = isDown(E2) && isOffset(E2.keyOrOffset);
+        if(keepFirst === false && E2IsDownOffset && isPrepend(E1) && E2.keyOrOffset.count > 1) {
+          result.push(merge(E1.second, E2, keepFirst));
+        } else /*if(E2IsDownOffset && isAppend(E1) && E2.keyOrOffset.newLength !== undefined && E2.keyOrOffset.count + E2.keyOrOffset.newLength < E1. {
+          For this, we would need to know what is the inCount of E1's right.
+        } else */{
+          let newLeft = merge(E1.first, E2, E1.firstReuse ? undefined : KEEP_E1);
+          let newLeftLength = outLength(newLeft);
+          printDebug("newLeftLength", newLeftLength);
+          if(newLeftLength === undefined) newLeftLength = E1.count;
+          result.push(
+            Concat(newLeftLength, newLeft,
+                   merge(E1.second, E2, E1.secondReuse ? undefined : KEEP_E1), undefined, E1.firstReuse, E1.secondReuse));
+        }
       }
       if(E2IsConcatReuse) {
-        let newLeft = E2.firstReuse ? merge(E1, E2.first) : E2.first;
+        let newLeft = merge(E1, E2.first, E2.firstReuse ? undefined : KEEP_E2);
         let newLeftLength = outLength(newLeft);
+        printDebug("newLeftLength", newLeftLength);
         if(newLeftLength === undefined) newLeftLength = E2.count;
         result.push(
           Concat(newLeftLength, newLeft,
-                 E2.secondReuse ? merge(E1, E2.second) : E2.second, undefined, E2.firstReuse, E2.secondReuse));
+                 merge(E1, E2.second, E2.secondReuse ? undefined : KEEP_E2), undefined, E2.firstReuse, E2.secondReuse));
       }
       if(!E1IsConcatReuse && !E2IsConcatReuse) {
-        if(E1IsContactNotReplace) {
+        if(E1IsConcatNotReplace) {
           result.push(E1);
         }
-        if(E2IsContactNotReplace) {
+        if(E2IsConcatNotReplace) {
           result.push(E2);
         }
-        if(E1IsContactNotReplace || E2IsContactNotReplace) {
+        if(E1IsConcatNotReplace || E2IsConcatNotReplace) {
           break merge_cases;
         }
+      }
+      if(E1IsConcatReuse || E2IsConcatReuse) {
+        break merge_cases;
       }
       // If nothing was added, it means that:
       
@@ -3522,13 +3544,13 @@ var editActions = {};
     }
     if(editActions.__debug) console.log("outLength", stringOf(editAction), "("+inCount+")");
     if(editAction.ctor == Type.Choose) {
-      return Collection.firstOrDefaultCallback(editAction.subActions, f => outLength(f, inCount));
+      return Collection.firstOrDefaultCallback(editAction.subActions, Reuse(), f => outLength(f, inCount));
     }
     if(typeof editAction.cachedOutLength == "number") {
       return editAction.cachedOutLength;
     }
     if(editAction.ctor == Type.Concat) {
-      let rightLength = outLength(editAction.second, editAction.replaceCount === undefined ? inCount : MinusUndefined(inCount, editAction.replaceCount));
+      let rightLength = outLength(editAction.second, inCount);
       return PlusUndefined(editAction.count, rightLength);
     }
     if(editAction.ctor == Type.New) {
@@ -3545,7 +3567,7 @@ var editActions = {};
         return result;
       } else {
         if(typeof editAction.model.value === "string") {
-          return editAction.model.length;
+          return editAction.model.value.length;
         } else {
           return lengthOfArray(editAction.childEditActions);
         }

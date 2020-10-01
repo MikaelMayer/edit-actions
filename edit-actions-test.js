@@ -5,7 +5,26 @@ var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
 
-n()
+// Insertion of removed portion before
+shouldBeEqual(
+  merge(
+    Keep(10, Prepend(5, RemoveExcept(Interval(10, 15)), Keep(10, Remove(5)))),
+    Keep(23, Prepend(2, "ab"))
+  ),
+  Keep(10, Prepend(7, RemoveExcept(Interval(10, 15), Keep(3, Prepend(2, "ab"))), Keep(10, Remove(5)))),
+);
+
+/*
+// Insertion of removed portion after
+shouldBeEqual(
+  merge(
+    Keep(10, Remove(5, Keep(5, Prepend(5, Up(Offset(10, undefined, 5)))))),
+    Keep(13, Prepend(2, "ab"))
+  ),
+  Keep(10, Remove(5, Keep(5, Prepend(5, Up(Offset(10, undefined, 5), Keep(3, Prepend(2, "ab")))))))
+);
+e()*/
+
 shouldBeEqual(
   backPropagate(
     [Down(Interval(1, 2)),
@@ -21,8 +40,6 @@ shouldBeEqual(
     Append(12, "font-family: \"Comic Sans\""),
     Keep(7, Remove(1, Prepend(1, "<")))))
 );
-e();
-
 
 dummyLens = {
   apply: x => x,
