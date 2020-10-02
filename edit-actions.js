@@ -2652,10 +2652,29 @@ var editActions = {};
   var KEEP_E1 = true;
   var KEEP_E2 = false;
   
+  // An input context helps to know on which input the current edit action is being applied to.
+  function InputContext(E, ICtx) {
+    return {hd: E, tl: ICtx};
+  }
+  
+  function AddInputContext(E, ICtx) {
+    if(ICtx === undefined) {
+      return InputContext(E);
+    } else if(isEditAction(ICtx)){
+      return InputContext(E, ICtx);
+    } else {
+      return InputContext(E, ICtx.tl);
+    }
+  }
+  
+  function isInputContextTop(ICtx) {
+    return ICtx === undefined || !isEditAction(ICtx) && ICtx.tl === undefined;
+  }
+  
   // Soft specification:
   // if applyZ(E1, rrCtx) and applyZ(E2, rrCtx) is defined
   // then applyZ(merge(E1, E2), rrCtx) is defined.
-  var merge = addLogMerge(function mergeRaw(E1, E2, keepFirst) {
+  var merge = addLogMerge(function mergeRaw(E1, E2, keepFirst, ICtx1, ICtx2) {
     // keepFirst is either undefined, true (we keep E1 if necessary, we disregard E2) or false (we keep E2 if necessary, we diregard E1).
     if(editActions.__debug) {
       printDebug("merge "+keepFirst, E1, E2);
@@ -2681,12 +2700,21 @@ var editActions = {};
     }
     let result = [];
     merge_cases: {
-      if(isIdentity(E1)) {
-        /** Proof: applyZ(merge(E1, E2), rrCtx) = apply(E2, rrCtx) */
+      if(isIdentity(E1) && isInputContextTop(ICtx1)) {
+        /** Proof: applyZ(merge(E1, E2), rrCtx) = apply(E2, rrCtx)
+         Yes, however consider the following:
+         merge(
+           Reuse({b: New(1)}),
+           Reuse({a: Up("a", Down("b"))}))
+         With the code below, we would just have 
+         Reuse({b: New(1), a: Up("a", Down("b"))})
+         But since b was modified, we get the previous value of b. It makes more sense to have:
+         Reuse({b: New(1), a: Up("a", Down("b", New(1)))})
+        */
         result.push(E2Original);
         break merge_cases;
       }
-      if(isIdentity(E2)) {
+      if(isIdentity(E2) && isInputContextTop(ICtx2)) {
         /** Proof: applyZ(merge(E1, E2), rrCtx) = apply(E1, rrCtx) */
         result.push(E1Original);
         break merge_cases;
@@ -2710,15 +2738,11 @@ var editActions = {};
       // (E1, E2) is [R*, N, F, C, U, D, UR] x [R*, N, F, C, U, D, UR] \ N0 x N0
       
       // We only merge children that have reuse in them. The other ones, we don't merge.
-      let E1IsInsert = isNew(E1) && E1.model.ctor == TypeNewModel.Insert;
-      let E2IsInsert = isNew(E2) && E2.model.ctor == TypeNewModel.Insert;
-      let E1IsReusingBelow = false;
+      let E1IsInsert = isNew(E1);
+      let E2IsInsert = isNew(E2);
+      let E1IsReusingBelow = E1IsInsert && isNewReusing(E1);
+      let E2IsReusingBelow = E2IsInsert && isNewReusing(E2);
       if(E1IsInsert) {
-        if(isObject(E1.model.value)) {
-          forEach(E1.model.value, (child, k) => {
-            if(child) E1IsReusingBelow = true;
-          });
-        }
         if(E1IsReusingBelow) {
           /** Proof:
               applyZ(merge(E1, E2), rrCtx)
@@ -2732,13 +2756,7 @@ var editActions = {};
           result.push(New(mapChildren(E1.childEditActions, (k, c) => merge(c, E2, access(E1.model.value, k) ? undefined : KEEP_E1)), E1.model));
         }
       }
-      let E2IsReusingBelow = false;
       if(E2IsInsert) {
-        if(isObject(E2.model.value)) {
-          forEach(E2.model.value, (child, k) => {
-            if(child) E2IsReusingBelow = true;
-          });
-        }
         if(E2IsReusingBelow) {
           /** Proof: Same as above*/
           result.push(New(mapChildren(E2.childEditActions, (k, c) => merge(E1, c, access(E2.model.value, k) ? undefined : KEEP_E2)), E2.model));
@@ -5120,6 +5138,15 @@ var editActions = {};
   }
   function isReuse(editAction) {
     return typeof editAction == "object" && editAction.ctor == Type.New && editAction.model.ctor === TypeNewModel.Extend;
+  }
+  function isNewReusing(editAction) {
+    let isReusingBelow = false;
+    if(isObject(editAction.model.value)) {
+      forEach(editAction.model.value, (child, k) => {
+        if(child) isReusingBelow = true;
+      });
+    }
+    return isReusingBelow;
   }
   function isNew(editAction) {
     return isObject(editAction) && editAction.ctor == Type.New && editAction.model.ctor == TypeNewModel.Insert || !isEditAction(editAction);
