@@ -14,8 +14,17 @@ shouldBeEqual(
   Keep(10, Prepend(7, RemoveExcept(Interval(10, 15), Keep(3, Prepend(2, "ab"))), Keep(10, Remove(5)))),
 );
 
-/*
+n();
+shouldBeEqual(
+  merge(
+    Replace(3, 3, Reuse({1: New(2)}), Prepend(1, ["a"])),
+    Keep(4, Prepend(1, Down(Interval(-3, -2))))
+  ),
+  Replace(3, 3, Reuse({1: New(2)}), Prepend(1, ["a"], Keep(1, Prepend(1, Down(Interval(-3, -2), Reuse({0: New(2)}))))))
+);
+
 // Insertion of removed portion after
+n()
 shouldBeEqual(
   merge(
     Keep(10, Remove(5, Keep(5, Prepend(5, Up(Offset(10, undefined, 5)))))),
@@ -23,7 +32,7 @@ shouldBeEqual(
   ),
   Keep(10, Remove(5, Keep(5, Prepend(5, Up(Offset(10, undefined, 5), Keep(3, Prepend(2, "ab")))))))
 );
-e()*/
+e()
 
 shouldBeEqual(
   backPropagate(

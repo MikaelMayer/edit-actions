@@ -353,7 +353,7 @@ var editActions = {};
           if(ik && (keyOrOffset.count < 0 || keyOrOffset.count === 0 && !LessThanEqualUndefined(keyOrOffset.newLength, keyOrOffset.oldLength))) {
             // Flip to up.
             let newUpOffset = downToUpOffset(keyOrOffset);
-            console.trace("/!\\ Warning, Down() was given an incorrect offset. Converting it to up. "+keyOrOffsetToString(keyOrOffset)+"=>"+keyOrOffsetToString(newUpOffset));
+            /*console.trace("/!\\ Warning, Down() was given an incorrect offset. Converting it to up. "+keyOrOffsetToString(keyOrOffset)+"=>"+keyOrOffsetToString(newUpOffset));*/
             return Up(newUpOffset, subAction);
           }
         }
@@ -533,7 +533,7 @@ var editActions = {};
       {apply: (x, r, rCtx) => apply(secondAction, x, apply(firstActionContext, r, rCtx)),
        backPropagate: (backPropagate, U, oldInput, oldOutput, firstAction, firstActionContext) => {
          printDebug("backPropagate inside Sequence!", U, oldInput, oldOutput, firstAction, firstActionContext);
-         // TODO: Test this
+         // TODO: Test this more extensively
          let UBeforeSecond = backPropagate(secondAction, U, firstActionContext);
          // Top-level needs top-level propagation.
          let [E, initUp] = originalFirstActionAndContext(firstAction, firstActionContext);
