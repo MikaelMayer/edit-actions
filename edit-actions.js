@@ -735,59 +735,56 @@ var editActions = {};
   // Specification:
   // apply(ReuseOffset(Offset(c, n, o), replaced, subAction), r, rCtx)
   // = apply(Down(Offset(0, c, o)), r, rCtx) ++c apply(subAction, r[c..c+n], (Offset(c, n, o), r):: rCtx) ++replaced apply(Down(Offset(c+n, o-(c+n), o)), r, rCtx)
-  function ReuseOffset(offset, replaced, subAction) {
-    if(offset.newLength !== undefined) {
-      if(typeof subAction === "undefined" && isEditAction(replaced)) {
-        subAction = replaced;
-        replaced = outLength(subAction, offset.newLength);
-        if(replaced === undefined) {
-          console.log("/!\\ In ReuseOffset, could not infer the length of " + stringOf(subAction) + " even on the context of length " + offset.newLength + ". Will assume the context's length.");
-          replaced = offset.newLength;
-        }
-      }
-      let wrapped = subAction;
-      if(replaced === 0) {
-        wrapped = Remove(offset.newLength);
-      } else { // replaced > 0
-        if(offset.newLength > 0) {
-          wrapped = Replace(offset.newLength, replaced, wrapped);
-        } else {
-          if(!isPrepend(wrapped)) {
-            wrapped = Prepend(replaced, wrapped);
-          }
-        }
-      }
-      if(offset.count > 0) {
-        wrapped = Keep(offset.count, wrapped);
-      }
-      /**
-        Proof: when replaced == 0 and subAction is Down
-        apply(ReuseOffset(Offset(c, n, o), 0, U), r, rCtx)
-        = apply(Keep(c, Remove(n)), r, rCtx)
-        = apply(Down(Offset(0, c)), r, rCtx) ++c
-          apply(Down(Offset(c), Remove(n)), r, rCtx)
-        = apply(Down(Offset(0, c)), r, rCtx) ++c
-          apply(subAction, r[c..c+n], (Offset(c, n, o), r):: rCtx) ++0
-          apply(Down(Offset(c), Down(Offset(n),)), r, rCtx)
-        = apply(Down(Offset(0, c)), r, rCtx) ++c
-          apply(subAction, r[c..c+n], (Offset(c, n, o), r):: rCtx) ++0
-          apply(Down(Offset(c+n)), r, rCtx)
-        QED;
-        
-        
-      */
-      return wrapped;
-    } else {
-      if(typeof subAction === "undefined" && isEditAction(replaced)) {
-        subAction = replaced;
-      }
-      return Keep(offset.count, subAction);
+  function ReuseOffset(offset, subAction, replaced) {
+    printDebug("ReuseOffset", offset, replaced, subAction);
+    if(offset.count > 0) {
+      return Keep(offset.count, ReuseOffset(Offset(0, offset.newLength, MinusUndefined(offset.oldLength, offset.count)), subAction, replaced));
     }
+    if(offset.newLength === undefined) {
+      return arguments.length == 2 ? replaced : subAction;
+    }
+    // Here we need to append the remaining elements after offset.newLength which were untouched.
+    if(replaced === undefined) {
+      replaced = outLength(subAction, offset.newLength);
+    }
+    if(replaced === undefined) {
+      console.log("/!\\ In ReuseOffset, could not infer the length of " + stringOf(subAction) + " even on the context of length " + offset.newLength + ". Will assume the context's length.");
+      replaced = offset.newLength;
+    }
+    let wrapped = subAction;
+    if(replaced === 0) {
+      wrapped = Remove(offset.newLength);
+    } else { // replaced > 0
+      if(offset.newLength > 0) {
+        printDebug("replaced", offset.newLength, replaced, wrapped);
+        wrapped = Replace(offset.newLength, replaced, wrapped);
+      } else { // offset.newLength == 0, we had to insert something in this context.
+        if(!isPrepend(wrapped)) {
+          wrapped = Prepend(replaced, wrapped);
+        }
+      }
+    }
+    printDebug("ReuseOffset returns ", wrapped);
+    /**
+      Proof: when replaced == 0 and subAction is Down
+      apply(ReuseOffset(Offset(c, n, o), 0, U), r, rCtx)
+      = apply(Keep(c, Remove(n)), r, rCtx)
+      = apply(Down(Offset(0, c)), r, rCtx) ++c
+        apply(Down(Offset(c), Remove(n)), r, rCtx)
+      = apply(Down(Offset(0, c)), r, rCtx) ++c
+        apply(subAction, r[c..c+n], (Offset(c, n, o), r):: rCtx) ++0
+        apply(Down(Offset(c), Down(Offset(n),)), r, rCtx)
+      = apply(Down(Offset(0, c)), r, rCtx) ++c
+        apply(subAction, r[c..c+n], (Offset(c, n, o), r):: rCtx) ++0
+        apply(Down(Offset(c+n)), r, rCtx)
+      QED;
+    */
+    return wrapped;
   }
   editActions.ReuseOffset = ReuseOffset;
-  function ReuseKeyOrOffset(keyOrOffset, subAction) {
+  function ReuseKeyOrOffset(keyOrOffset, subAction, outLengthAction) {
     if(isOffset(keyOrOffset)) {
-      return ReuseOffset(keyOrOffset, subAction);
+      return ReuseOffset(keyOrOffset, subAction, outLengthAction);
     } else {
       return Reuse({[keyOrOffset]: subAction});
     }
@@ -3059,7 +3056,7 @@ var editActions = {};
   // Spec B: 
   //   applyZ(andThen(reversePath(path, acc), ReuseUp(path, editAction)), <r, rCtx>)
   // = applyZ(andThen(acc, editAction), walkDownPath(acc, <r, rCtx>))
-  function ReuseUp(initUp, action) {
+  function ReuseUp(initUp, action, outLengthAction) {
     let finalUp = initUp;
     while(!isIdentity(finalUp)) {
       printDebug("ReuseUp", initUp, action);
@@ -3133,7 +3130,7 @@ var editActions = {};
         Proofs for offsets: TODO:
         
       */
-      action = ReuseKeyOrOffset(finalUp.keyOrOffset, action);
+      action = ReuseKeyOrOffset(finalUp.keyOrOffset, action, outLengthAction);
       finalUp = finalUp.subAction;
     }
     /** Proof:
@@ -3159,19 +3156,15 @@ var editActions = {};
     Assuming apply(E, r, rCtx) is defined,
     Assuming apply(U, apply(E, r, rCtx), apply(ECtx, r, rCtx)) is defined,
     
-    partitionEdit returns a triplet [E', sub, ECtx']
+    partitionEdit returns a quadruplet [E', sub, ECtx', outCount']
     such that:
     apply(prefixReuse(ECtx', E'), firstRecord(r, rCtx)) is correctly defined.
+    and the record at the context of E' has length outCount' if defined.
     
     and sub are well-defined backPropagate problems.
   */
-  function partitionEdit(E, U, ECtx) {
-    if(editActions.__debug) {
-      console.log("partitionEdit");
-      console.log("  "+addPadding(stringOf(E), "  "));
-      console.log("<="+addPadding(stringOf(U), "  "));
-      console.log("-|"+addPadding(stringOf(ECtx), "  "));
-    }
+  function partitionEdit(E, U, ECtx, outCountU) {
+    printDebug("partitionEdit", E, "<=", U, "-|", ECtx, outCountU);
     let wasRaw = false;
     if(!isEditAction(U)) {
       wasRaw = true;
@@ -3186,16 +3179,16 @@ var editActions = {};
         if(editActions.__debug) {
           console.log("Pre-pending " + (ECtx.ctor == Type.Up ? "Up" : "Down") + "(" + keyOrOffsetToString(ECtx.keyOrOffset) + ", |)");
         }
-        let [solution, next, ECtxInit2] = partitionEdit(E, U, newECtx)
+        let [solution, next, ECtxInit2, outCountSol] = partitionEdit(E, U, newECtx, outCountU)
         if(ECtx.ctor == Type.Up) {
-          return [Up(ECtx.keyOrOffset, solution), next, ECtx];
+          return [Up(ECtx.keyOrOffset, solution), next, ECtx, outCountSol];
         }
         if(ECtx.ctor == Type.Down) {
-          return [Down(ECtx.keyOrOffset, solution), next, ECtx];
+          return [Down(ECtx.keyOrOffset, solution), next, ECtx, outCountSol];
         }
       }
       let [E1p, E1Ctxp, newSecondUpOffset] = walkUpActionCtx(U.keyOrOffset, E, ECtx);
-      return partitionEdit(E1p, newSecondUpOffset ? Up(newSecondUpOffset, U.subAction) : U.subAction, E1Ctxp);
+      return partitionEdit(E1p, newSecondUpOffset ? Up(newSecondUpOffset, U.subAction) : U.subAction, E1Ctxp, outCountU);
     }
     if(U.ctor == Type.Down) {
       let [E1p, E1Ctxp] = walkDownActionCtx(U.keyOrOffset, E, ECtx);
@@ -3203,14 +3196,14 @@ var editActions = {};
         console.log("After walking down " + keyOrOffsetToString(U.keyOrOffset) + ", we get "+stringOf(E1p));
         console.log("E1Ctxp: "+stringOf(E1Ctxp));
       }
-      return partitionEdit(E1p,  U.subAction,  E1Ctxp);
+      return partitionEdit(E1p,  U.subAction,  E1Ctxp, outCountU);
     }
     if(isReuse(U) && !U.model.create) {
       let buildPart = buildingPartOf(E);
       if(editActions.__debug) {
         console.log("Recovered a build part: " + stringOf(buildPart));
       }
-      return [buildPart, [[E, U, ECtx]], ECtx];
+      return [buildPart, [[E, U, ECtx]], ECtx, outCountU];
     }
     if(U.ctor == Type.New) {
       let o = {};
@@ -3223,7 +3216,7 @@ var editActions = {};
         o[k] = subK;
         next.push(...nexts);
       }
-      return [rawIfPossible(New(o, U.model), wasRaw), next, ECtx];
+      return [rawIfPossible(New(o, U.model), wasRaw), next, ECtx, outCountU];
     }
     if(U.ctor == Type.Concat) {
       // Even replaces, we treat them like Concat when we try to resolve partitionEdit. At this point, we are already creating something new from old pieces.
@@ -3235,16 +3228,16 @@ var editActions = {};
       if(editActions.__debug && U.count > 0) {
         console.log("Pre-pending Concat("+U.count+", ... , |)");
       }
-      let [F2, next2] = partitionEdit(E, U.second, ECtx);
+      let [F2, next2] = partitionEdit(E, U.second, ECtx, MinusUndefined(outCountU, U.count));
       if(U.count == 0) { // We don't bother about building first element.
-        return [F2, next2, ECtx];
+        return [F2, next2, ECtx, outCountU];
       }
       if(editActions.__debug) {
         console.log("Inside Concat("+U.count+", | , [done])");
       }
-      let [F1, next1] = partitionEdit(E, U.first, ECtx);
+      let [F1, next1] = partitionEdit(E, U.first, ECtx, U.count);
       
-      return [Concat(U.count, F1, F2, U.forkAt, U.firstReuse, U.secondReuse), next1.concat(next2), ECtx];
+      return [Concat(U.count, F1, F2, U.forkAt, U.firstReuse, U.secondReuse), next1.concat(next2), ECtx, outCountU];
     }
     throw "Case not supported in partitionEdit: " + stringOf(U);
   }
@@ -3273,7 +3266,7 @@ var editActions = {};
     if(E.ctor == Type.Concat) {
       let left = buildingPartOf(E.first);
       let right = buildingPartOf(E.second);
-      return Concat(E.count, left, right, E.replaceCount);
+      return Concat(E.count, left, right, E.replaceCount, E.firstReuse, E.secondReuse);
     }
     return E;
   }
@@ -3296,10 +3289,10 @@ var editActions = {};
   /** Specifically:
   
   */
-  function prefixReuse(ctx, editAction) {
+  function prefixReuse(ctx, U, outCountU) {
     // First, build a path out of all the relative paths
     // Then, apply this path
-    return ReuseUp(pathAt(ctx), editAction);;
+    return ReuseUp(pathAt(ctx), U, outCountU);
   }
   
   /** Specifications:
@@ -3313,7 +3306,7 @@ var editActions = {};
     firstRecord(r, []) = r
     firstRecord(_, (k, r)::ctx) = firstRecord(r, ctx);
   */
-  function backPropagate(E, U, ECtx = undefined) {
+  function backPropagate(E, U, ECtx = undefined, outCountU = undefined) {
     let wasRaw = false, Uraw = U;
     if(!isEditAction(U)) {
       U = New(U);
@@ -3323,10 +3316,7 @@ var editActions = {};
       E = New(E);
     }
     if(editActions.__debug) {
-      console.log("backPropagate");
-      console.log("  "+addPadding(stringOf(E), "  "));
-      console.log("<="+addPadding(stringOf(U), "  "));
-      console.log("-|"+addPadding(stringOf(ECtx), "  "));
+      printDebug("backPropagate", E, "<=", U, "-|", ECtx, outCountU);
     }
     // We remove downs and ups to make them part of the context.
     if(E.ctor == Type.Down) {
@@ -3344,7 +3334,7 @@ var editActions = {};
         = apply(backPropagate(E, U, ECtx), firstRecord(r, rCtx))
         QED;
       */
-      return backPropagate(E.subAction, Uraw, Up(E.keyOrOffset, ECtx));
+      return backPropagate(E.subAction, Uraw, Up(E.keyOrOffset, ECtx), outCountU);
     }
     if(E.ctor == Type.Up) {
       /** Proof:
@@ -3359,7 +3349,7 @@ var editActions = {};
         = apply(backPropagate(E, U, ECtx), r, rCtx)
         QED;
       */
-      return backPropagate(E.subAction, Uraw, Down(E.keyOrOffset, ECtx))
+      return backPropagate(E.subAction, Uraw, Down(E.keyOrOffset, ECtx), outCountU)
     }
     if(U.ctor == Type.Choose && (E.ctor != Type.Custom || !E.lens.single)) {
       /** Proof:
@@ -3372,7 +3362,7 @@ var editActions = {};
         apply(Choose(backPropagate(E, subAction[i], ECtx))_i, r, rCtx) is defined
         QED;
       */
-      return Choose(...Collection.map(U.subActions, childU => backPropagate(E, childU, ECtx)));
+      return Choose(...Collection.map(U.subActions, childU => backPropagate(E, childU, ECtx, outCountU)));
     }
     if(E.ctor == Type.Custom) {
       // If E.lens.single is false, then U can be a Choose so that it can handle and merge similar alternatives
@@ -3399,20 +3389,20 @@ var editActions = {};
            = apply(backPropagate(E, U, ECtx), r, rCtx)
            QED;
         */
-        return backPropagate(E.subAction, newU, ECtx);
+        return backPropagate(E.subAction, newU, ECtx, undefined);
       } else {
-        return E.lens.backPropagate(backPropagate, Uraw, E.lens.cachedInput, E.lens.cachedOutput, E.subAction, ECtx);
+        return E.lens.backPropagate(backPropagate, Uraw, E.lens.cachedInput, E.lens.cachedOutput, E.subAction, ECtx, outCountU);
       }
     }
     if(U.ctor == Type.Choose) {
       /** Proof: same as above for the Choose case */
-      return Choose(...Collection.map(U.subActions, childU => backPropagate(E, childU, ECtx)));
+      return Choose(...Collection.map(U.subActions, childU => backPropagate(E, childU, ECtx, outLengthU)));
     }
     if(isReuse(U)) {
       let result = Reuse();
       forEachChild(U, (child, k) => {
         let [Ep, ECtxp] = walkDownActionCtx(k, E, ECtx);
-        let tmp = backPropagate(Ep, Up(k, child), ECtxp);
+        let tmp = backPropagate(Ep, Up(k, child), ECtxp, undefined);
         result = merge(result, tmp);
       });
       /** Proof:
@@ -3442,71 +3432,67 @@ var editActions = {};
       if(newLength === 0) {
         if(E.ctor == Type.Concat) {
           let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, E.count), E, ECtx);
-          let [ERight, ECtxRight]= walkDownActionCtx(Offset(E.count), E, ECtx);
+          let [ERight, ECtxRight] = walkDownActionCtx(Offset(E.count), E, ECtx);
           solution = Reuse();
           /** Proof:
               Assume apply(E@Concat(n, ELeft, ERight), r, rCtx) is defined
               Assume apply(U@RemoveExcept(Offset(0, 0), subU), apply(E, r, rCtx), apply(ECtx, r, rCtx)) is defined
               = apply(U@RemoveExcept(Offset(0, 0), subU), apply(ELeft, r, rCtx) ++n apply(ERight, r, rCtx), apply(ECtx, r, rCtx)) is defined
-              
-              
-              
           */
-          subProblems.push([ELeft, U, ECtxLeft]);
-          subProblems.push([ERight, U, ECtxRight]);
+          subProblems.push([ELeft, U, ECtxLeft, 0]);
+          subProblems.push([ERight, U, ECtxRight, 0]);
         } else {
           printDebug("Solving sub-problem first", U)
           let [EEmpty, ECtxEmpty] = walkDownActionCtx(U.keyOrOffset, E, ECtx);
-          subProblems.push([EEmpty, U.subAction, ECtxEmpty]);
+          subProblems.push([EEmpty, U.subAction, ECtxEmpty, outCountU]);
           if(isReuse(E)) {
             printDebug("we prefix with a Reuse the RemoveAll");
-            solution = prefixReuse(ECtx, RemoveAll(Reuse(), oldLength));
+            solution = prefixReuse(ECtx, RemoveAll(Reuse(), oldLength), 0);
           }
         }
       } else {
         printDebug("Walking down the context by ", U.keyOrOffset);
         let [EMiddle, ECtxMiddle] = walkDownActionCtx(U.keyOrOffset, E, ECtx);
-        subProblems.push([EMiddle, U.subAction, ECtxMiddle]);
-        // We start by taking the change made below.
-        let finalResult = backPropagate(EMiddle, U.subAction, ECtxMiddle);
+        subProblems.push([EMiddle, U.subAction, ECtxMiddle, outCountU]);
         // If we removed the left part, we try to find what we removed.
         if(count > 0) {
           let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, count), E, ECtx);
-          subProblems.push([ELeft, RemoveAll(Reuse(), count), ECtxLeft]);
+          subProblems.push([ELeft, RemoveAll(Reuse(), count), ECtxLeft, 0]);
         }
         // If we removed the right part, we try to find what we removed.
         // Careful, if count + newLength == 0
         if(newLength !== undefined && LessThanUndefined(count + newLength, oldLength) && count + newLength > 0) {
           let [ERight, ECtxRight] = walkDownActionCtx(Offset(count + newLength), E, ECtx);
-          subProblems.push([ERight, RemoveAll(Reuse(), MinusUndefined(oldLength, count + newLength)), ECtxRight]);
+          subProblems.push([ERight, RemoveAll(Reuse(), MinusUndefined(oldLength, count + newLength)), ECtxRight, 0]);
         }
       }
     } else if(isPrepend(U)) {
-      let [s, probs, newECtx] = partitionEdit(E, U.first, ECtx);
+      let [s, probs, newECtx] = partitionEdit(E, U.first, ECtx, U.count);
       // Now we prefix action with the Reuse and ReuseOffset from the context and call it a solution.
-      solution = prefixReuse(newECtx, Prepend(U.count, s));
-      subProblems.push([E, U.second, ECtx], ...probs);
+      let rightLength = MinusUndefined(outCountU, U.count);
+      solution = prefixReuse(newECtx, Prepend(U.count, s), undefined); // We don't know the length of this Prepend
+      subProblems.push([E, U.second, ECtx, rightLength], ...probs);
     } else if(isAppend(U)) {
-      let [s, probs, newECtx] = partitionEdit(E, U.second, ECtx);
-      solution = prefixReuse(newECtx, Append(U.count, s));
-      subProblems.push([E, U.first, ECtx], ...probs);
+      let [s, probs, newECtx,] = partitionEdit(E, U.second, ECtx);
+      solution = prefixReuse(newECtx, Append(U.count, s)); // We don't know the length of this Append
+      subProblems.push([E, U.first, ECtx, U.count], ...probs);
       // Now we prefix action with the Reuse and ReuseOffset from the context and call it a solution.
     } else if(isReplace(U)) {
       let [inCount, outCount, left, right] = argumentsIfReplace(U);
       let [inCountE, outCountE, leftE, rightE] = argumentsIfReplace(E);
       if(rightE !== undefined && outCountE == 0) {
         // Whatever the replace of the user, it does not touch the left portion.
-        subProblems.push([E.second, U, ECtx]);
+        subProblems.push([E.second, U, ECtx, outCountU]);
       } else {
         let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, inCount), E, ECtx);
-        subProblems.push([ELeft, left, ECtxLeft]);
+        subProblems.push([ELeft, left, ECtxLeft, outCount]);
         let [ERight, ECtxRight] = walkDownActionCtx(Offset(inCount), E, ECtx);
-        subProblems.push([ERight, right, ECtxRight]);
+        subProblems.push([ERight, right, ECtxRight, MinUndefined(outCountU, outCount)]);
       }
     } else {
     // At this point, we have New, Up, Down, and Concats.
-      [s, probs, newECtx] = partitionEdit(E, Uraw, ECtx);
-      solution = prefixReuse(newECtx, s);
+      [s, probs, newECtx, outCount] = partitionEdit(E, Uraw, ECtx, outCountU);
+      solution = prefixReuse(newECtx, s, outCount);
       subProblems = probs;
     }
     // Now we prefix action with the Reuse and ReuseOffset from the context and call it a solution.
@@ -3514,8 +3500,8 @@ var editActions = {};
       console.log("intermediate solution:\n"+stringOf(solution));
     }
     printDebug("subProblems:", subProblems);
-    for(let [E, U, ECtx] of subProblems) {
-      solution = merge(solution, backPropagate(E, U, ECtx));
+    for(let [E, U, ECtx, outCountU] of subProblems) {
+      solution = merge(solution, backPropagate(E, U, ECtx, outCountU));
     }
     return solution;
   }

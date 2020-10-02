@@ -5,6 +5,13 @@ var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
 
+// Example where ReuseOffset used to fail to determine the correct outLength, because 20 disappeared.
+shouldBeEqual(
+  backPropagate(
+     Keep(8, Prepend(1, "a")),
+     Replace(8, 20, Up(Offset(0, 8, undefined)))), 
+  Replace(8, 20, Up(Offset(0, 8, undefined), Keep(8, Prepend(1, "a")))));
+
 // Insertion of removed portion before
 shouldBeEqual(
   merge(
@@ -13,6 +20,8 @@ shouldBeEqual(
   ),
   Keep(10, Prepend(7, RemoveExcept(Interval(10, 15), Keep(3, Prepend(2, "ab"))), Keep(10, Remove(5)))),
 );
+
+// TODO: Enhance merge so that these test cases pass.
 /*
 n();
 shouldBeEqual(
@@ -34,6 +43,7 @@ shouldBeEqual(
 );
 e()
 */
+
 shouldBeEqual(
   backPropagate(
     [Down(Interval(1, 2)),
