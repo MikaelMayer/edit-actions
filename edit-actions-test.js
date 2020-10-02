@@ -1,5 +1,5 @@
 var editActions = require("./edit-actions.js");
-var {List,Reuse,New,Concat,Keep,Prepend, Append,Remove,RemoveExcept,RemoveAll,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Replace, splitAt, downAt, offsetAt, stringOf, Sequence, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, debug, Interval, Insert, InsertAll, ReuseModel, ReuseAsIs, transform} = editActions;
+var {List,Reuse,New,Concat,Keep,Prepend, Append,Remove,RemoveExcept,RemoveAll,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Replace, splitAt, downAt, offsetAt, stringOf, Sequence, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, debug, Interval, Insert, InsertAll, ExtendModel, ReuseAsIs, transform} = editActions;
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
@@ -13,7 +13,7 @@ shouldBeEqual(
   ),
   Keep(10, Prepend(7, RemoveExcept(Interval(10, 15), Keep(3, Prepend(2, "ab"))), Keep(10, Remove(5)))),
 );
-
+/*
 n();
 shouldBeEqual(
   merge(
@@ -33,7 +33,7 @@ shouldBeEqual(
   Keep(10, Remove(5, Keep(5, Prepend(5, Up(Offset(10, undefined, 5), Keep(3, Prepend(2, "ab")))))))
 );
 e()
-
+*/
 shouldBeEqual(
   backPropagate(
     [Down(Interval(1, 2)),
@@ -84,7 +84,7 @@ shouldBeEqual(
   );
 
 shouldBeEqual(stringOf(Reuse({a: New(1)})), "Reuse({\na: New(1)})");
-shouldBeEqual(stringOf(New({a: Down("a", New(1))}, ReuseModel())), "Reuse({\na: New(1)})");
+shouldBeEqual(stringOf(New({a: Down("a", New(1))}, ExtendModel())), "Reuse({\na: New(1)})");
 shouldBeEqual(stringOf(Reuse()), "Reuse()");
 shouldBeEqual(stringOf(Insert("a", {a: 1, b: 2})), "Insert(\"a\", {\na: 1,\nb: 2})");
 shouldBeEqual(stringOf(InsertAll({a: 1, b: 2})), "InsertAll({\na: 1,\nb: 2})");

@@ -204,14 +204,14 @@ var editActions = {};
     // values has no keys for objects and arrays, except if values have keys, then these keys mark the intent to reuse the original value.
   */
   var TypeNewModel = {
-    Reuse: "Reuse",
+    Extend: "Extend",
     Insert: "Insert"
   }
   // Create means that, during back-propagation, we keep the changes of the interpreter edit action (by default). Else, we just replace an interpreter's Reuse by Reuse();
-  function ReuseModel(create = false) {
-    return {ctor: TypeNewModel.Reuse, create};
+  function ExtendModel(create = false) {
+    return {ctor: TypeNewModel.Extend, create};
   }
-  editActions.ReuseModel = ReuseModel;
+  editActions.ExtendModel = ExtendModel;
   function InsertModel(value) {
     if(arguments.length == 0) value = {};
     return {ctor: TypeNewModel.Insert, value};
@@ -578,7 +578,7 @@ var editActions = {};
   // Extend, Reuse, Replace, Interval Prepend, Keep, Remove, RemoveAll, RemoveExcept
  
   function Extend(childEditActions, create=false) {
-    return New(childEditActions, ReuseModel(create));
+    return New(childEditActions, ExtendModel(create));
   }
   
   // apply(Reuse({a: New(1)}), {a: 2, b: 3}) = {a: 1, b: 3}
@@ -598,7 +598,7 @@ var editActions = {};
       /*canReuse*/false,
       (newChild, k) => !isObject(newChild) || newChild.ctor !== Type.Down || newChild.keyOrOffset !== k || !isIdentity(newChild.subAction)
       );
-    return New(newChildEditActions, ReuseModel(true));
+    return New(newChildEditActions, ExtendModel(true));
   }
   editActions.ReuseAsIs = ReuseAsIs;
   
@@ -968,7 +968,7 @@ var editActions = {};
         apply(subAction, prog, ctx, resultCtx)
       );*/
     }
-    let isReuse = editAction.model.ctor == TypeNewModel.Reuse;
+    let isReuse = editAction.model.ctor == TypeNewModel.Extend;
     let isNew = !isReuse;
     let model = modelToCopy(editAction, prog);
     let childEditActions = editAction.childEditActions;
@@ -1404,7 +1404,7 @@ var editActions = {};
           newChildren[k] = recurse(secondChild, firstActionOriginal, firstActionContext);
         });
         if(firstIsReuse) {
-          return New(newChildren, ReuseModel(secondAction.model.create || firstAction.model.create));
+          return New(newChildren, ExtendModel(secondAction.model.create || firstAction.model.create));
         } else {
           return rawIfPossible(New(newChildren, firstAction.model), isFirstRaw);
         }
@@ -1522,11 +1522,11 @@ var editActions = {};
         if(editActions.__debug) {
           console.log("Inside left of Concat(" + firstAction.count, ", |, ...)");
         }
-        let newFirst = recurse(New(leftChildren, ReuseModel()), firstAction.first, AddContext(Offset(0, firstAction.count), firstActionOriginal, firstActionContext));
+        let newFirst = recurse(New(leftChildren, ExtendModel()), firstAction.first, AddContext(Offset(0, firstAction.count), firstActionOriginal, firstActionContext));
         if(editActions.__debug) {
           console.log("Inside right of Concat(" + firstAction.count, ", ..., |)");
         }
-        let newSecond = recurse(New(rightChildren, ReuseModel()), firstAction.second, AddContext(Offset(firstAction.count), firstActionOriginal, firstActionContext));
+        let newSecond = recurse(New(rightChildren, ExtendModel()), firstAction.second, AddContext(Offset(firstAction.count), firstActionOriginal, firstActionContext));
         
         return Concat(firstAction.count, newFirst, newSecond, firstAction.replaceCount, firstAction.firstReuse, firstAction.secondReuse);
       } else {
@@ -1689,7 +1689,7 @@ var editActions = {};
         = apply(NewC{}, r, rCtx)[f]
       */
       return key in editAction.childEditActions ? editAction.childEditActions[key]  :
-      editAction.model.ctor == TypeNewModel.Reuse ? Down(key) : New(undefined);
+      editAction.model.ctor == TypeNewModel.Extend ? Down(key) : New(undefined);
     case Type.Concat:
       /** Proof:
           Assuming f < n
@@ -2920,7 +2920,7 @@ var editActions = {};
             o[k] = E2.childEditActions[k];
           }
         }
-        result.push(New(o, ReuseModel(E1.model.create || E2.model.create)));
+        result.push(New(o, ExtendModel(E1.model.create || E2.model.create)));
       // (E1, E2) is [R*, F, C, U, D, UR] x [R*, F, C, U, D, UR] \ R* x R*
       } else if(isReuse(E1) && isReplace(E2)) {
         let [inCount, outCount, left, right] = argumentsIfReplace(E2);
@@ -5007,7 +5007,7 @@ var editActions = {};
   
   /** Various helper functions */
   function modelToCopy(editAction, prog) {
-    return editAction.model.ctor === TypeNewModel.Reuse ? prog : editAction.model.value;
+    return editAction.model.ctor === TypeNewModel.Extend ? prog : editAction.model.value;
     // Now let's clone the original.
   }
   function hasAnyProps(obj) {
@@ -5133,7 +5133,7 @@ var editActions = {};
     return typeof editAction === "object" && editAction.ctor == Type.Down;
   }
   function isReuse(editAction) {
-    return typeof editAction == "object" && editAction.ctor == Type.New && editAction.model.ctor === TypeNewModel.Reuse;
+    return typeof editAction == "object" && editAction.ctor == Type.New && editAction.model.ctor === TypeNewModel.Extend;
   }
   function isNew(editAction) {
     return isObject(editAction) && editAction.ctor == Type.New && editAction.model.ctor == TypeNewModel.Insert || !isEditAction(editAction);
@@ -5370,7 +5370,7 @@ var editActions = {};
       return str;
     } else if(self.ctor == Type.New) { // New or Reuse
       let model = self.model;
-      let selfIsReuse = model.ctor == TypeNewModel.Reuse;
+      let selfIsReuse = model.ctor == TypeNewModel.Extend;
       let str = "";
       let selfIsInsert = false;
       let selfIsInsertAll = false;
