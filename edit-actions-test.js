@@ -5,6 +5,20 @@ var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
 
+shouldBeEqual(
+  backPropagate(
+    Concat(5, Reuse(), Reuse()),
+    RemoveAll()
+  ),
+  RemoveAll()
+);
+
+shouldBeEqual(
+  backPropagate(
+    Keep(2, Remove(1, Down(Interval(0, 1)))),
+    Remove(3)),
+  Remove(2, Keep(1, Remove(1)))
+);
 
 // Example where ReuseOffset used to fail to determine the correct outLength, because 20 disappeared.
 shouldBeEqual(
@@ -783,8 +797,8 @@ shouldBeEqual(
     Replace(3, 3, New("abc"), Reuse()),
     Keep(2, New("def"))      
   ),
-  Replace(2, 3,
-    RemoveAll(Prepend(3, New("abc")), 3),
+  Replace(2, 0,
+    RemoveAll(Reuse(), 2),
     New("def"))
 );
 
@@ -900,12 +914,11 @@ shouldBeEqual(
     Replace(3, 2, New([1, Down(0)]), Reuse({0: New(1), 1: New(3)})),
     Down(Interval(1, 4))
   ),
-  Down(Interval(1, 4), Replace(2, 0,
-    RemoveAll(),
+  Down(Interval(1, 4), Replace(2, 2,
+    RemoveAll(Prepend(2, New([1, Up(Offset(0, 0, 3), Down(0))])), 2),
     Reuse({
-      0: New(1)})))
+    0: New(1)})))
 );
-
 shouldBeEqual(
   merge(
     Replace(3, 2, New([1, Down(0)]), Reuse({0: New(1), 1: New(3)})),
@@ -976,7 +989,7 @@ function testBackPropagate(e, u, res, name) {
 testBackPropagate(
   Concat(5, Reuse(), Reuse()),
   RemoveAll(Prepend(1, "a")),
-  Prepend(2, "aa", RemoveAll())
+  Prepend(1, "a", RemoveAll())
 );
 
 testBackPropagate(
@@ -1014,7 +1027,6 @@ testBackPropagate(
 );
 
 testBackPropagate(
-  
     Down("b", Reuse({a: Down("c", Reuse({d: Up("d", Up("c", Down("e")))}))})), Reuse({a: Reuse({d: New(1)})}),
   Reuse({b: Reuse({a: Reuse({e: New(1)})})})
 )
@@ -1241,6 +1253,7 @@ testBackPropagate(
   Keep(5, Remove(2, Keep(4, RemoveAll()))),
   "slice back-propagation bis"
 );
+
 testBackPropagate(
   Remove(5),
   Remove(2, Keep(2, RemoveAll())),
@@ -1493,7 +1506,6 @@ shouldBeEqual(
   Down(Offset(0, 1))
   , "remove #1"
 );
-
 
 shouldBeEqual(
   Down(Offset(1), Offset(2)),
