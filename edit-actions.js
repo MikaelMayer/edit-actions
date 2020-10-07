@@ -759,6 +759,8 @@ var editActions = {};
       if(offset.newLength > 0) {
         if(isRemoveExcept(wrapped) && wrapped.keyOrOffset.newLength === undefined) {
           // No change necessary
+        } else if(isPrepend(wrapped) && isIdentity(wrapped.second)) {
+          // No change necessary
         } else {
           let [keepCount, keepSub] = argumentsIfKeep(wrapped);
           if(isRemoveAll(keepSub) && keepCount === offset.newLength) {
@@ -2322,7 +2324,7 @@ var editActions = {};
           = apply(Concat(n, left, right), rCtx)
           = apply(editAction, r, rCtx);
         */
-        let newRight = offsetAt(Offset(0, MinusUndefined(newLength, editAction.count)), editAction.second, isRemove);
+        let newRight = offsetAt(Offset(0, newLength), editAction.second, isRemove);
         if(count === 0) {
           // Include the first only if it had zero length.
           return Concat(editAction.count, editAction.first, newRight, editAction.replaceCount, editAction.firstReuse, editAction.secondReuse);
@@ -2333,10 +2335,32 @@ var editActions = {};
         return offsetAt(Offset(count - editAction.count, newLength), editAction.second, isRemove);
       } else if(newLength !== undefined && count + newLength <= editAction.count) { // We remove the right part.
         return offsetAt(offset, editAction.first, isRemove);
-      } else { // Hybrid.
+      } else { // Hybrid. c < count && (n === undefined || c+n > count)
+        let [keepCount, keepSub] = argumentsIfKeep(editAction);
+        if(keepSub !== undefined && newLength === undefined && count < keepCount) {
+          /** Proof:
+            apply(offsetAt(Offset(c), Keep(c', sub)), r, rCtx)
+            = apply(Remove(c, Keep(c'-c, sub)), r, rCtx)
+            = apply(Keep(c'-c, sub), r[c,...], (Offset(c), r)::rCtx)
+            = r[c..c'[ ++(c'-c) apply(sub, r[c', ...], (Offset(c'-c), r[c...])::(Offset(c), r)::rCtx)
+            = r[c..c'] ++(c'-c) apply(sub, r[c'...], (Offset(c'), r):: rCtx))
+            = applyOffset(Offset(c), r[0..c'] ++c' apply(sub, r[c'...], (Offset(c'), r):: rCtx))
+            = applyOffset(Offset(c), apply(Keep(c', sub), r, rCtx))
+          */
+          return Remove(count, Keep(keepCount - count, keepSub));
+        }
+      
+        /** Proof:
+          apply(offsetAt(Offset(c, n), Concat(count, first, second)), r, rCtx)
+          = apply(Concat(count-c, offsetAt(Offset(c, count-c), first), OffsetAt(Offset(0, n-count+c), second)), r, rCtx)
+          = apply(offsetAt(Offset(c, count-c), first), r, rCtx) ++(count-c) apply(OffsetAt(Offset(0, n-count+c), second), r, rCtx))
+          = applyOffset(Offset(c, count-c), apply(first, r, rCtx)) ++(count-c) applyOffset(Offset(0, n-count+c), apply(second, r, rCtx))
+          = applyOffset(Offset(c, n), apply(first, r, rCtx) ++count apply(Concat(second, r, rCtx))
+          = applyOffset(Offset(c, n), apply(Concat(count, first, second), r, rCtx))
+        */
         return Concat(editAction.count - count,
-          offsetAt(Offset(count, editAction.count - count), editAction.first),
-          offsetAt(Offset(0, newLength === undefined ? undefined : newLength - editAction.count + 2*count), editAction.second),
+          offsetAt(Offset(count, editAction.count - count), editAction.first, isRemove),
+          offsetAt(Offset(0, PlusUndefined(MinusUndefined(newLength, editAction.count), count)), editAction.second, isRemove),
           editAction.replaceCount, editAction.firstReuse, editAction.secondReuse);
       }
     case Type.Up:
@@ -2350,7 +2374,7 @@ var editActions = {};
       */
       return Up(editAction.keyOrOffset, offsetAt(offset, editAction.subAction, isRemove));
     case Type.Down:
-      return SameDownAs(editAction.isRemove || isRemove)(editAction.keyOrOffset, offsetAt(offset, editAction.subAction, isRemove));
+      return SameDownAs(editAction.isRemove || isRemove && isOffset(editAction.keyOrOffset))(editAction.keyOrOffset, offsetAt(offset, editAction.subAction, isRemove));
     case Type.Choose:
       return Choose(Collection.map(editAction.subActions, x => offsetAt(offset, x)));
     default: // editAction.ctor == Custom
@@ -3345,7 +3369,7 @@ var editActions = {};
         } else {
           // E is a Concat. We should not walk the context there.
           if(E.ctor == Type.Concat) { // Always true.
-            subProblems.push([E.first, RemoveExcept(count < E.count ? Offset(count, E.count - count) : Offset(0, 0)), AddContext(Offset(0, E.count), E, ECtx), 0]);
+            subProblems.push([E.first, RemoveExcept(count < E.count ? Offset(count/*, E.count - count*/) : Offset(0, 0)), AddContext(Offset(0, E.count), E, ECtx), 0]);
             if(E.count < count) {
               subProblems.push([E.second, RemoveExcept(Offset(count - E.count)), AddContext(Offset(E.count), E, ECtx), 0])
             }

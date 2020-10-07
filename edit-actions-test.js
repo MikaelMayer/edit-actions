@@ -1324,8 +1324,8 @@ testBackPropagate(
     Up("a", Down("b", Offset(2, 7-2))),
     Down(Offset(4, 6-4)))}),
   Reuse({a: Remove(3, Keep(3, RemoveAll()))}),
-  Reuse({a: Keep(5, Remove(6-5)),
-         b: Keep(2, Remove(5-2))}),
+  Reuse({b: Keep(2, Remove(5-2)),
+         a: Keep(5, Remove(6-5))}),
   "Case Concat Reuse Slice 1"
 );
 
@@ -1334,8 +1334,8 @@ testBackPropagate(
     Up("a", Down("b", Offset(2, 5))),
     Down(Offset(4, 2)))}),
   Reuse({a: Remove(3, Keep(3, RemoveAll()))}),
-  Reuse({a: Keep(5, Remove(1)),
-         b: Keep(2, Remove(3))}),
+  Reuse({b: Keep(2, Remove(3)),
+         a: Keep(5, Remove(1))}),
   "Case Concat Reuse Slice 1 strict"
 );
 testBackPropagate(
@@ -1474,7 +1474,7 @@ shouldBeEqual(
     Remove(2, Keep(1, RemoveAll())),
     Remove(2, Keep(3, RemoveAll()))
   ),
-  RemoveExcept(Interval(4, 5), Keep(1, RemoveAll()))
+  Remove(4, Keep(1, RemoveAll()))
 );
 
 shouldBeEqual(
@@ -1513,9 +1513,12 @@ shouldBeEqual(
   , "remove #2"
 );
 shouldBeEqual(
-  andThen(Keep(1, Remove(3)), Keep(2, Remove(2))), Replace(2, 1,
-  Keep(1, RemoveAll()),
-  Remove(4)), "remove #5"
+  andThen(
+    Keep(1, Remove(3)),
+    Keep(2, Remove(2))),
+  Replace(2, 1,
+    Keep(1, RemoveAll(Reuse(), 1)),
+    Remove(4)), "remove #5"
 );
 
 shouldBeEqual(
@@ -1956,9 +1959,9 @@ shouldBeEqual(
 );
 
 shouldBeEqual(
-  andThen(Concat(3, Down(Offset(2, 5-2)), Down(Offset(0, 2-0))),
-          Concat(2, Down(Offset(3, 5-3)), Down(Offset(0, 3-0)))),
-  Down(Offset(0, 5-0)),
+  andThen(Concat(3, Down(Interval(2, 5)), Down(Interval(0, 2))),
+          Concat(2, Down(Interval(3, 5)), Down(Interval(0, 3)))),
+  Down(Interval(0, 5)),
   "Simplification of two anti-permutations"
 );
 
@@ -2011,13 +2014,13 @@ testBackPropagate(step, user,
 
 shouldBeEqual(
   andThen(
-  Reuse({array: Keep(1, Remove(2))}),
-  Reuse({array:
-    Keep(2, Prepend(5, Up(Offset(2), "array", Down("array2", 3)), RemoveAll()))})),
+    Reuse({array: Keep(1, Remove(2))}),
+    Reuse({array:
+      Keep(2, Prepend(5, Up(Offset(2), "array", Down("array2", 3)), RemoveAll()))})),
   Reuse({
     array: Replace(2, 1,
-      Keep(1, RemoveAll()),
-      Prepend(4, Up(Interval(2), "array", Down("array2", 3, Remove(1))), RemoveAll()))})
+        Keep(1, RemoveAll(Reuse(), 1)),
+        Prepend(4, Up(Interval(2), "array", Down("array2", 3, RemoveExcept(Interval(1, 5)))), RemoveAll()))})
 );
 
 var editStep = Replace(5, 2, Custom(Reuse(),
@@ -2147,7 +2150,7 @@ var m5 = Keep(2,
            Remove(1, Prepend(1, New("G"))));
 var m45 = andThen(m5, m4);
 shouldBeEqual(m45, Replace(3, 2,
-  Keep(2, RemoveAll()),
+  Keep(2, RemoveAll(Reuse(), 1)),
   Prepend(2, New("Gr"))), "m45");
 var m345 = andThen(m45, m3);
 shouldBeEqual(m345, Keep(1, Remove(1, Prepend(3, New(" Gr")))), "m345");
@@ -2485,7 +2488,7 @@ shouldBeEqual(andThen(
 shouldBeEqual(andThen(
      Remove(1), // 2. Remove first element
      Keep(2, RemoveAll())  // 1. Remove everything but first two elements
-  ), RemoveExcept(Interval(1, 2)), "andThen_ReuseArrayRemove2"); // Remove everything but second element.
+  ), Remove(1, Keep(1, RemoveAll())), "andThen_ReuseArrayRemove2"); // Remove everything but second element.
 
 shouldBeEqual(andThen(
      Keep(5, Remove(1)), // 2. Keep first 5 els, remove 6th
