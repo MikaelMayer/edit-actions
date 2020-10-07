@@ -5,6 +5,21 @@ var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
 
+shouldBeEqual(
+  backPropagate(
+    Concat(5, Reuse(), Reuse()),
+    RemoveAll()
+  ),
+  RemoveAll()
+);
+
+shouldBeEqual(
+  backPropagate(
+    Keep(2, Remove(1, Down(Interval(0, 1)))),
+    Remove(3)),
+  Remove(2, Keep(1, Remove(1)))
+);
+
 // Example where ReuseOffset used to fail to determine the correct outLength, because 20 disappeared.
 shouldBeEqual(
   backPropagate(
@@ -782,8 +797,8 @@ shouldBeEqual(
     Replace(3, 3, New("abc"), Reuse()),
     Keep(2, New("def"))      
   ),
-  Replace(2, 3,
-    RemoveAll(Prepend(3, New("abc")), 3),
+  Replace(2, 0,
+    RemoveAll(Reuse(), 2),
     New("def"))
 );
 
@@ -899,12 +914,11 @@ shouldBeEqual(
     Replace(3, 2, New([1, Down(0)]), Reuse({0: New(1), 1: New(3)})),
     Down(Interval(1, 4))
   ),
-  Down(Interval(1, 4), Replace(2, 0,
-    RemoveAll(),
+  Down(Interval(1, 4), Replace(2, 2,
+    RemoveAll(Prepend(2, New([1, Up(Offset(0, 0, 3), Down(0))])), 2),
     Reuse({
-      0: New(1)})))
+    0: New(1)})))
 );
-
 shouldBeEqual(
   merge(
     Replace(3, 2, New([1, Down(0)]), Reuse({0: New(1), 1: New(3)})),
@@ -975,7 +989,7 @@ function testBackPropagate(e, u, res, name) {
 testBackPropagate(
   Concat(5, Reuse(), Reuse()),
   RemoveAll(Prepend(1, "a")),
-  Prepend(2, "aa", RemoveAll())
+  Prepend(1, "a", RemoveAll())
 );
 
 testBackPropagate(
@@ -1013,7 +1027,6 @@ testBackPropagate(
 );
 
 testBackPropagate(
-  
     Down("b", Reuse({a: Down("c", Reuse({d: Up("d", Up("c", Down("e")))}))})), Reuse({a: Reuse({d: New(1)})}),
   Reuse({b: Reuse({a: Reuse({e: New(1)})})})
 )
@@ -1240,6 +1253,7 @@ testBackPropagate(
   Keep(5, Remove(2, Keep(4, RemoveAll()))),
   "slice back-propagation bis"
 );
+
 testBackPropagate(
   Remove(5),
   Remove(2, Keep(2, RemoveAll())),
@@ -1310,8 +1324,8 @@ testBackPropagate(
     Up("a", Down("b", Offset(2, 7-2))),
     Down(Offset(4, 6-4)))}),
   Reuse({a: Remove(3, Keep(3, RemoveAll()))}),
-  Reuse({a: Keep(5, Remove(6-5)),
-         b: Keep(2, Remove(5-2))}),
+  Reuse({b: Keep(2, Remove(5-2)),
+         a: Keep(5, Remove(6-5))}),
   "Case Concat Reuse Slice 1"
 );
 
@@ -1320,8 +1334,8 @@ testBackPropagate(
     Up("a", Down("b", Offset(2, 5))),
     Down(Offset(4, 2)))}),
   Reuse({a: Remove(3, Keep(3, RemoveAll()))}),
-  Reuse({a: Keep(5, Remove(1)),
-         b: Keep(2, Remove(3))}),
+  Reuse({b: Keep(2, Remove(3)),
+         a: Keep(5, Remove(1))}),
   "Case Concat Reuse Slice 1 strict"
 );
 testBackPropagate(
@@ -1460,7 +1474,7 @@ shouldBeEqual(
     Remove(2, Keep(1, RemoveAll())),
     Remove(2, Keep(3, RemoveAll()))
   ),
-  RemoveExcept(Interval(4, 5), Keep(1, RemoveAll()))
+  Remove(4, Keep(1, RemoveAll()))
 );
 
 shouldBeEqual(
@@ -1493,16 +1507,18 @@ shouldBeEqual(
   , "remove #1"
 );
 
-
 shouldBeEqual(
   Down(Offset(1), Offset(2)),
   Down(Offset(3))
   , "remove #2"
 );
 shouldBeEqual(
-  andThen(Keep(1, Remove(3)), Keep(2, Remove(2))), Replace(2, 1,
-  Keep(1, RemoveAll()),
-  Remove(4)), "remove #5"
+  andThen(
+    Keep(1, Remove(3)),
+    Keep(2, Remove(2))),
+  Replace(2, 1,
+    Keep(1, RemoveAll(Reuse(), 1)),
+    Remove(4)), "remove #5"
 );
 
 shouldBeEqual(
@@ -1943,9 +1959,9 @@ shouldBeEqual(
 );
 
 shouldBeEqual(
-  andThen(Concat(3, Down(Offset(2, 5-2)), Down(Offset(0, 2-0))),
-          Concat(2, Down(Offset(3, 5-3)), Down(Offset(0, 3-0)))),
-  Down(Offset(0, 5-0)),
+  andThen(Concat(3, Down(Interval(2, 5)), Down(Interval(0, 2))),
+          Concat(2, Down(Interval(3, 5)), Down(Interval(0, 3)))),
+  Down(Interval(0, 5)),
   "Simplification of two anti-permutations"
 );
 
@@ -1998,13 +2014,13 @@ testBackPropagate(step, user,
 
 shouldBeEqual(
   andThen(
-  Reuse({array: Keep(1, Remove(2))}),
-  Reuse({array:
-    Keep(2, Prepend(5, Up(Offset(2), "array", Down("array2", 3)), RemoveAll()))})),
+    Reuse({array: Keep(1, Remove(2))}),
+    Reuse({array:
+      Keep(2, Prepend(5, Up(Offset(2), "array", Down("array2", 3)), RemoveAll()))})),
   Reuse({
     array: Replace(2, 1,
-      Keep(1, RemoveAll()),
-      Prepend(4, Up(Interval(2), "array", Down("array2", 3, Remove(1))), RemoveAll()))})
+        Keep(1, RemoveAll(Reuse(), 1)),
+        Prepend(4, Up(Interval(2), "array", Down("array2", 3, RemoveExcept(Interval(1, 5)))), RemoveAll()))})
 );
 
 var editStep = Replace(5, 2, Custom(Reuse(),
@@ -2134,7 +2150,7 @@ var m5 = Keep(2,
            Remove(1, Prepend(1, New("G"))));
 var m45 = andThen(m5, m4);
 shouldBeEqual(m45, Replace(3, 2,
-  Keep(2, RemoveAll()),
+  Keep(2, RemoveAll(Reuse(), 1)),
   Prepend(2, New("Gr"))), "m45");
 var m345 = andThen(m45, m3);
 shouldBeEqual(m345, Keep(1, Remove(1, Prepend(3, New(" Gr")))), "m345");
@@ -2472,7 +2488,7 @@ shouldBeEqual(andThen(
 shouldBeEqual(andThen(
      Remove(1), // 2. Remove first element
      Keep(2, RemoveAll())  // 1. Remove everything but first two elements
-  ), RemoveExcept(Interval(1, 2)), "andThen_ReuseArrayRemove2"); // Remove everything but second element.
+  ), Remove(1, Keep(1, RemoveAll())), "andThen_ReuseArrayRemove2"); // Remove everything but second element.
 
 shouldBeEqual(andThen(
      Keep(5, Remove(1)), // 2. Keep first 5 els, remove 6th
@@ -2578,8 +2594,8 @@ addLens = {
   update: function (editAction, [{value: left}, {value: right}], {value: oldValue}) {
         if(transform.isReuse(editAction)) {
           let newValueEdit = transform.childIfReuse(editAction, "value");
-          if(transform.isNew(newValueEdit)) {
-            let newValue = transform.valueIfNew(newValueEdit);
+          if(transform.isConst(newValueEdit)) {
+            let newValue = transform.valueIfConst(newValueEdit);
             return Reuse({0: Reuse({value: New(left + newValue - oldValue)})});
           }
         }
@@ -2980,6 +2996,46 @@ testBackPropagate(
     3: Reuse({
       value: New(22)})})}), "pStep_uStep4");
 
+shouldBeEqual(
+  merge(
+    Remove(7), Keep(2, Prepend(1, "a"))),
+  Remove(7));
+
+shouldBeEqual(
+  backPropagate(
+    Concat(4, Reuse(), Reuse()),
+    Remove(2, Prepend(1, "a"))),
+  Remove(2, Prepend(1, "a")));
+
+shouldBeEqual(
+  backPropagate(
+    New([1, 2, 3]),
+    RemoveAll(Prepend(1, "a"))),
+  Reuse());
+
+state1=`function a(x) {
+  return F(x)+G(x);
+}
+/* Four
+Lines
+comment
+*/ 
+`;
+state2=`/* Four
+Lines
+comment
+*/ 
+function a(x) {
+  return F(x)+G(x);
+}
+`;
+shouldBeEqual(
+  backPropagate(
+    Remove(38, Append(25, Up(Offset(38), Down(Interval(0, 38))))),
+    Keep(25+11, Remove(1, Prepend(1, "y", Keep(15, Remove(1, Prepend(1, "y", Keep(4, Remove(1, Prepend(1, "y")))))))))
+  ),
+  Keep(11, Remove(1, Prepend(1, "y", Keep(15, Remove(1, Prepend(1, "y", Keep(4, Remove(1, Prepend(1, "y"))))))))));
+  
 // Custom
 var plusEditAction =
   Custom(Down("args"),
@@ -3009,7 +3065,7 @@ shouldBeEqual(
 // Custom composed with Reuse
 var step1 = Reuse({b: Custom(Reuse(),
   { apply: x => ({a: x + 1}),
-    update: editOut => New(transform.valueIfNew(transform.childIfReuse(editOut, "a")) - 1),
+    update: editOut => New(transform.valueIfConst(transform.childIfReuse(editOut, "a")) - 1),
     name: "Wrap and add 1"
   })});
 var step2 = Reuse({c: Up("c", Down("b", Reuse({c: Up("c", Down("a"))})))});
