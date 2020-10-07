@@ -205,35 +205,35 @@ var editActions = {};
   */
   var TypeNewModel = {
     Extend: "Extend",
-    Insert: "Insert"
+    Constant: "Constant"
   }
   // Create means that, during back-propagation, we keep the changes of the interpreter edit action (by default). Else, we just replace an interpreter's Reuse by Reuse();
   function ExtendModel(create = false) {
     return {ctor: TypeNewModel.Extend, create};
   }
   editActions.ExtendModel = ExtendModel;
-  function InsertModel(value) {
+  function ConstModel(value) {
     if(arguments.length == 0) value = {};
-    return {ctor: TypeNewModel.Insert, value};
+    return {ctor: TypeNewModel.Constant, value};
   }
-  editActions.InsertModel = InsertModel;
+  editActions.ConstModel = ConstModel;
   
   /* apply(New(1), x) = 1                 */
   /* apply(New({0: New(2)}, []), x) = [2] */
   /* apply(New([Reuse()]), x) = [x]       */
   function New(childEditActions, model) {
     if(arguments.length == 0) {
-      return New({}, InsertModel(undefined));
+      return New({}, ConstModel(undefined));
     }
     if(arguments.length == 1) {
       if(typeof childEditActions == "object") {
-        return New(childEditActions, InsertModel(Array.isArray(childEditActions) ? [] : {}));
+        return New(childEditActions, ConstModel(Array.isArray(childEditActions) ? [] : {}));
       } else {
-        return New({}, InsertModel(childEditActions));
+        return New({}, ConstModel(childEditActions));
       }
     }
     if(isObject(model) && !(model.ctor in TypeNewModel)) {
-      model = InsertModel(model);
+      model = ConstModel(model);
     }
     return {ctor: Type.New, childEditActions: childEditActions, model: model};
   }
@@ -430,7 +430,7 @@ var editActions = {};
     if(!isEditAction(first)) {firstWasRaw = true; first = New(first); };
     if(!isEditAction(second)) {secondWasRaw = true; second = New(second); };
     if(replaceCount === undefined) {
-      if(isNew(first) && isNew(second)) {
+      if(isConst(first) && isConst(second)) {
         let optimized = optimizeConcatNew(first, second, firstWasRaw, secondWasRaw);
         if(optimized !== undefined) return optimized;
       }
@@ -457,7 +457,7 @@ var editActions = {};
     }
     if(secondReuse && !firstReuse) {
       // A prepend. Maybe the second one is an prepend?
-      if(isNew(first) && isPrepend(second) && isNew(second.first)) {
+      if(isConst(first) && isPrepend(second) && isConst(second.first)) {
         let optimizedConcat = optimizeConcatNew(first, second.first, firstWasRaw, undefined);
         if(optimizedConcat !== undefined) {
           return Prepend(count + second.count, optimizedConcat, second.second);
@@ -465,7 +465,7 @@ var editActions = {};
       }
     }
     if(firstReuse && !secondReuse) {
-      if(isNew(second) && isAppend(first) && isNew(first.second)) {
+      if(isConst(second) && isAppend(first) && isConst(first.second)) {
         let optimizedConcat = optimizeConcatNew(first.second, second, undefined, secondWasRaw);
         if(optimizedConcat !== undefined) {
           return Append(first.count, first.first, optimizedConcat);
@@ -614,7 +614,7 @@ var editActions = {};
     let treeOps = treeOpsOf(childEditActions);
     let modelValue = treeOps.init();
     treeOps.update(modelValue, key, WRAP);
-    return New(childEditActions, InsertModel(modelValue));
+    return New(childEditActions, ConstModel(modelValue));
   }
   editActions.Insert = Insert;
   
@@ -625,7 +625,7 @@ var editActions = {};
     treeOps.forEach(childEditActions, (c, k) => {
       treeOps.update(modelValue, k, WRAP);
     });
-    return New(childEditActions, InsertModel(modelValue));
+    return New(childEditActions, ConstModel(modelValue));
   }
   editActions.InsertAll = InsertAll;
  
@@ -717,6 +717,7 @@ var editActions = {};
   }
   editActions.Remove = Remove;
   
+  // If oldLength is provided, will position the current cursor at oldLength, the end of the array.
   function RemoveAll(subAction, oldLength) {
     if(isEditAction(oldLength) || typeof subAction == "number") {
       let tmp = subAction;
@@ -726,7 +727,7 @@ var editActions = {};
     if(subAction === undefined) {
       subAction = Reuse();
     }
-    return RemoveExcept(Offset(0, 0, oldLength), subAction);
+    return RemoveExcept(Offset(oldLength !== undefined ? oldLength : 0, 0, oldLength), subAction);
   }
   editActions.RemoveAll = RemoveAll;
   
@@ -799,6 +800,9 @@ var editActions = {};
   }
   function isAppend(editAction) {
     return typeof editAction == "object" && editAction.ctor == Type.Concat && editAction.firstReuse && !editAction.secondReuse && editAction.replaceCount === undefined;
+  }
+  function isConcat(editAction) {
+    return typeof editAction == "object" && editAction.ctor == Type.Concat;
   }
 
   // Proof:
@@ -966,7 +970,6 @@ var editActions = {};
       );*/
     }
     let isReuse = editAction.model.ctor == TypeNewModel.Extend;
-    let isNew = !isReuse;
     let model = modelToCopy(editAction, prog);
     let childEditActions = editAction.childEditActions;
     if(!hasAnyProps(childEditActions)) {
@@ -1803,6 +1806,7 @@ var editActions = {};
     if(same) return object;
     return o;
   }
+  editActions.mapChildren = mapChildren;
   
   /** Lemma: apply(E, R, lCtx ++ (Offset(c, a), r[d..d+b])::(Offset(d, b), r)::rCtx)
           == apply(E, R, lCtx ++ (Offset(c+d, a), r)::rCtx)
@@ -2210,17 +2214,15 @@ var editActions = {};
   // apply(left, r, rCtx) ++count apply(right, r, rCtx))
   // = apply(editAction, r, rCtx);
   function splitAt(count, editAction, isRemove) {
-    if(editActions.__debug) {
-      console.log("splitAt(", count, "," , stringOf(editAction), ",", isRemove, ")")
-    }
-    if(count == 0) {
+    printDebug("splitAt(", count, "," , stringOf(editAction), ",", isRemove, ")");
+    //if(count == 0 && isReuse(editAction)) {
       /**
       Proof:
         applyZ(Down(Offset(0, 0)), rrCtx) ++0 applyZ(editAction, rrCtx)
         = applyZ(editAction, rrCtx)
       */
-      return [SameDownAs(isRemove)(Offset(0, 0)), editAction];
-    }
+    //return [SameDownAs(isRemove)(Offset(0, 0)), editAction];
+    //}
     var left, right;
     var wasRaw = false;
     if(!isEditAction(editAction)) {
@@ -2345,7 +2347,7 @@ var editActions = {};
         })
         // Proof: editAction = New({fi = ei}i, [])
         //                   = Concat(count, Down(Offset(0, count), New({fi = ei, if fi < count}i)), Down(Offset(count), New({(fi-count) = ei, if fi >= count})))
-        return [rawIfPossible(New(left, InsertModel(leftModelValue)), wasRaw), rawIfPossible(New(right, InsertModel(rightModelValue)), wasRaw)];
+        return [rawIfPossible(New(left, ConstModel(leftModelValue)), wasRaw), rawIfPossible(New(right, ConstModel(rightModelValue)), wasRaw)];
       }
     case Type.Concat:
       if(editAction.count == count) {
@@ -2378,7 +2380,7 @@ var editActions = {};
         let [left1, right1] = splitAt(count, editAction.first, isRemove);
         return [
           left1,
-          Concat(editAction.count - count, right1, editAction.second, undefined, editAction.firstReuse, editAction.secondReuse)
+          Concat(editAction.count - count, right1, editAction.second, editAction.replaceCount, editAction.firstReuse, editAction.secondReuse)
         ];
       } else { // editAction.count < count
         /**
@@ -2398,7 +2400,7 @@ var editActions = {};
         */
         let [left, right] = splitAt(count - editAction.count, editAction.second, isRemove);
         return [
-          Concat(editAction.count, editAction.first, left, editAction.replaceCount, // Weird ReplaceAt. Try undefined?
+          Concat(editAction.count, editAction.first, left, editAction.replaceCount,
           editAction.firstReuse, editAction.secondReuse),
           right
         ];
@@ -2548,9 +2550,10 @@ var editActions = {};
         name: "applyOffset("+keyOrOffsetToString(newOffset) + ", _)"});
     }
     let [leftFirst, rightFirst] = splitAt(newOffset.count, editAction, isRemove);
-    if(editActions.__debug) console.log("splitting")
+    printDebug("splitting left", rightFirst);
     if(newOffset.newLength !== undefined) {
       let [rightFirst1, rightFirst2] = splitAt(newOffset.newLength, rightFirst, isRemove);
+      printDebug("splitting right", rightFirst1);
       return rightFirst1;
     } else {
       return rightFirst;
@@ -2738,10 +2741,10 @@ var editActions = {};
       // (E1, E2) is [R*, N, F, C, U, D, UR] x [R*, N, F, C, U, D, UR] \ N0 x N0
       
       // We only merge children that have reuse in them. The other ones, we don't merge.
-      let E1IsInsert = isNew(E1);
-      let E2IsInsert = isNew(E2);
-      let E1IsReusingBelow = E1IsInsert && isNewReusing(E1);
-      let E2IsReusingBelow = E2IsInsert && isNewReusing(E2);
+      let E1IsInsert = isConst(E1);
+      let E2IsInsert = isConst(E2);
+      let E1IsReusingBelow = E1IsInsert && isConstInserting(E1);
+      let E2IsReusingBelow = E2IsInsert && isConstInserting(E2);
       if(E1IsInsert) {
         if(E1IsReusingBelow) {
           /** Proof:
@@ -2799,9 +2802,9 @@ var editActions = {};
       if(E1IsAppend && E2IsAppend) {
         let newRemaining = merge(E1.first, E2.first);
         // There might be only one solution is the prepended thing is the same.
-        if(isNew(E1.second) && isNew(E2.second)) {
-          let v1 = valueIfNew(E1.second);
-          let v2 = valueIfNew(E2.second);
+        if(isConst(E1.second) && isConst(E2.second)) {
+          let v1 = valueIfConst(E1.second);
+          let v2 = valueIfConst(E2.second);
           let secondWasRaw = !isEditAction(E1.second) && !isEditAction(E2.second);
           if(typeof v1 == "string" && typeof v2 == "string") {
             if(v1 + v2 == v2 + v1) {
@@ -2817,9 +2820,9 @@ var editActions = {};
       if(E1IsPrepend && E2IsPrepend) {
         let newRemaining = merge(E1.second, E2.second);
         // There might be only one solution is the prepended thing is the same.
-        if(isNew(E1.first) && isNew(E2.first)) {
-          let v1 = valueIfNew(E1.first);
-          let v2 = valueIfNew(E2.first);
+        if(isConst(E1.first) && isConst(E2.first)) {
+          let v1 = valueIfConst(E1.first);
+          let v2 = valueIfConst(E2.first);
           let firstWasRaw = !isEditAction(E1.first) && !isEditAction(E2.first);
           if(typeof v1 == "string" && typeof v2 == "string") {
             if(v1 + v2 == v2 + v1) {
@@ -3259,6 +3262,7 @@ var editActions = {};
     }
     throw "Case not supported in partitionEdit: " + stringOf(U);
   }
+  editActions.partitionEdit = partitionEdit;
 
   // Returns the building part that starts an edit action (the Up, Down, New, Concat)
   // 
@@ -3312,10 +3316,11 @@ var editActions = {};
     // Then, apply this path
     return ReuseUp(pathAt(ctx), U, outCountU);
   }
+  editActions.prefixReuse = prefixReuse;
   
   /** Specifications:
     Assuming apply(E, r, rCtx) is defined, and
-    apply(U, apply(E, r, rCtx), apply(ECtx, r, rCtx)) is defined
+    apply(U, apply(E, r, rCtx), apply(ECtx, r, rCtx)) is defined and has length outCountU if it's an array,
     
     then apply(backPropagate(E, U, ECtx), firstRecord(r, rCtx)) is defined,
     
@@ -3326,6 +3331,7 @@ var editActions = {};
   */
   function backPropagate(E, U, ECtx = undefined, outCountU = undefined) {
     let wasRaw = false, Uraw = U;
+    // E and U are edit actions or raw records/scalars
     if(!isEditAction(U)) {
       U = New(U);
       wasRaw = true;
@@ -3333,42 +3339,10 @@ var editActions = {};
     if(!isEditAction(E)) {
       E = New(E);
     }
-    if(editActions.__debug) {
-      printDebug("backPropagate", E, "<=", U, "-|", ECtx, outCountU);
-    }
-    // We remove downs and ups to make them part of the context.
-    if(E.ctor == Type.Down) {
-      /** Proof:
-        Since we assume apply(Down(ko, subAction), r, rCtx) is defined, it implies that
-        apply(subAction, r[ko], (ko, r)::rCtx) is defined
-        
-        Since we assume that apply(U, apply(Down(ko, subAction, r, rCtx)), apply(ECtx, r, rCtx)) is defined, it is equal to:
-        = apply(U, apply(subAction, r[ko], (ko, r)::rCtx), apply(Up(ko, ECtx), r[ko], (ko, r)::Ctx))
-        is defined.
-        Thus, by induction,
-        
-        apply(backPropagate(subAction, U, Up(ko, ECtx)), firstRecord(r[ko], (ko, r)::rCtx)) is defined
-        = apply(backPropagate(subAction, U, Up(ko, ECtx)), firstRecord(r, rCtx))
-        = apply(backPropagate(E, U, ECtx), firstRecord(r, rCtx))
-        QED;
-      */
-      return backPropagate(E.subAction, Uraw, Up(E.keyOrOffset, ECtx), outCountU);
-    }
-    if(E.ctor == Type.Up) {
-      /** Proof:
-        Since we assume apply(Up(ko, subAction), r[ko], (ko, r)::rCtx) is defined, it implies that
-        apply(subAction, r, rCtx) is defined
-        
-        Furthermore, we assume that apply(U, apply(Up(ko, subAction), r[ko], (ko, r)::rCtx), apply(ECtx, r[ko], (ko, r)::rCtx)) is defined, which is equal to:
-        apply(U, apply(subAction, r, rCtx), apply(Down(ko, ECtx), r, rCtx))
-        
-        By induction, we obtain that
-        apply(backPropagate(subAction, U, Down(ko, ECtx)), r, rCtx) is defined
-        = apply(backPropagate(E, U, ECtx), r, rCtx)
-        QED;
-      */
-      return backPropagate(E.subAction, Uraw, Down(E.keyOrOffset, ECtx), outCountU)
-    }
+    // E and U are edit actions
+    printDebug("backPropagate", E, "<=", U, "-|", ECtx, outCountU);
+    // E is Up, Down(RemoveExcept), New(Extend,Const), Concat(Pure,Prepend,Append,Replace), Custom, Choose
+    // U is Up, Down(RemoveExcept), New(Extend,Const), Concat(Pure,Prepend,Append,Replace), Custom, Choose
     if(U.ctor == Type.Choose && (E.ctor != Type.Custom || !E.lens.single)) {
       /** Proof:
         Assuming that apply(E, r, rCtx) is defined,
@@ -3409,20 +3383,71 @@ var editActions = {};
         */
         return backPropagate(E.subAction, newU, ECtx, undefined);
       } else {
-        return E.lens.backPropagate(backPropagate, Uraw, E.lens.cachedInput, E.lens.cachedOutput, E.subAction, ECtx, outCountU);
+        return E.lens.backPropagate(Uraw, E.lens.cachedInput, E.lens.cachedOutput, E.subAction, ECtx, outCountU);
       }
     }
     if(U.ctor == Type.Choose) {
       /** Proof: same as above for the Choose case */
-      return Choose(...Collection.map(U.subActions, childU => backPropagate(E, childU, ECtx, outLengthU)));
+      return Choose(Collection.map(U.subActions, childU => backPropagate(E, childU, ECtx, outCountU)));
     }
-    if(isReuse(U)) {
-      let result = Reuse();
-      forEachChild(U, (child, k) => {
-        let [Ep, ECtxp] = walkDownActionCtx(k, E, ECtx);
-        let tmp = backPropagate(Ep, Up(k, child), ECtxp, undefined);
-        result = merge(result, tmp);
-      });
+    if(E.ctor == Type.Choose) { // When the edit step itself is ambiguous (e.g.)
+      /** Proof:
+        Assuming that apply(E, r, rCtx) is defined,
+        Assuming that apply(Choose(subActions), apply(E, r, rCtx), apply(ECtx, r, rCtx)) is defined, which is equal to:
+        apply(subActions[i], apply(E, r, rCtx), apply(ECtx, r, rCtx)) for some i.
+        by induction,
+        apply(backPropagate(E, subAction[i], ECtx), r, rCtx) is defined
+        Since this is true for any i, it is true for the Choose and thus
+        apply(Choose(backPropagate(E, subAction[i], ECtx))_i, r, rCtx) is defined
+        QED;
+      */
+      return Choose(Collection.map(E.subActions, childE => backPropagate(childE, Uraw, ECtx, outCountU)));
+    }
+    // E is Up, Down(RemoveExcept), New(Extend,Const), Concat(Pure,Prepend,Append,Replace)
+    // U is Up, Down(RemoveExcept), New(Extend,Const), Concat(Pure,Prepend,Append,Replace), Custom
+    // From now on, we decompose the back-propagation problem into multiple sub-problems,
+    // possibly emiting one intermediate solution
+    /** Specification: subProblems consists of either sub-problems or solutions to the back-propagate problems.
+      Sub-problems have the form [subE, subU, subECtx, subOutCountU] and satisfy backPropagate pre-condition on r, rctx
+      Solutions are such that apply(solution, firstRecord(r, rCtx)) is valid*/
+    let subProblems = [];
+    if(E.ctor == Type.Down) {
+      /** Proof:
+        Since we assume apply(Down(ko, subAction), r, rCtx) is defined, it implies that
+        apply(subAction, r[ko], (ko, r)::rCtx) is defined
+        
+        Since we assume that apply(U, apply(Down(ko, subAction), r, rCtx), apply(ECtx, r, rCtx)) is defined, it is equal to:
+        = apply(U, apply(subAction, r[ko], (ko, r)::rCtx), apply(Up(ko, ECtx), r[ko], (ko, r)::Ctx))
+        is defined.
+        Thus, by induction,
+        
+        apply(backPropagate(subAction, U, Up(ko, ECtx)), firstRecord(r[ko], (ko, r)::rCtx)) is defined
+        = apply(backPropagate(subAction, U, Up(ko, ECtx)), firstRecord(r, rCtx))
+        = apply(backPropagate(E, U, ECtx), firstRecord(r, rCtx))
+        QED;
+      */
+      subProblems.push([E.subAction, Uraw, Up(E.keyOrOffset, ECtx), outCountU]);
+    // E is Up, New(Extend,Const), Concat(Pure,Prepend,Append,Replace)
+    // U is Up, Down(RemoveExcept), New(Extend,Const), Concat(Pure,Prepend,Append,Replace), Custom
+    } else if(E.ctor == Type.Up) {
+      /** Proof:
+        Since we assume apply(Up(ko, subAction), r[ko], (ko, r)::rCtx) is defined, it implies that
+        apply(subAction, r, rCtx) is defined
+        
+        Furthermore, we assume that apply(U, apply(Up(ko, subAction), r[ko], (ko, r)::rCtx), apply(ECtx, r[ko], (ko, r)::rCtx)) is defined, which is equal to:
+        apply(U, apply(subAction, r, rCtx), apply(Down(ko, ECtx), r, rCtx))
+        
+        By induction, we obtain that
+        apply(backPropagate(subAction, U, Down(ko, ECtx)), r, rCtx) is defined
+        = apply(backPropagate(E, U, ECtx), r, rCtx)
+        QED;
+      */
+      subProblems.push([E.subAction, Uraw, Down(E.keyOrOffset, ECtx), outCountU]);
+      
+    // E is New(Extend,Const), Concat(Pure,Prepend,Append,Replace)
+    // U is Up, Down(RemoveExcept), New(Extend,Const), Concat(Pure,Prepend,Append,Replace), Custom
+    } else if(isReuse(U)) {
+      // We only need to solve for children
       /** Proof:
           Assume apply(E, r, rCtx) is defined hence, apply(E, r, rCtx)[f] is defined for every f,
           and apply(downAt(f, E), r, rCtx) is defined for every f.
@@ -3433,94 +3458,123 @@ var editActions = {};
           = {f: applyZ(Uf, apply(downAt(f, E), r, rCtx), apply((f, E)::ECtx, r, rCtx))}_f
           Hence all these applyZ are defined, and thus
           
-          backPropagate(downAt(f, E), Uf, (f, E)::ECtx) is defined.
-          Thus the merge of all of them is defined and thus
-          backPropagate(E, U, ECtx) is defined.
-          QED;
       */
-      return result;
-    }
-    /** Specification: all [E, U, ECtx] satisfy backPropagate requirements.
-        Specification: apply(solution, r, rCtx) is valid*/
-    let solution = Reuse(), subProblems = [];
-    if(isRemoveExcept(U)) {
-      printDebug("removeExcept case")
-      let {count, newLength, oldLength} = U.keyOrOffset;
-      // Base case where we remove everything from the array, possibly prepending something else at the given offset.
-      if(newLength === 0) {
-        if(E.ctor == Type.Concat) {
-          let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, E.count), E, ECtx);
-          let [ERight, ECtxRight] = walkDownActionCtx(Offset(E.count), E, ECtx);
-          solution = Reuse();
-          /** Proof:
-              Assume apply(E@Concat(n, ELeft, ERight), r, rCtx) is defined
-              Assume apply(U@RemoveExcept(Offset(0, 0), subU), apply(E, r, rCtx), apply(ECtx, r, rCtx)) is defined
-              = apply(U@RemoveExcept(Offset(0, 0), subU), apply(ELeft, r, rCtx) ++n apply(ERight, r, rCtx), apply(ECtx, r, rCtx)) is defined
-          */
-          subProblems.push([ELeft, U, ECtxLeft, 0]);
-          subProblems.push([ERight, U, ECtxRight, 0]);
-        } else {
-          printDebug("Solving sub-problem first", U)
-          let [EEmpty, ECtxEmpty] = walkDownActionCtx(U.keyOrOffset, E, ECtx);
-          subProblems.push([EEmpty, U.subAction, ECtxEmpty, outCountU]);
-          if(isReuse(E)) {
-            printDebug("we prefix with a Reuse the RemoveAll");
-            solution = prefixReuse(ECtx, RemoveAll(Reuse(), oldLength), 0);
-          }
-        }
-      } else {
-        printDebug("Walking down the context by ", U.keyOrOffset);
-        let [EMiddle, ECtxMiddle] = walkDownActionCtx(U.keyOrOffset, E, ECtx);
-        subProblems.push([EMiddle, U.subAction, ECtxMiddle, outCountU]);
-        // If we removed the left part, we try to find what we removed.
-        if(count > 0) {
-          let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, count), E, ECtx);
-          subProblems.push([ELeft, RemoveAll(Reuse(), count), ECtxLeft, 0]);
-        }
-        // If we removed the right part, we try to find what we removed.
-        // Careful, if count + newLength == 0
-        if(newLength !== undefined && LessThanUndefined(count + newLength, oldLength) && count + newLength > 0) {
-          let [ERight, ECtxRight] = walkDownActionCtx(Offset(count + newLength), E, ECtx);
-          subProblems.push([ERight, RemoveAll(Reuse(), MinusUndefined(oldLength, count + newLength)), ECtxRight, 0]);
-        }
-      }
-    } else if(isPrepend(U)) {
-      let [s, probs, newECtx] = partitionEdit(E, U.first, ECtx, U.count);
-      // Now we prefix action with the Reuse and ReuseOffset from the context and call it a solution.
-      let rightLength = MinusUndefined(outCountU, U.count);
-      solution = prefixReuse(newECtx, Prepend(U.count, s), undefined); // We don't know the length of this Prepend
-      subProblems.push([E, U.second, ECtx, rightLength], ...probs);
-    } else if(isAppend(U)) {
-      let [s, probs, newECtx,] = partitionEdit(E, U.second, ECtx);
-      solution = prefixReuse(newECtx, Append(U.count, s)); // We don't know the length of this Append
-      subProblems.push([E, U.first, ECtx, U.count], ...probs);
-      // Now we prefix action with the Reuse and ReuseOffset from the context and call it a solution.
+      forEachChild(U, (child, k) => {
+        let [Ep, ECtxp] = walkDownActionCtx(k, E, ECtx);
+        subProblems.push([Ep, Up(k, child), ECtxp, undefined]);
+      });
+    // E is New(Extend,Const), Concat(Pure,Prepend,Append,Replace)
+    // U is Up, Down(RemoveExcept), New(Const), Concat(Pure,Prepend,Append,Replace), Custom
     } else if(isReplace(U)) {
       let [inCount, outCount, left, right] = argumentsIfReplace(U);
-      let [inCountE, outCountE, leftE, rightE] = argumentsIfReplace(E);
+      /*let [inCountE, outCountE, leftE, rightE] = argumentsIfReplace(E);
       if(rightE !== undefined && outCountE == 0) {
         // Whatever the replace of the user, it does not touch the left portion.
         subProblems.push([E.second, U, ECtx, outCountU]);
-      } else {
-        let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, inCount), E, ECtx);
-        subProblems.push([ELeft, left, ECtxLeft, outCount]);
-        let [ERight, ECtxRight] = walkDownActionCtx(Offset(inCount), E, ECtx);
-        subProblems.push([ERight, right, ECtxRight, MinUndefined(outCountU, outCount)]);
+      } else {*/
+      let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, inCount), E, ECtx);
+      subProblems.push([ELeft, left, ECtxLeft, outCount]);
+      let [ERight, ECtxRight] = walkDownActionCtx(Offset(inCount), E, ECtx);
+      subProblems.push([ERight, right, ECtxRight, MinUndefined(outCountU, outCount)]);
+      //}
+    // E is New(Extend,Const), Concat(Pure,Prepend,Append,Replace)
+    // U is Up, Down(RemoveExcept), New(Const), Concat(Pure,Prepend,Append), Custom
+    // Finished reusing cases. Now everything should create an intermediate solution.
+    } else if(isConst(E)) {
+      if(isPrepend(U)) {
+        printDebug("/!\\ Warning, cannot back-propagate a prepend on a New", E, U, "|-", ECtx);
+        subProblems.push([E, U.second, ECtx, MinusUndefined(outCountU, U.count)]);
+      } else if(isAppend(U)) {
+        printDebug("/!\\ Warning, cannot back-propagate an append on a New", E, U, "|-", ECtx);
+        subProblems.push([E, U.first, ECtx, U.count]);
+      } else if(isRemoveExcept(U)) {
+        printDebug("/!\\ Warning, cannot back-propagate a RemoveExcept on a New", E, U, "|-", ECtx);
+        let [newE, newECtx] = walkDownActionCtx(U.keyOrOffset, E, ECtx);
+        subProblems.push([newE, U.subAction, newECtx, outCountU]);
+      } else /*if(isConst(U) || isUp(U) || isPureDown(U) || isPureConcat(U))*/ { // Partition fallback
+        [s, probs, newECtx, outCount] = partitionEdit(E, Uraw, ECtx, outCountU);
+        solution = prefixReuse(newECtx, s, outCount);
+        subProblems = probs;
       }
-    } else {
+    // E is New(Extend), Concat(Pure,Prepend,Append,Replace)
+    // U is Up, Down(RemoveExcept), New(Const), Concat(Pure,Prepend,Append), Custom
+    } else if(isRemoveExcept(U)) {
+      if(U.keyOrOffset.count > 0) {
+        if(isReuse(E)) {
+          subProblems.push(prefixReuse(ECtx, Remove(U.keyOrOffset.count)));
+        } else {
+          let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, U.keyOrOffset.count), E, ECtx);
+          subProblems.push([ELeft, Remove(U.keyOrOffset.count), ECtxLeft, 0]);
+        }
+      }
+      let [EMiddle, ECtxMiddle] = walkDownActionCtx(U.keyOrOffset, E, ECtx);
+      subProblems.push([EMiddle, U.subAction, ECtxMiddle, outCountU]);
+      if(U.keyOrOffset.newLength !== undefined) {
+        if(isReuse(E)) {
+          subProblems.push(prefixReuse(ECtx, Keep(U.keyOrOffset.count + U.keyOrOffset.newLength, RemoveAll())));
+        } else {
+          let [ERight, ECtxRight] = walkDownActionCtx(Offset(U.keyOrOffset.count + U.keyOrOffset.newLength), E, ECtx);
+          subProblems.push([ERight, RemoveAll(), ECtxRight, 0]);
+        }
+      }
+    // E is New(Extend), Concat(Pure,Prepend,Append,Replace)
+    // U is Up, Down, New(Const), Concat(Pure,Prepend,Append), Custom
+    } else if(isPrepend(U)) {
+      if(isConcat(E) && !isAppend(E) && !isPrepend(E) && !isReplace(E)) {
+        let solutionPrepend = backPropagate(E.first, Prepend(U.count, U.first), AddContext(Offset(0, E.count), E, ECtx), U.count);
+        if(E.count == 0) { // Two solutions.
+          solutionPrepend = Choose(solutionPrepend,
+            backPropagate(E.second, Prepend(U.count, U.first), AddContext(Offset(E.count), E, ECtx), U.count));
+        }
+        subProblems.push(solutionPrepend);
+        subProblems.push([E, U.second, ECtx, MinusUndefined(outCountU, U.count)]);
+      } else { // E is Reuse, Prepend, Append or Replace. We emit the prepending at the current position.
+        let [s, probs, newECtx] = partitionEdit(E, U.first, ECtx, U.count);
+        // Now we prefix action with the Reuse and ReuseOffset from the context and call it a solution.
+        let rightLength = MinusUndefined(outCountU, U.count);
+        subProblems.push(prefixReuse(newECtx, Prepend(U.count, s), undefined)); // We don't know the length of this Prepend
+        subProblems.push([E, U.second, ECtx, rightLength], ...probs);
+      }
+    // E is New(Extend), Concat(Pure,Prepend,Append,Replace)
+    // U is Up, Down, New(Const), Concat(Pure,Append), Custom
+    } else if(isAppend(U)) {
+      if(isConcat(E) && !isAppend(E) && !isPrepend(E) && !isReplace(E)) {
+        // TODO: There could be two solutions if we knew the length of E and it was the same as E.count
+        subProblems.push([E, U.first, ECtx, U.count]);
+        subProblems.push([E.second, Append(MinusUndefined(U.count, E.count), U.second), AddContext(Offset(E.count), E, ECtx), undefined]); // TODO: Can we find the length of U?
+      } else { // E is Reuse, Prepend, Append or Replace
+        let [s, probs, newECtx,] = partitionEdit(E, U.second, ECtx);
+        subProblems.push(prefixReuse(newECtx, Append(U.count, s))); // We don't know the length of this Append
+        subProblems.push([E, U.first, ECtx, U.count], ...probs);
+      }
+      // Now we prefix action with the Reuse and ReuseOffset from the context and call it a solution.
+    // E is New(Extend), Concat(Pure,Prepend,Append,Replace)
+    // U is Up, Down, New(Const), Concat(Pure), Custom
+    } else { // Only something to construct at this point, no reusing whatsoever.
     // At this point, we have New, Up, Down, and Concats.
       [s, probs, newECtx, outCount] = partitionEdit(E, Uraw, ECtx, outCountU);
-      solution = prefixReuse(newECtx, s, outCount);
-      subProblems = probs;
+      subProblems.push(prefixReuse(newECtx, s, outCount));
+      subProblems.push(...probs);
     }
     // Now we prefix action with the Reuse and ReuseOffset from the context and call it a solution.
-    if(editActions.__debug && !isIdentity(solution)) {
-      console.log("intermediate solution:\n"+stringOf(solution));
-    }
     printDebug("subProblems:", subProblems);
-    for(let [E, U, ECtx, outCountU] of subProblems) {
-      solution = merge(solution, backPropagate(E, U, ECtx, outCountU));
+    let solution = identity;
+    for(let subProblemOrSubSolution of subProblems) {
+      if(Array.isArray(subProblemOrSubSolution)) {
+        let [subE, subU, subECtx, subOutCountU] = subProblemOrSubSolution;
+        solution = merge(solution, backPropagate(subE, subU, subECtx, subOutCountU));
+      } else {
+        if(!isIdentity(subProblemOrSubSolution)) {
+          printDebug("intermediate solution:", subProblemOrSubSolution);
+        }
+        solution = merge(solution, subProblemOrSubSolution);
+      }
     }
+    /** Proof:
+    apply(backPropagate(subE, subU, subECtx, subOutCountU), firstRecord(r, rCtx)) is defined for every f.
+    Thus, the merge of all these backPropagate is correctly defined on firstRecord(r, rCtx) by the specification of merge.
+    and therefore, apply(backPropagate(E, U, ECtx), firstRecord(r, rCtx)) is defined.
+    QED;*/
     return solution;
   }
   editActions.backPropagate = backPropagate;
@@ -5052,6 +5106,8 @@ var editActions = {};
       }
     }
   }
+  const identity = Reuse();
+  editActions.identity = identity;
   function treeOpsOf(x) {
     return typeof x === "object" ? x instanceof Map ? treeOps.MapLike : Array.isArray(x) ? treeOps.Array : treeOps.RecordLike : treeOps.RecordLike;
   }
@@ -5065,6 +5121,13 @@ var editActions = {};
   }
   function forEachChild(editAction, callback) {
     return forEach(editAction.childEditActions, callback);
+  }
+  function forAllChildren(editAction, callback) {
+    let isTrue = true;
+    forEach(editAction.childEditActions, (c, k) => {
+      isTrue = isTrue && callback(c, k)
+    });
+    return isTrue;
   }
   var monoid = {
     ArrayLike: {
@@ -5139,7 +5202,16 @@ var editActions = {};
   function isReuse(editAction) {
     return typeof editAction == "object" && editAction.ctor == Type.New && editAction.model.ctor === TypeNewModel.Extend;
   }
-  function isNewReusing(editAction) {
+  function isExtend(editAction) {
+    return isReuse(editAction);
+  }
+  function isNew(editAction) {
+    return isObject(editAction) && editAction.ctor == Type.New;
+  }
+  function isConst(editAction) {
+    return isNew(editAction) && editAction.model.ctor == TypeNewModel.Constant || !isEditAction(editAction);
+  }
+  function isConstInserting(editAction) {
     let isReusingBelow = false;
     if(isObject(editAction.model.value)) {
       forEach(editAction.model.value, (child, k) => {
@@ -5148,14 +5220,11 @@ var editActions = {};
     }
     return isReusingBelow;
   }
-  function isNew(editAction) {
-    return isObject(editAction) && editAction.ctor == Type.New && editAction.model.ctor == TypeNewModel.Insert || !isEditAction(editAction);
-  }
-  function valueIfNew(editAction) {
+  function valueIfConst(editAction) {
     return isEditAction(editAction) ? editAction.model.value : editAction;
   }
   function isInsert(editAction) {
-    if(!isNew(editAction)) return false;
+    if(!isConst(editAction)) return false;
     let numberKeyWrapping = 0;
     forEach(editAction.model.value, (child, k) => {
       if(child) { numberKeyWrapping++; }
@@ -5163,7 +5232,7 @@ var editActions = {};
     return numberKeyWrapping == 1;
   }
   function isInsertAll(editAction) {
-    if(!isNew(editAction)) return false;
+    if(!isConst(editAction)) return false;
     // We detect inserts.
     let keyWrapping = undefined;
     let numberKeyWrapping = 0;
@@ -5186,7 +5255,7 @@ var editActions = {};
     return undefined;
   }
   function isPureNew(editAction) {
-    if(!isNew(editAction)) return false;
+    if(!isConst(editAction)) return false;
     let numberKeyWrapping = 0;
     forEach(editAction.model.value, (child, k) => {
       if(child) numberKeyWrapping++;
@@ -5355,7 +5424,9 @@ var editActions = {};
       return str;
     } else if(self.ctor == Type.Down) {
       if(self.isRemove && isOffset(self.keyOrOffset)) {
-        if(self.keyOrOffset.count === 0 && self.keyOrOffset.newLength === 0) {
+        let k = self.keyOrOffset;
+        if((k.count === 0 && k.oldLength === undefined || 
+            k.count === k.oldLength) && self.keyOrOffset.newLength === 0) {
           let k = self.keyOrOffset.oldLength !== undefined ? self.keyOrOffset.oldLength : "";
           let c = isIdentity(self.subAction) && k == "" ? "" : stringOf(self.subAction);
           return "RemoveAll(" + c + (k != "" ? ", " : "") + k + ")";
@@ -5440,7 +5511,7 @@ var editActions = {};
         let secondParamNecessary = !selfIsInsert && !selfIsReuse && !selfIsPureNew && !selfIsInsertAll || selfIsMap;
         if(secondParamNecessary) {
           let insertModelNecessary = !Array.isArray(model.value) && !(model.value instanceof Map) && isObject(model.value) && "ctor" in model.value;
-          str += ", " + (insertModelNecessary ? "InsertModel(" : "");
+          str += ", " + (insertModelNecessary ? "ConstModel(" : "");
           if(Array.isArray(model.value)) {
             str += "[";
             let first = true;
@@ -5744,13 +5815,56 @@ var editActions = {};
     /** Proof: Trivial case*/
     return Up(keyOrOffset, subAction);
   }
+  function isDown(editAction) {
+    return isObject(editAction) && editAction.ctor == Type.Down;
+  }
+  function isPureDown(editAction) {
+    return isDown(editAction) && !isRemoveExcept(editAction);
+  }
+  function isUp(editAction) {
+    return isObject(editAction) && editAction.ctor == Type.Up;
+  }
+  function isPureConcat(editAction) {
+    return isConcat(editAction) && !editAction.firstReuse && !editAction.secondReuse && editAction.replaceCount === undefined;
+  }
   
   /** How to traverse and manipulate edit actions */
   // Low-level
   var transform = {};
   transform.isReuse = isReuse;
   transform.isNew = isNew;
-  transform.valueIfNew = valueIfNew;
+  transform.isConst = isConst;
+  transform.isExtend = isExtend;
+  transform.isDown = isDown;
+  transform.isUp = isUp;
+  transform.valueIfConst = valueIfConst;
+  transform.isOffset = isOffset;
+  transform.isIdentity = isIdentity;
+  // Assumes U is a New
+  function forEachReusingChild(U, callback) {
+    if(typeof U.model.value !== "object") {
+      return;
+    }
+    t = treeOpsOf(U.model.value);
+    forEach(U.childEditActions, (c, k) => {
+      if(t.access(U.model.value, k)) {
+        callback(c, k);
+      }
+    });
+  }
+  transform.isConcat = isConcat;
+  function firstChildIfConcat(e) { return e.first; }
+  function secondChildIfConcat(e) { return e.second; }
+  function countIfConcat(e) {return e.count}
+  transform.firstChildIfConcat;
+  transform.secondChildIfConcat;
+  transform.countIfConcat;
+  transform.forEachReusingChild = forEachReusingChild;
+  function childIfDownOrUp(editAction, key) {
+    return editAction.subAction;
+  }
+  transform.childIfDown = childIfDownOrUp;
+  transform.childIfUp = childIfDownOrUp;
   function childIfReuse(editAction, key) {
     return key in editAction.childEditActions ? Up(key, editAction.childEditActions[key]) : Reuse();
   }
@@ -5761,6 +5875,7 @@ var editActions = {};
   transform.isRaw = isRaw;
   
   transform.forEachChild = forEachChild;
+  transform.forAllChildren = forAllChildren;
   transform.forEach = forEach;
   transform.extractKeep = argumentsIfKeep;
   transform.extractReplace = argumentsIfReplace;

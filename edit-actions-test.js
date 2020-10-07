@@ -5,6 +5,7 @@ var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
 
+
 // Example where ReuseOffset used to fail to determine the correct outLength, because 20 disappeared.
 shouldBeEqual(
   backPropagate(
@@ -2578,8 +2579,8 @@ addLens = {
   update: function (editAction, [{value: left}, {value: right}], {value: oldValue}) {
         if(transform.isReuse(editAction)) {
           let newValueEdit = transform.childIfReuse(editAction, "value");
-          if(transform.isNew(newValueEdit)) {
-            let newValue = transform.valueIfNew(newValueEdit);
+          if(transform.isConst(newValueEdit)) {
+            let newValue = transform.valueIfConst(newValueEdit);
             return Reuse({0: Reuse({value: New(left + newValue - oldValue)})});
           }
         }
@@ -2980,6 +2981,46 @@ testBackPropagate(
     3: Reuse({
       value: New(22)})})}), "pStep_uStep4");
 
+shouldBeEqual(
+  merge(
+    Remove(7), Keep(2, Prepend(1, "a"))),
+  Remove(7));
+
+shouldBeEqual(
+  backPropagate(
+    Concat(4, Reuse(), Reuse()),
+    Remove(2, Prepend(1, "a"))),
+  Remove(2, Prepend(1, "a")));
+
+shouldBeEqual(
+  backPropagate(
+    New([1, 2, 3]),
+    RemoveAll(Prepend(1, "a"))),
+  Reuse());
+
+state1=`function a(x) {
+  return F(x)+G(x);
+}
+/* Four
+Lines
+comment
+*/ 
+`;
+state2=`/* Four
+Lines
+comment
+*/ 
+function a(x) {
+  return F(x)+G(x);
+}
+`;
+shouldBeEqual(
+  backPropagate(
+    Remove(38, Append(25, Up(Offset(38), Down(Interval(0, 38))))),
+    Keep(25+11, Remove(1, Prepend(1, "y", Keep(15, Remove(1, Prepend(1, "y", Keep(4, Remove(1, Prepend(1, "y")))))))))
+  ),
+  Keep(11, Remove(1, Prepend(1, "y", Keep(15, Remove(1, Prepend(1, "y", Keep(4, Remove(1, Prepend(1, "y"))))))))));
+  
 // Custom
 var plusEditAction =
   Custom(Down("args"),
@@ -3009,7 +3050,7 @@ shouldBeEqual(
 // Custom composed with Reuse
 var step1 = Reuse({b: Custom(Reuse(),
   { apply: x => ({a: x + 1}),
-    update: editOut => New(transform.valueIfNew(transform.childIfReuse(editOut, "a")) - 1),
+    update: editOut => New(transform.valueIfConst(transform.childIfReuse(editOut, "a")) - 1),
     name: "Wrap and add 1"
   })});
 var step2 = Reuse({c: Up("c", Down("b", Reuse({c: Up("c", Down("a"))})))});
