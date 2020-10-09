@@ -1,9 +1,93 @@
 var editActions = require("./edit-actions.js");
-var {List,Reuse,New,Concat,Keep,Prepend, Append,Remove,RemoveExcept,RemoveAll,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, Replace, splitAt, downAt, offsetAt, stringOf, Sequence, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, debug, Interval, Insert, InsertAll, ExtendModel, ReuseAsIs, transform} = editActions;
+var {List,Reuse,New,Concat,Replace,Keep,Prepend, Append,Remove,RemoveExcept,RemoveAll,KeepOnly,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, splitAt, downAt, offsetAt, stringOf, Sequence, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, debug, Interval, Insert, InsertAll, ExtendModel, ReuseAsIs, transform, mergeInto} = editActions;
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
+
+shouldBeEqual(
+  editActions.__keyIn(3, Down(Interval(2), Remove(2))),
+  Reuse()
+);
+
+shouldBeEqual(
+  editActions.__offsetIn(Interval(1, 3), KeepOnly(2), 2, 3)[0],
+  KeepOnly(1)
+);
+
+shouldBeEqual(
+  mergeInto(
+    Down("x", Reuse({y: Up("y", "x", Down("z"))})),
+    Down("z", Reuse({w: Up("w", "z", Down("x"))}))
+  ),
+  Down("x", Reuse({y: Up("y", "x", Down("z", Reuse({w: Up("w", "z", Down("x"))})))}))
+);
+
+shouldBeEqual(
+  mergeInto(
+    Reuse({3: New(1)}),
+    Prepend(1, ["x"])
+  ),
+  Prepend(1, ["x"], Reuse({3: New(1)}))
+);
+shouldBeEqual(
+  mergeInto(
+    Reuse({3: New(1)}),
+    Append(3, ["x"])
+  ),
+  Append(4, Reuse({3: New(1)}), ["x"])
+);
+
+shouldBeEqual(
+  mergeInto(
+    Reuse({3: New(1)}),
+    Replace(3, 2, Remove(1), Reuse({1: New(2)}))
+  ),
+  Replace(3, 2, Remove(1), Reuse({0: New(1), 1: New(2)}))
+);
+
+// Forward merge
+shouldBeEqual(
+  mergeInto(
+    Remove(10, Keep(5, RemoveAll())),
+    Keep(10, Prepend(1, "(", Keep(2, Prepend(6, "inside", Keep(3, Prepend(1, ")"))))))),
+  RemoveExcept(Interval(10, 15), Prepend(1, "(", Keep(2, Prepend(6, "inside"))))
+);
+// backward merge.
+shouldBeEqual(
+  mergeInto(
+    Remove(10, Keep(10, Prepend(10, Up(Offset(19, undefined, 10))))),
+    Keep(2, Prepend(6, "inserted"))),
+  Remove(10, Keep(10, Prepend(16, Up(Offset(19, undefined, 10), Keep(1, Prepend(6, "inserted"))))))
+);
+
+// Insertion of removed portion before
+shouldBeEqual(
+  merge(
+    Keep(10, Prepend(5, RemoveExcept(Interval(10, 15)), Keep(10, Remove(5)))),
+    Keep(23, Prepend(2, "ab"))
+  ),
+  Keep(10, Prepend(7, RemoveExcept(Interval(10, 15), Keep(3, Prepend(2, "ab"))), Keep(10, Remove(5)))),
+);
+
+// TODO: Enhance merge so that these test cases pass.
+
+shouldBeEqual(
+  merge(
+    Replace(3, 3, Reuse({1: New(2)}), Prepend(1, ["a"])),
+    Keep(4, Prepend(1, Down(Interval(-3, -2))))
+  ),
+  Replace(3, 3, Reuse({1: New(2)}), Prepend(1, ["a"], Keep(1, Prepend(1, Down(Interval(-3, -2), Reuse({0: New(2)}))))))
+);
+
+// Insertion of removed portion after
+shouldBeEqual(
+  merge(
+    Keep(10, Remove(5, Keep(5, Prepend(5, Up(Offset(10, undefined, 5)))))),
+    Keep(13, Prepend(2, "ab"))
+  ),
+  Keep(10, Remove(5, Keep(5, Prepend(7, Up(Offset(10, undefined, 5), Keep(3, Prepend(2, "ab")))))))
+);
 
 shouldBeEqual(
   backPropagate(
@@ -26,38 +110,6 @@ shouldBeEqual(
      Keep(8, Prepend(1, "a")),
      Replace(8, 20, Up(Offset(0, 8, undefined)))), 
   Replace(8, 20, Up(Offset(0, 8, undefined), Keep(8, Prepend(1, "a")))));
-
-// Insertion of removed portion before
-shouldBeEqual(
-  merge(
-    Keep(10, Prepend(5, RemoveExcept(Interval(10, 15)), Keep(10, Remove(5)))),
-    Keep(23, Prepend(2, "ab"))
-  ),
-  Keep(10, Prepend(7, RemoveExcept(Interval(10, 15), Keep(3, Prepend(2, "ab"))), Keep(10, Remove(5)))),
-);
-
-// TODO: Enhance merge so that these test cases pass.
-/*
-n();
-shouldBeEqual(
-  merge(
-    Replace(3, 3, Reuse({1: New(2)}), Prepend(1, ["a"])),
-    Keep(4, Prepend(1, Down(Interval(-3, -2))))
-  ),
-  Replace(3, 3, Reuse({1: New(2)}), Prepend(1, ["a"], Keep(1, Prepend(1, Down(Interval(-3, -2), Reuse({0: New(2)}))))))
-);
-
-// Insertion of removed portion after
-n()
-shouldBeEqual(
-  merge(
-    Keep(10, Remove(5, Keep(5, Prepend(5, Up(Offset(10, undefined, 5)))))),
-    Keep(13, Prepend(2, "ab"))
-  ),
-  Keep(10, Remove(5, Keep(5, Prepend(5, Up(Offset(10, undefined, 5), Keep(3, Prepend(2, "ab")))))))
-);
-e()
-*/
 
 shouldBeEqual(
   backPropagate(
@@ -449,7 +501,7 @@ shouldBeEqual(stringOf(Keep(8, New("1"))), "Keep(8, New(\"1\"))");
 shouldBeEqual(stringOf(Replace(5, 0, RemoveAll(), Reuse())),
 "Replace(5, 0,\n  RemoveAll())");
 
-shouldBeEqual(stringOf(Keep(3, RemoveAll())), "Keep(3, RemoveAll())");
+shouldBeEqual(stringOf(Keep(3, RemoveAll())), "KeepOnly(3)");
 
 shouldBeEqual(
   andThen(Down(Offset(3, 5)), Custom(Reuse(), {apply: x => "1"+ x, update: e => ReuseOffset(Offset(1), e), name: "append1"})),
@@ -797,8 +849,8 @@ shouldBeEqual(
     Replace(3, 3, New("abc"), Reuse()),
     Keep(2, New("def"))      
   ),
-  Replace(2, 0,
-    RemoveAll(Reuse(), 2),
+  Replace(2, 3,
+    Prepend(3, New("abc"), RemoveAll()),
     New("def"))
 );
 
@@ -837,10 +889,10 @@ shouldBeEqual(
 
 shouldBeEqual(
   merge(
-    RemoveExcept(Offset(2, 5), Reuse({4: New(1)})),
-    RemoveExcept(Offset(3), Reuse({2: New(2), 5: New(3)})),
+    RemoveExcept(Interval(2, 7), Reuse({4: New(1)})),
+    RemoveExcept(Interval(3), Reuse({2: New(2), 5: New(3)})),
   ),
-  RemoveExcept(Offset(3, 4), Reuse({2: New(2), 3: New(1)}))
+  RemoveExcept(Interval(3, 7), Reuse({2: New(2), 3: New(1)}))
 );
 
 shouldBeEqual(
@@ -911,11 +963,13 @@ shouldBeEqual(
 
 shouldBeEqual(
   merge(
-    Replace(3, 2, New([1, Down(0)]), Reuse({0: New(1), 1: New(3)})),
-    Down(Interval(1, 4))
+    Replace(3, 2, Append(0, RemoveAll(), New([1, Down(0)])), Reuse({0: New(1), 1: New(3)})),
+    RemoveExcept(Interval(1, 4))
   ),
-  Down(Interval(1, 4), Replace(2, 2,
-    RemoveAll(Prepend(2, New([1, Up(Offset(0, 0, 3), Down(0))])), 2),
+  RemoveExcept(Interval(1, 4), Replace(2, 2,
+    Append(0,
+      RemoveAll(),
+      New([1, Up(Interval(1, 3), Down(0))])),
     Reuse({
     0: New(1)})))
 );
@@ -1250,14 +1304,14 @@ testBackPropagate(
 testBackPropagate(
   Remove(5),
   RemoveExcept(Offset(2, 4)),
-  Keep(5, Remove(2, Keep(4, RemoveAll()))),
+  KeepOnly(11, Keep(5, Remove(2))),
   "slice back-propagation bis"
 );
 
 testBackPropagate(
   Remove(5),
   Remove(2, Keep(2, RemoveAll())),
-  Keep(5, Remove(2, Keep(2, RemoveAll()))),
+  KeepOnly(9, Keep(5, Remove(2))),
   "slice back-propagation bis"
 );
 
@@ -1370,13 +1424,15 @@ testBackPropagate(
   Concat(4, Down(Offset(0, 4-0)),
          Down(Offset(5))),
   Keep(2, RemoveAll()),
-  Keep(2, Remove(4-2, Keep(5-4, RemoveAll()))), "Reinject the omitted element"
+  KeepOnly(5, Keep(2, Remove(2))), "Reinject the omitted element"
 );
+
 testBackPropagate(
   Concat(4, Down(Offset(0, 4-0)),
          Down(Offset(5))),
   RemoveExcept(Offset(6, 8-6)),
-  Remove(4, Keep(1, Remove(2, Keep(2, RemoveAll())))), "Shifted slice"
+  RemoveExcept(Interval(4, 9), Keep(1, Remove(2))),
+  "Shifted slice"
 );
 testBackPropagate(
   Concat(4, Down(Offset(0, 4-0)),
@@ -1390,7 +1446,7 @@ testBackPropagate(
   Reuse({a: RemoveExcept(Offset(6, 8-6))}),
   Reuse({
     b: Remove(4),
-    a: Keep(5, Remove(7-5, Keep(9-7, RemoveAll())))}),
+    a: KeepOnly(9, Keep(5, Remove(2)))}),
   "Shifted slice on separate branches"
 );
 
@@ -1401,7 +1457,7 @@ testBackPropagate(
   Reuse({
     b: Keep(1, Remove(3-1)),
     c: Remove(2),
-    a: Keep(5, Remove(7-5, Keep(9-7, RemoveAll())))}),
+    a: KeepOnly(9, Keep(5, Remove(2)))}),
   "Shifted slice on separate branches"
 );
 
@@ -1413,20 +1469,24 @@ testBackPropagate(
 testBackPropagate(
   Keep(4, Remove(1)),
   Remove(6, Keep(2, RemoveAll())),
-  Remove(4, Keep(1, Remove(2, Keep(2, RemoveAll())))), "Shifted slice again"
+  //Remove(4, Keep(1, Remove(2, Keep(2, RemoveAll()))))
+  RemoveExcept(Interval(4, 9), Keep(1, Remove(2)))
+  , "Shifted slice again"
 );
 testBackPropagate(
   Keep(4, Remove(5-4)),
   Keep(1, Remove(2-1, Keep(3-2, RemoveAll()))),
-  Keep(1,Remove(2-1,Keep(3-2,Remove(4-3,Keep(5-4, RemoveAll()))))),
+  KeepOnly(5, Keep(1, Remove(1, Keep(1, Remove(1))))),
   "right-aligned concat."
 );
 testBackPropagate(
   Concat(4, Down(Offset(0, 4-0)),
          Down(Offset(5))),
   Keep(2, Remove(6-2, Keep(8-6, RemoveAll()))),
-  Keep(2,Remove(4-2,Keep(5-4,Remove(7-5,Keep(9-7, RemoveAll()))))),
-  "back-Propagation of bigger concat"
+  //Keep(2, RemoveExcept(Interval(2, 7), Keep(1, RemoveExcept(Interval(2, 4)))))
+  //Keep(2,Remove(4-2,Keep(5-4,Remove(7-5,Keep(9-7, RemoveAll())))))
+  KeepOnly(9, Keep(2, Remove(2, Keep(1, Remove(2)))))
+  ,"back-Propagation of bigger concat"
 );
 
 testBackPropagate(
@@ -1613,8 +1673,8 @@ testMergeAndReverse(
   Keep(8, New("abc")),
   Replace(9, 8, Remove(1), RemoveExcept(Offset(0, 1))),
   Replace(8, 7,
-  RemoveExcept(Interval(1, 8)),
-  New("abc")),
+    Remove(1),
+    New("abc")),
   "Permutation and prepend again"
 );
 
@@ -2143,9 +2203,9 @@ var m2 = Keep(1,
            Prepend(1, New(" "),
               Reuse()))
 var m3 = Keep(1,
-          Remove(1, Prepend(2, New(" g"))));
+          Remove(1, Prepend(2, New(" g")))); // .X[ g]...
 var m4 = Keep(3,
-           Prepend(1, New("r")));
+           Prepend(1, New("r")));            // ...
 var m5 = Keep(2,
            Remove(1, Prepend(1, New("G"))));
 var m45 = andThen(m5, m4);
@@ -2165,11 +2225,11 @@ var m7b = Keep(6, Prepend(1, New("o")));
 var m8b = Keep(2, Remove(1, Prepend(1, New("G"))));
 var m7b8b = andThen(m8b, m7b);
 shouldBeEqual(m7b8b, Replace(6, 6,
-  Keep(2, RemoveExcept(Interval(1, 4), Prepend(1, New("G")))),
+  Keep(2, Remove(1, Prepend(1, New("G")))),
   Prepend(1, New("o"))), "m7b8b");
 var m6b7b8b = andThen(m7b8b, m6b);
 shouldBeEqual(m6b7b8b, Replace(4, 4,
-  Keep(2, RemoveExcept(Interval(1, 2), Prepend(1, New("G")))),
+  Keep(2, Remove(1, Prepend(1, New("G")))),
   Remove(1, Prepend(3, New(" wo")))), "m6b7b8b");
 
 shouldBeEqual(
@@ -2832,7 +2892,8 @@ shouldBeEqual(backPropagate(
   Reuse({
     f: Up("f", Down("c", "e")),
     c: Reuse({
-      e: Up("e", "c", Down("f"))})}));
+      e: Reuse({
+        p: Up("p", "e", "c", Down("f"))})})}));
   
 // Weird: Why Down("e") disappears?)
 shouldBeEqual(backPropagate(
@@ -2873,12 +2934,20 @@ shouldBeEqual(backPropagate(
 shouldBeEqual(backPropagate(
   New({a: New({b: Down("c", Reuse({d: Up("d", "c", Down("f"))})) })}),
   Reuse({a: Reuse({b: Reuse({d: Up("d", Down("e", Reuse({p: Up("p", "e", Down("d"))}))), e: Up("e", Down( "d"))})})})),
+  /*Reuse({
+  f: Up("f", Down("c", "e")),
+  c: Reuse({
+    e: Up("e", "c", Down("f"))})})*/
   Reuse({
   f: Up("f", Down("c", "e")),
   c: Reuse({
-    e: Up("e", "c", Down("f"))})})/*
+    e: Reuse({
+      p: Up("p", "e", "c", Down("f"))})})})
+  /*
   Reuse(
-    {f: Up("f", Down("c", "e", Reuse({p: Up("p", "e", "c", Down("f"))}))),
+    {f: Up("f", Down("c", "e",
+      Reuse({p:
+        Up("p", "e", "c", Down("f"))}))),
      c: Reuse({e: Up("e", "c", Down("f"))})
     })*/);
 

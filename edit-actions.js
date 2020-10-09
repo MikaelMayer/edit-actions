@@ -442,6 +442,7 @@ var editActions = {};
         count = first.count;
         first = first.first;
       }
+      // Merge consecutive offsets
       if(first.ctor == Type.Down && second.ctor == Type.Down && first.isRemove === second.isRemove) {
         if(isOffset(first.keyOrOffset) && isOffset(second.keyOrOffset)) {
           let {count: c1, newLength: n1, oldLength: o1} = first.keyOrOffset;
@@ -454,6 +455,11 @@ var editActions = {};
       }
       if(replaceCount === 0) return second;
       if(outLength(second) === 0) return first;
+    }
+    if(replaceCount !== undefined) {
+      if(outLength(second) === 0 && first.ctor == Type.Down && isOffset(first.keyOrOffset)) {
+        return RemoveExcept(first.keyOrOffset, first.subAction);
+      }
     }
     if(secondReuse && !firstReuse) {
       // A prepend. Maybe the second one is an prepend?
@@ -481,6 +487,10 @@ var editActions = {};
           let [keepCount2, keepSub2] = argumentsIfKeep(keepSub);
           if(keepSub2 !== undefined) {
             return Keep(keepCount + keepCount2, keepSub2);
+          }
+          let [keepOnlyCount, keepOnlySub] = argumentsIfKeepOnly(keepSub);
+          if(keepOnlySub !== undefined && isIdentity(keepOnlySub)) {
+            return KeepOnly(keepCount + keepOnlyCount);
           }
         }
       }
@@ -688,6 +698,17 @@ var editActions = {};
     return [inCount, second];
   }
   
+  function argumentsIfKeepOnly(editAction) {
+    if(!isRemoveExcept(editAction)) return [];
+    let {count, newLength, oldLength} = editAction.keyOrOffset;
+    if(count !== 0 || oldLength !== undefined) return [];
+    return [newLength, editAction.subAction];
+  }
+  function isKeepOnly(editAction) {
+    let [n, e] = argumentsIfKeepOnly(editAction);
+    return n !== undefined;
+  }
+  
   // first is the thing to prepend (in the current context of the slice), second is the remaining (default is Reuse()).
   function Prepend(count, first, second = Reuse()) {
     return Concat(count, first, second, undefined, false, true);
@@ -730,6 +751,11 @@ var editActions = {};
     return RemoveExcept(Offset(oldLength !== undefined ? oldLength : 0, 0, oldLength), subAction);
   }
   editActions.RemoveAll = RemoveAll;
+  
+  function KeepOnly(count, subAction = Reuse()) {
+    return RemoveExcept(Offset(0, count), subAction);
+  }
+  editActions.KeepOnly = KeepOnly;
   
   // ReuseOffset(offset, X) is to Down(offset, X)
   // what Reuse({key: X}) is to Down(key, X)
@@ -1888,35 +1914,46 @@ var editActions = {};
     }
   }
   
-  // splitIn works only for any combination of Replace, Reuse and RemoveExcept
-  // Replace(0, x, I, E) will also work because
-  //   if n == 0, then it will just return editAction.
-  //   if n > 0, then inCount < n and thus, only right is split.
-  // Hence splitIn works for Prepend and Keep as well!
+  // Assume editAction is neither Reuse, Replace, Prepend, Append, or Down with an offset.
+  function makeOffsetInCompatibleAt(offset, editAction, originalOutCount, originalInCount) {
+    printDebug("makeOffsetInCompatibleAt", offset, editAction, originalOutCount, originalInCount);
+    // Do we need this if the second case works?
+    originalOutCount = originalOutCount !== undefined ? originalOutCount : outLength(editAction);
+    if(originalOutCount !== undefined) return Prepend(originalOutCount, editAction, RemoveAll());
+    // We don't know the length of the original out count. We use Append instead
+    return Append(0, RemoveAll(), editAction);
+  }
   
-  // If [outCount, left, right] = splitIn(inCount, editAction)
-  // Then
-  // apply(Replace(inCount, outCount, left, right), r, rCtx) = apply(editAction, r, rCtx)
-  function splitIn(n, editAction, contextCount = undefined) {
-    printDebug("splitIn", n, editAction);
-    if(n == 0) {
-      /** Proof:
-            apply(Replace(0, 0, Reuse(), editAction), r, rCtx)
-          = apply(Down(Offset(0, 0)), r, rCtx) ++0 apply(Down(Offset(0), editAction), r, rCtx)
-          = [] ++0 apply(editAction, r, rCtx)
-          = apply(editAction, r, rCtx)
-          QED
-      */
-      return [0, Reuse(), editAction];
-    }
-    let [inCount, outCount, left, right] = argumentsIfReplace(editAction);
-    if(right !== undefined) {
-      if(inCount == n) {
-        return [outCount, left, right]
-      } else if(inCount < n) {
-        let [outCount2, right1, right2] = splitIn(n-inCount, right, MinusUndefined(contextCount, outCount));
-        if(right2 === undefined) return [];
-        /** Proof:
+  // If e = offsetIn(offset, editAction)
+  // Then, for some X and Y
+  // apply(editAction, r, rCtx) =
+  // apply(Down(before(offset), x), r, rctx) ++ apply(Down(offset, e), r, rCtx) ++ apply(Down(after(offset), Y), r, rCtx)
+  
+  // [newEdit, count] = offsetIn(offset, editAction)
+  // Property:
+  //   If [left, ol] = offsetIn(Offset(0, i), editAction)
+  //   and [right, or] = offsetIn(Offset(i), editAction)
+  //   then apply(Replace(i, ol, left, right), r, rCtx) == apply(editAction, r, rCtx)
+  // the edit action offsetIn(offset, editAction)[1] will always be executed in the context of the offset.
+  // Hence, if the offset specifies a newLength, the result does not need to re-specify this length.
+  function offsetIn(offset, editAction, defaultIsReuse = false, recoveryMode = true, originalOutCount = undefined) {
+    function offsetInAux(offset, editAction, originalOutCount = undefined, originalInCount = undefined) {
+      printDebug("offsetIn"+(originalOutCount === undefined ? "" : " (originalOutCount = " + originalOutCount +")")+(originalInCount === undefined ? "" : " (originalInCount = " + originalInCount +")"), offset, editAction);
+      let {count: n, newLength, oldLength} = offset;
+      if(n == 0 && newLength === undefined) {
+        /* Outdated Proof:
+              apply(Replace(0, 0, Reuse(), editAction), r, rCtx)
+            = apply(Down(Offset(0, 0)), r, rCtx) ++0 apply(Down(Offset(0), editAction), r, rCtx)
+            = [] ++0 apply(editAction, r, rCtx)
+            = apply(editAction, r, rCtx)
+            QED
+        */
+        return [editAction, undefined];
+      }
+      let [inCount, outCount, left, right] = argumentsIfReplace(editAction);
+      if(right !== undefined) {
+        if(inCount <= n) {
+          /* Outdated Proof:
               apply(editAction, r, rCtx)
             = apply(Replace(i, o, L, R), r, rCtx)
             = apply(Down(Offset(0, i), L), r, rCtx) ++o apply(Down(Offset(i), R), r, rCtx)
@@ -1932,133 +1969,150 @@ var editActions = {};
             = apply(Replace(n, o+o2, Replace(i, o, L, r1), r2)
             QED;
         */
-        return [outCount2+outCount, Replace(inCount, outCount, left, right1), right2];
-      } else { // inCount > n
-        let [outCount2, left1, left2] = splitIn(n, left, outCount); 
-        if(left2 === undefined) return [];
-        /** Proof:
-              apply(editAction, r, rCtx)
-            = apply(Replace(i, o, L, R), r, rCtx)
-            = apply(Down(Offset(0, i), L), r, rCtx) ++o apply(Down(Offset(i), R), r, rCtx)
-            = apply(L, r[0..i], (Offset(0, i), r)::rCtx) ++o apply(Down(Offset(i), R), r, rCtx)
-            = apply(Replace(n, o2, l1, l2), r[0..i], (Offset(0, i), r)::rCtx) ++o apply(Down(Offset(i), R), r, rCtx)
-            = (apply(Down(Offset(0, n), l1), r[0..i], (Offset(0, i), r)::rCtx) ++o2 
-               apply(Down(Offset(n), l2), r[0..i], (Offset(0, i), r)::rCtx)) ++o
-              apply(Down(Offset(i), R), r, rCtx)
-            = apply(l1, r[0..n], (Offset(0, n), r)::rCtx) ++o2 
-               (apply(l2, r[n..i], (Offset(n, i-n), r)::rCtx) ++(o-o2)
-                apply(R, r[i...], (Offset(i), r)::rCtx))
-                
-            = apply(l1, r[0..n], (Offset(0, n), r)::rCtx) ++o2 
-               (apply(Down(Offset(0, i-n), l2), r[n...], (Offset(n), r)::rCtx) ++(o-o2)
-                apply(Down(Offset(i-n), R), ..., (Offset(n), r)::rCtx))
-            = apply(l1, r[0..n], (Offset(0, n), r)::rCtx) ++o2 
-               (apply(Replace(i-n, o-o2, l2, R), (Offset(n), r)::rCtx))
-            = apply(Replace(n, o2, l1, Replace(i-n, o-o2, l2, R)), r, rCtx)
-            QED;
+          return offsetInAux(Offset(n-inCount, newLength), right, MinusUndefined(originalOutCount, outCount), MinusUndefined(originalInCount, inCount));
+        } else if(newLength !== undefined && n + newLength <= inCount) {
+          return offsetInAux(offset, left, outCount, inCount);
+        } else { // Hybrid. n < inCount and (newLength === undefined || n + newLength > inCount)
+          let [newLeft, newLeftCount] = offsetInAux(Offset(n, inCount-n), left, outCount, inCount);
+          if(newLeft === undefined) return []; // recovery mode works at the leaves.
+          let [newRight, newRightCount] = offsetInAux(Offset(0, MinusUndefined(newLength, inCount-n)), right, MinusUndefined(originalOutCount, outCount), MinusUndefined(originalInCount, inCount));
+          if(newRight === undefined) return []; // recovery mode works at the leaves.
+          printDebug("returning Replace(", inCount-n, newLeftCount, newLeft, newRight);
+          return [Replace(inCount - n, newLeftCount, newLeft, newRight), PlusUndefined(newLeftCount, newRightCount)];
+          /* Outdated Proof:
+                apply(editAction, r, rCtx)
+              = apply(Replace(i, o, L, R), r, rCtx)
+              = apply(Down(Offset(0, i), L), r, rCtx) ++o apply(Down(Offset(i), R), r, rCtx)
+              = apply(L, r[0..i], (Offset(0, i), r)::rCtx) ++o apply(Down(Offset(i), R), r, rCtx)
+              = apply(Replace(n, o2, l1, l2), r[0..i], (Offset(0, i), r)::rCtx) ++o apply(Down(Offset(i), R), r, rCtx)
+              = (apply(Down(Offset(0, n), l1), r[0..i], (Offset(0, i), r)::rCtx) ++o2 
+                 apply(Down(Offset(n), l2), r[0..i], (Offset(0, i), r)::rCtx)) ++o
+                apply(Down(Offset(i), R), r, rCtx)
+              = apply(l1, r[0..n], (Offset(0, n), r)::rCtx) ++o2 
+                 (apply(l2, r[n..i], (Offset(n, i-n), r)::rCtx) ++(o-o2)
+                  apply(R, r[i...], (Offset(i), r)::rCtx))
+                  
+              = apply(l1, r[0..n], (Offset(0, n), r)::rCtx) ++o2 
+                 (apply(Down(Offset(0, i-n), l2), r[n...], (Offset(n), r)::rCtx) ++(o-o2)
+                  apply(Down(Offset(i-n), R), ..., (Offset(n), r)::rCtx))
+              = apply(l1, r[0..n], (Offset(0, n), r)::rCtx) ++o2 
+                 (apply(Replace(i-n, o-o2, l2, R), (Offset(n), r)::rCtx))
+              = apply(Replace(n, o2, l1, Replace(i-n, o-o2, l2, R)), r, rCtx)
+              QED;
+          */
+        }
+      }
+      if(isPrepend(editAction)) {
+        let [e2, o2] = offsetInAux(offset, editAction.second, MinusUndefined(originalOutCount, editAction.count), originalInCount);
+        if(e2 !== undefined) {
+          if(n > 0) { // We don't keep the Prepend
+            return [e2, o2];
+          }
+          let newPrepended = UpIfNecessary(offset, editAction.first);
+          return [Prepend(editAction.count, newPrepended, e2), PlusUndefined(editAction.count, o2)];
+        }
+      }
+      if(isAppend(editAction)) {
+        let [e2, o2] = offsetInAux(offset, editAction.first, editAction.count, originalInCount);
+        if(e2 !== undefined) {
+          printDebug("subAppend result", e2, o2);
+          if(newLength !== undefined && originalInCount !== undefined && n + newLength < originalInCount) { // We don't keep the Append
+            return [e2, o2];
+          }
+          return [Append(o2, e2, UpIfNecessary(offset, editAction.second)), MinusUndefined(PlusUndefined(originalOutCount, o2), editAction.count)];
+        }
+      }
+      if(isReuse(editAction)) {
+        // Let's generate a Replace to mimic the Reuse.
+        /* Outdated Proof: Assume editAction = Reuse({f: Ef, g: Eg}) where f < n and g >= n
+             apply(editAction, r, rCtx)
+           = apply(Reuse({f: Ef, g: Eg}), r, rCtx)
+           = r[f => apply(Ef, r[f], (f, r)::rCtx),
+               g => apply(Eg, r[g], (g, r)::rCtx)]
+           = r[0..n][f => apply(Ef, r[f], (f, r)::rCtx)] ++n
+             r[n..][(g-n) => apply(Eg, r[g], (g, r)::rCtx)]
+           = r[0..n][f => apply(mapUpHere(Ef, Offset(0, n), Up(f)), r[f], (f, r[0..n])::(Offset(0, n), r)::rCtx)] ++n
+             r[n..][(g-n) => apply(mapUpHere(Eg, Offset(n), Up(g)), r[g], (g-n, r[n..])::(Offset(n), r)::rCtx)]
+           = r[0..n][f => apply(mapUpHere(Ef, Offset(0, n), Up(f)), r[f], (f, r[0..n])::(Offset(0, n), r)::rCtx)] ++n
+             r[n..][(g-n) => apply(mapUpHere(Eg, Offset(n), Up(g)), r[g], (g-n, r[n..])::(Offset(n), r)::rCtx)]
+           = apply(Reuse({f: mapUpHere(Ef, Offset(0, n), Up(f))}), r[0..n], (Offset(0, n), r)::rCtx) ++n
+             apply(Reuse({(g-n): mapUpHere(Eg, Offset(n), Up(g))}), r[n..], (Offset(n), r)::rCtx)
+           = apply(Down(Offset(0, n), Reuse({f: mapUpHere(Ef, Offset(0, n), Up(f))})), r, rCtx) ++n
+             apply(Down(Offset(n), Reuse({(g-n): mapUpHere(Eg, Offset(n), Up(g))})), r, rCtx)
+           = apply(Replace(n, n, Reuse({f: mapUpHere(Ef, Offset(0, n), Up(f))}), Reuse({(g-n): mapUpHere(Eg, Offset(n), Up(g))})), r, rCtx)
+           QED;
         */
-        return [outCount2, left1, Replace(inCount - n, outCount-outCount2, left2, right)];
+        let remainingo = {};
+        forEachChild(editAction, (child, k) => {
+          if(k >= n && (newLength === undefined || k < n + newLength)) {
+            remainingo[k-n] = Down(k-n, mapUpHere(Up(k, child), offset, Up(k)));
+          }
+        });
+        return [New(remainingo, editAction.model), lengthOfArray(remainingo, newLength)];
       }
-    }
-    if(isPrepend(editAction)) {
-      let [o2, l2, r2] = splitIn(n, editAction.second);
-      if(r2 !== undefined) {
-        return [o2 + editAction.count, Prepend(editAction.count, editAction.first, l2), r2];
-      }
-    }
-    if(isAppend(editAction)) {
-      let [o2, l2, r2] = splitIn(n, editAction.first);
-      if(r2 !== undefined) {
-        return [o2, l2, Append(editAction.count, r2, editAction.second)]
-      }
-    }
-    if(isReuse(editAction)) {
-      // Let's generate a Replace to mimic the Reuse.
-      /** Proof: Assume editAction = Reuse({f: Ef, g: Eg}) where f < n and g >= n
+      if(isDown(editAction) && isOffset(editAction.keyOrOffset)) {
+        // offset restriction.
+        let {count: c, newLength: l, oldLength: o} = editAction.keyOrOffset;
+        if(l !== undefined && c + l <= n || newLength !== undefined && n + newLength <= c) {
+          // Disjoint input intervals.
+          return [RemoveAll(), 0];
+        } else if(keyOrOffsetAreEqual(editAction.keyOrOffset, offset)) {
+          return [editAction.subAction, originalOutCount];
+        } else { // Something in the intersection.
+          // 0    [n         n+newLength[
+          // 0         [c                   c+l[
+          //           [countFinal      [countFinal+newLengthFinal[
+          // Here, need to prefix with Down(Offset(c-n)), and sub needs offsetIn(0, newLengthFinal)
+          
+          // 0        [n                          n+newLength[
+          // 0   [c                      c+l[
+          //          [countFinal           [countFinal+newLengthFinal
+          // Here, no need to prefix, but sub needs to have offsetIn(n-c, newLengthFinal) 
+          //   and it should be prefixed with an Offset()
+          let {count: countFinal, newLength: newLengthFinal} = intersectOffsets(offset, editAction.keyOrOffset);
+           let relativeOffset = Offset(n >= c ? n - c: 0, newLengthFinal);
+          let [newSub, newSubCount] = offsetInAux(relativeOffset, editAction.subAction, originalOutCount, MinUndefined(MinusUndefined(originalInCount, c), l));
+          return [SameDownAs(editAction)(Offset(n >= c ? 0 : c - n, LessThanUndefined(PlusUndefined(c, l), PlusUndefined(n, newLength)) ? newLengthFinal : undefined), newSub), newSubCount];
+          
+        /* Outdated proof: Assume editAction = Down(Offset(c, l, o), E) where c >= n
            apply(editAction, r, rCtx)
-         = apply(Reuse({f: Ef, g: Eg}), r, rCtx)
-         = r[f => apply(Ef, r[f], (f, r)::rCtx),
-             g => apply(Eg, r[g], (g, r)::rCtx)]
-         = r[0..n][f => apply(Ef, r[f], (f, r)::rCtx)] ++n
-           r[n..][(g-n) => apply(Eg, r[g], (g, r)::rCtx)]
-         = r[0..n][f => apply(mapUpHere(Ef, Offset(0, n), Up(f)), r[f], (f, r[0..n])::(Offset(0, n), r)::rCtx)] ++n
-           r[n..][(g-n) => apply(mapUpHere(Eg, Offset(n), Up(g)), r[g], (g-n, r[n..])::(Offset(n), r)::rCtx)]
-         = r[0..n][f => apply(mapUpHere(Ef, Offset(0, n), Up(f)), r[f], (f, r[0..n])::(Offset(0, n), r)::rCtx)] ++n
-           r[n..][(g-n) => apply(mapUpHere(Eg, Offset(n), Up(g)), r[g], (g-n, r[n..])::(Offset(n), r)::rCtx)]
-         = apply(Reuse({f: mapUpHere(Ef, Offset(0, n), Up(f))}), r[0..n], (Offset(0, n), r)::rCtx) ++n
-           apply(Reuse({(g-n): mapUpHere(Eg, Offset(n), Up(g))}), r[n..], (Offset(n), r)::rCtx)
-         = apply(Down(Offset(0, n), Reuse({f: mapUpHere(Ef, Offset(0, n), Up(f))})), r, rCtx) ++n
-           apply(Down(Offset(n), Reuse({(g-n): mapUpHere(Eg, Offset(n), Up(g))})), r, rCtx)
-         = apply(Replace(n, n, Reuse({f: mapUpHere(Ef, Offset(0, n), Up(f))}), Reuse({(g-n): mapUpHere(Eg, Offset(n), Up(g))})), r, rCtx)
+         = apply(Down(Offset(c, l, o), E), r, rCtx);
+         = apply(Down(Offset(0, n), Down(Offset(0, 0, n))), r, rCtx) ++0
+           apply(Down(Offset(n), Down(Offset(c-n, l, o-n), E)), r, rCtx);
+         = apply(Replace(n, 0, Down(Offset(0, 0, n)), Down(Offset(c-n, l, o-n), E)), r, rCtx)
          QED;
-      */
-      let lefto = {};
-      let righto = {};
-      forEachChild(editAction, (child, k) => {
-        if(k < n) {
-          lefto[k] = mapUpHere(Up(k, child), Offset(0, n), Up(k));
-        } else {
-          righto[k-n] = mapUpHere(Up(k, child), Offset(n), Up(k));
-        }
-      });
-      return [n, Reuse(lefto), Reuse(righto)];
-    }
-    if(isRemoveExcept(editAction)) {
-      let {count: c, newLength: l, oldLength: o} = editAction.keyOrOffset;
-      if(c >= n) {
-      /** Proof: Assume editAction = Down(Offset(c, l, o), E) where c >= n
-         apply(editAction, r, rCtx)
-       = apply(Down(Offset(c, l, o), E), r, rCtx);
-       = apply(Down(Offset(0, n), Down(Offset(0, 0, n))), r, rCtx) ++0
-         apply(Down(Offset(n), Down(Offset(c-n, l, o-n), E)), r, rCtx);
-       = apply(Replace(n, 0, Down(Offset(0, 0, n)), Down(Offset(c-n, l, o-n), E)), r, rCtx)
-       QED;
-      */
-        return [0, RemoveAll(n), RemoveExcept(Offset(c - n, l, MinusUndefined(o, n)), editAction.subAction)];
-      } else if(l !== undefined && c + l <= n) {
-        /** Proof:Assume editAction = Down(Offset(c, l, o), E) where c+l <= n
-            apply(editAction, r, rCtx)
-          = apply(Down(Offset(c, l, o), E), r, rCtx)
-          = apply(Down(Offset(0, n), Down(Offset(c, l, n), E)), r, rCtx)
-            ++? apply(Down(Offset(n), Down(Offset(0, 0))), r, rCtx) 
-          = apply(Replace(n, ?, Down(Offset(c, l, n), E), Down(Offset(0, 0))), r, rCtx)
-          QED
         */
-        let leftLength = contextCount !== undefined ? contextCount : outLength(editAction);
-        printDebug("leftLength", leftLength);
-        if(leftLength !== undefined) {
-          return [leftLength, editAction, RemoveAll()];
-        }
-      } else { // Hybrid
-        /** Proof:Assume editAction = Down(Offset(c, l, o), E) where c < n and n < c+l
-            let [o1, l1, r1] = splitIn(n - c, E)
-            then apply()
-        
-            apply(editAction, r, rCtx)
-          = apply(Down(Offset(c, l, o), E), r, rCtx)
-          = apply(E, r[c..c+l], (Offset(c, l, o), r)::rCtx)
-          = apply(Replace(n-c, o1, l1, r1), r[c..c+l], (Offset(c, l, o), r)::rCtx)
-          = apply(Concat(o1, Down(Offset(0, n-c, l), l1), Down(Offset(n-c, l-(n-c), l), r1)), r[c..c+l], (Offset(c, l, o), r)::rCtx)
-          = apply(Down(Offset(c, l, o), Concat(o1, Down(Offset(0, n-c, l), l1), Down(Offset(n-c, l-(n-c), l), r1))), r, rCtx)
-          = apply(Concat(o1, Down(Offset(c, l, o), Down(Offset(0, n-c, l), l1)), Down(Offset(c, l, o), Down(Offset(n-c, l-(n-c), l), r1))), r, rCtx)
-          = apply(Concat(o1, Down(Offset(c, n-c, o), l1), Down(Offset(c+n-c, l-(n-c), o), r1)), r, rCtx)
-          = apply(Concat(o1, Down(Offset(c, n-c, o), l1), Down(Offset(n, l-(n-c), o), r1)), r, rCtx)
-          = apply(Concat(o1, Down(Offset(0, n), Down(Offset(c, n-c, o), l1)), Down(Offset(n), Down(Offset(0, l-(n-c), o), r1))), r, rCtx)
-          = apply(Replace(n, o1, Down(Offset(c, n-c, o), l1), Down(Offset(0, l-(n-c), o), r1)), r, rCtx)
-          QED
-        */
-        let [o1, l1, r1] = splitIn(n - c, editAction.subAction, contextCount);
-        if(r1 !== undefined) {
-          return [o1, RemoveExcept(Offset(c, n - c, o), l1), RemoveExcept(Offset(0, MinusUndefined(l, (n-c)), o), r1)];
         }
       }
+      // TODO: Deal with Choose. Change splitIn to a generator?
+      /*if(editAction.ctor == Type.Choose) {
+        // Return a Choose.
+        return Choose(Collection.map(editAction.subActions, splitIn));
+      }*/
+      if(defaultIsReuse) return [Reuse(), originalOutCount];
+      if(recoveryMode) return offsetInAux(offset, makeOffsetInCompatibleAt(offset, editAction, originalOutCount, originalInCount), originalOutCount, originalInCount);
+      return Up(offset, editAction);
     }
-    // TODO: Deal with Choose. Change splitIn to a generator?
-    /*if(editAction.ctor == Type.Choose) {
-      // Return a Choose.
-      return Choose(Collection.map(editAction.subActions, splitIn));
-    }*/
-    return []
+    let result = offsetInAux(offset, editAction, originalOutCount);
+    printDebug("offsetIn returns"+(originalOutCount === undefined ? "" : " (outCount = " + originalOutCount), offset, editAction, "=>", result);
+    return result;
+  }
+  editActions.__offsetIn = offsetIn;
+  
+  // splitIn works only for any combination of Replace, Reuse and RemoveExcept
+  // Replace(0, x, I, E) will also always work because
+  //   if n == 0, then it will just return editAction.
+  //   if n > 0, then inCount < n and thus, only right is split.
+  // Hence splitIn works for Keep and the old version of Prepend as well!
+  
+  // If [outCount, left, right] = splitIn(inCount, editAction)
+  // Then
+  // apply(Replace(inCount, outCount, left, right), r, rCtx) = apply(editAction, r, rCtx)
+  function splitIn(n, editAction, contextCount = undefined) {
+    printDebug("splitIn", n, editAction);
+    let [left, leftCount] = offsetIn(Offset(0, n), editAction, contextCount);
+    let [right, rightCount] = offsetIn(Offset(n), editAction, contextCount);
+    return [leftCount, left, right];
   }
 
   /**
@@ -2076,8 +2130,8 @@ var editActions = {};
     
     It always returns something.
   */
-  function keyOrOffsetIn(keyOrOffset, editAction) {
-    if(isOffset(keyOrOffset)) return offsetIn(keyOrOffset, editAction);
+  function keyOrOffsetIn(keyOrOffset, editAction, recoveryMode = true, originalOutCount = undefined) {
+    if(isOffset(keyOrOffset)) return offsetIn(keyOrOffset, editAction, /*defaultIsReuse*/true, recoveryMode, originalOutCount)[0];
     return keyIn(keyOrOffset, editAction);
   }
   
@@ -2094,8 +2148,8 @@ var editActions = {};
     if(isDown(editAction)) {
       if(isOffset(editAction.keyOrOffset)) {
         let {count, newLength, oldLength} = editAction.keyOrOffset;
-        if(key < count) return Up(key, editAction); // Default case, proof below
-        if(newLength !== undefined && key >= count + newLength) return Up(key, editAction); // Default case, proof below
+        if(key < count) return Reuse();
+        if(newLength !== undefined && key >= count + newLength) return Reuse(); // Default case, proof below
         let c = count;
         let l = newLength;
         let o = oldLength;
@@ -2116,7 +2170,7 @@ var editActions = {};
             = apply(Down(key, mapUpHere(keyIn(key-c, X), Offset(-c, o, l), Up(key))), r, rCtx)
             = apply(Down(key, keyIn(key, Down(Offset(c, l, o), X))), r, rCtx) is defined
         */
-        return mapUpHere(keyIn(key-c, X), Offset(-c, o, l), Up(key));
+        return keyIn(key-c, X);
       } else {
         if(key == editAction.keyOrOffset) {
           /** Proof:
@@ -2127,7 +2181,7 @@ var editActions = {};
           */
           return editAction.subAction;
         } else {
-          return Up(key, editAction); // Default case, we cannot do otherwise.
+          return Reuse(); // Default case, we cannot do otherwise.
         }
       }
     }
@@ -2165,62 +2219,9 @@ var editActions = {};
       which is defined by supposition.
       QED;
     */
-    return Up(key, editAction);
+    return Reuse();
   }
-  
-  // If e = offsetIn(offset, editAction)
-  // Then, for some X and Y
-  // apply(editAction, r, rCtx) =
-  // apply(Down(before(offset), x), r, rctx) ++ apply(Down(offset, e), r, rCtx) ++ apply(Down(after(offset), Y), r, rCtx)
-  function offsetIn(offset, editAction) {
-    printDebug("offsetIn", offset, editAction);
-    let {count, newLength} = offset;
-    let [o2, l2, r2] = splitIn(count, editAction);
-    if(r2 === undefined) { // Recovery mode
-      printDebug("offsetIn recovery Left", count, editAction);
-      let newEditAction = toSplitInCompatibleAt(editAction, count);
-      printDebug("Recoverty to split at ", newEditAction);
-      [o2, l2, r2] = splitIn(count, newEditAction);
-    }
-    printDebug("OffsetIn-Splitted Left", o2, l2, r2);
-    if(newLength !== undefined && r2 !== undefined) {
-      let [o3, l3, r3] = splitIn(newLength, r2);
-      if(l3 === undefined) { // Recovery mode
-        printDebug("offsetIn recovery Right", newLength, r2);
-        let newr2 = toSplitInCompatibleAt(r2, newLength);
-        printDebug("Recoverty to split at ", newr2);
-        [o3, l3, r3] = splitIn(newLength, r2);
-      }
-      printDebug("OffsetIn-Splitted Right", o3, l3, r3);
-      /** Proof
-        apply(editAction, r, rCtx)
-       = apply(Replace(offset.count, o2, l2, r2), r, rCtx)
-       = apply(Down(Offset(0, offset.count), l2), r, rCtx) ++o2 apply(Down(offset.count, r2), r, rCtx)
-       = apply(Down(Offset(0, offset.count), l2), r, rCtx) ++o2 apply(r2, r[offset.count...], (Offset(offset.count), r)::rCtx)
-       = apply(Down(Offset(0, offset.count), l2), r, rCtx) ++o2 (apply(Down(Offset(0, newLength), l3), r[offset.count...], (Offset(offset.count), r)::rCtx) ++o3 apply(Down(Offset(newLength, r3), r[offset.count...], (Offset(offset.count), r)::rCtx)))
-       = apply(Down(Offset(0, offset.count), l2), r, rCtx) ++o2 (apply(Down(Offset(Offset(count), Offset(0, newLength), l3)), r, rCtx) ++o3 apply(Down(Offset(newLength, r3), r[offset.count...], (Offset(offset.count), r)::rCtx)))
-       = apply(Down(Offset(0, offset.count), l2), r, rCtx) ++o2 (apply(Down(offset, l3), r, rCtx) ++o3 apply(Down(Offset(offset.count + offset.newLength), r3), r, rCtx))
-       QED for X = l2 and Y = r3
-      */
-      if(l3 !== undefined) {
-        return l3;
-      } else {
-        return Up(offset, editAction);
-      }
-    }
-    /** Proof:
-       We obtain from the spec of splitIn that:
-         apply(editAction, r, rCtx)
-       = apply(Replace(offset.count, o2, l2, r2), r, rCtx)
-       = apply(Down(Offset(0, offset.count), l2), r, rCtx) ++o2 apply(Down(offset, r2), r, rCtx)
-       QED; with X = l2
-    */
-    if(r2 !== undefined) {
-      return r2;
-    } else {
-      return Up(offset, editAction);
-    }
-  }
+  editActions.__keyIn = keyIn;
 
   // Specification:
   // apply(offsetAt(offset, EX), r, rCtx)
@@ -2444,11 +2445,10 @@ var editActions = {};
   
   // Merge function, but with logs of outputs
   function addLogMerge(fun) {
-    return function(E1, E2, keepFirst) {
-      let res = fun(E1, E2, keepFirst);
+    return function(E1, E2, ICtx1, ICtx2) {
+      let res = fun(E1, E2, ICtx1, ICtx2);
       if(editActions.__debug) {
-        
-        printDebug("merge "+keepFirst+" returns", E1, E2, "=>", res);
+        printDebug("merge returns", E1, E2, "=>", res);
       }
       return res;
     }
@@ -2509,21 +2509,20 @@ var editActions = {};
   // applyZ(merge(E1, E2), (r, rCtx))
   // = three way merge of r, applyZ(E1, (r, rCtx)) and applyZ(E2, (r, rCtx));
   
-  var KEEP_E1 = true;
-  var KEEP_E2 = false;
-  
   // An input context helps to know on which input the current edit action is being applied to.
+  // They alternate with Up. An Up() is always followed by an InputContext
   function InputContext(E, ICtx) {
     return {hd: E, tl: ICtx};
   }
   
+  // We don't replace the edit action if ICtx is {hd:, tl:}, because it means that we went down without going down keys (e.g. Prepend, Append, New with insert)
   function AddInputContext(E, ICtx) {
     if(ICtx === undefined) {
       return InputContext(E);
     } else if(isEditAction(ICtx)){
       return InputContext(E, ICtx);
-    } else {
-      return InputContext(E, ICtx.tl);
+    } else { // ICtx is an input context {hd: EOld, tl: ICtxOld}
+      return ICtx; //InputContext(E, ICtx.tl);
     }
   }
   
@@ -2531,13 +2530,179 @@ var editActions = {};
     return ICtx === undefined || !isEditAction(ICtx) && ICtx.tl === undefined;
   }
   
+  function inCountOf(ICtx) {
+    if(isEditAction(ICtx) && ICtx.ctor == Type.Up && isOffset(ICtx.keyOrOffset)) {
+      return ICtx.keyOrOffset.newLength;
+    }
+    return undefined;
+  }
+  
+  // E2 is the edit action that applies at the 
+  function walkInUp(keyOrOffset, E2, ICtx2) {
+    printDebug("walkInUp", keyOrOffset, E2, ICtx2);
+    if(isUp(ICtx2)) { // ICtx2 is an input context element.
+      let ko = ICtx2.keyOrOffset;
+      if(isOffset(keyOrOffset)) {
+        if(isOffset(ko)) {
+          let newUpOffset = downUpOffsetReturnsUp(ko, keyOrOffset);
+          let newDownOffset = upToDownOffset(newUpOffset);
+          if(newDownOffset === undefined) { // Need to further go up.
+            return walkInUp(newUpOffset, ICtx2.subAction.hd, ICtx2.subAction.tl);
+          } else {
+            return walkInDown(newDownOffset, ICtx2.subAction.hd, ICtx2.subAction.tl);
+          }
+        } else { // Just forget about the non-offset 
+          print("Error, should not have had a non-offset when walkin in up an offset:", keyOrOffset, E2, ICtx2);
+          return [E2, ICtx2];
+        }
+      } else { // It's a key
+        if(isOffset(ko)) {
+          return walkInUp(keyOrOffset, E2, ICtx2.subAction);
+        }
+        if(ko !== keyOrOffset) {
+          print("/!\\ Warning, in walkInUp, going up", keyOrOffset, "but context states", ko, ".")
+        }
+        return [ICtx2.subAction.hd, ICtx2.subAction.tl];
+      }
+    } else {
+      return walkInUp(keyOrOffset, E2, ICtx2.tl);
+    }
+  }
+  // E2 is the edit action that applies at the given key or offset
+  function walkInDown(keyOrOffset, E2, ICtx2) {
+    printDebug("walkInDown", keyOrOffset, E2, ICtx2);
+    return [keyOrOffsetIn(keyOrOffset, E2), Up(keyOrOffset, AddInputContext(E2, ICtx2))];
+  }
+  
+  /**
+    E1 and E2 are applied in the same context.
+    We essentially return E1 except
+    - when E1 is Reuse(), in which case, we return E2.
+      - If E2 is Reuse() as well, we merge into respective keys
+    Termination condition: E1 always decreases in size, or E1 stays the same and E2 decreases in size.
+  */
+  function mergeInto(E1, E2, ICtx2) {
+    printDebug("mergeInto", E1, E2, ICtx2);
+    let E1WasRaw = false, E1Original = E1;
+    if(isRaw(E1)) {
+      E1WasRaw = true; E1 = New(E1);
+    }
+    let E2WasRaw = false, E2Original = E2;
+    if(isRaw(E2)) {
+      E2WasRaw = true; E2 = New(E2);
+    }
+    if(!isReuse(E1)) { 
+      switch(E1.ctor) {
+        case Type.Up:
+          var [newE2, newICtx2, residualUpOffset] = walkInUp(E1.keyOrOffset, E2, ICtx2);
+          printDebug("Prepending Up(", E1.keyOrOffset);
+          return Up(E1.keyOrOffset,
+            mergeInto(
+            residualUpOffset === undefined ? E1.subAction: Up(residualUpOffset, E1.subAction),
+            newE2,
+            newICtx2));
+        case Type.Down:
+          var [newE2, newICtx2] = walkInDown(E1.keyOrOffset, E2, ICtx2);
+          printDebug("Prepending Down(", E1.keyOrOffset);
+          return SameDownAs(E1)(E1.keyOrOffset,
+            mergeInto(
+            E1.subAction,
+            newE2,
+            newICtx2));
+        case Type.New:
+          // Not a reuse here.
+          if(!isObject(E1.model.value)) {
+            return E1Original;
+          } else {
+            printDebug("Prepending New({");
+            let newChildren = mapChildren(E1.childEditActions, (k, c) => {
+              printDebug("Inside New({", k, ":");
+              return mergeInto(c, E2, ICtx2);
+            });
+            printDebug("Finished New(...})");
+            return rawIfPossible(New(newChildren, E1.model), E1WasRaw);
+          }
+        case Type.Concat:
+          printDebug("Inside Concat(_, |, _)");
+          var newE1First = mergeInto(E1.first, E2, ICtx2);
+          var newE1FirstLength = outLength(newE1First, inCountOf(ICtx2));
+          if(newE1FirstLength === undefined) newE1FirstLength = E1.count;
+          printDebug("Inside Concat(_, ",newE1First,", |)");
+          let newE1Second = mergeInto(E1.second, E2, ICtx2);
+          printDebug("building Concat(", newE1FirstLength, ", ", newE1First, ", ", newE1Second);
+          let result = Concat(newE1FirstLength, newE1First, newE1Second, E1.replaceCount, E1.firstReuse, E1.secondReuse);
+          return result;
+        case Type.Choose:
+          return Choose(Collection.map(E1.subActions, x => mergeInto(x, E2, ICtx2)));
+        case Type.Custom: // Should never happen!
+          return E1;
+      }
+    } else { // Final step: it's a Reuse. We can take what we have in E2 and merge with E1 as well.
+      // What about other keys?
+      if(!hasChildEditActions(E1)) {
+        return E2;
+      }
+      // Ok, it has some keys, let's see what we can do.
+      if(isPrepend(E2)) {
+        printDebug("Prepending Prepend(", E2.count, ",", E2.first, "|");
+        return Prepend(E2.count, E2.first, mergeInto(E1Original, E2.second, AddInputContext(E2, ICtx2)));
+      }
+      if(isAppend(E2)) {
+        printDebug("Appending Append(_, |, ", E2.second);
+        let newFirst = mergeInto(E1Original, E2.first, AddInputContext(E2, ICtx2));
+        let newFirstLength = outLength(newFirst, E2.count);
+        if(newFirstLength === undefined) newFirstLength = E2.count;
+        return Append(newFirstLength, newFirst, E2.second);
+      }
+      if(isReplace(E2)) {
+        let leftPart = offsetAt(Offset(0, E2.replaceCount), E1, false);
+        let rightPart = offsetAt(Offset(E2.replaceCount), E1, false);
+        printDebug("Replace case");
+        return Concat(E2.count,
+                 mergeInto(leftPart, E2.first, AddInputContext(E2, ICtx2)),
+                 mergeInto(rightPart, E2.second, AddInputContext(E2, ICtx2)), E2.replaceCount);
+      }
+      if(isInsert(E2)) { // We do continue the wrapping
+        let kWrap = keyIfInsert(E2);
+        printDebug("Prepending ", E2);
+        return New(mapChildren(E2.childEditActions, (k, c) => {
+          if(k == kWrap) {
+            printDebug("except for ", kWrap);
+            return mergeInto(E1Original, c, AddInputContext(E2, ICtx2));
+          } else {
+            return c;
+          }
+        }), E2.model);
+      }
+      if(isReuse(E2)) {
+        printDebug("Prepending Extend({");
+        let finalChildren = mapChildren(E1.childEditActions, (k, c) => {
+          printDebug("Inside Extend({ ", k, ":");
+          if(k in E2.childEditActions) {
+            return Down(k, mergeInto(Up(k, c), Up(k, E2.childEditActions[k]), Up(k, AddInputContext(E2, ICtx2))));
+          } else {
+            return Down(k, mergeInto(Up(k, c), Reuse(), Up(k, AddInputContext(E2, ICtx2))));
+          }
+        }, false);
+        forEach(E2.childEditActions, (c, k) => {
+          if(!(k in E1.childEditActions)) {
+            finalChildren[k] = c;
+          }
+        });
+        printDebug("Finishing Extend({...})");
+        return New(finalChildren, ExtendModel(E1.model.create || E2.model.create));
+      }
+      return E1Original;
+    }
+  } // MergeInto
+  editActions.mergeInto = mergeInto;
+  
   // Soft specification:
   // if applyZ(E1, rrCtx) and applyZ(E2, rrCtx) is defined
   // then applyZ(merge(E1, E2), rrCtx) is defined.
-  var merge = addLogMerge(function mergeRaw(E1, E2, keepFirst, ICtx1, ICtx2) {
-    // keepFirst is either undefined, true (we keep E1 if necessary, we disregard E2) or false (we keep E2 if necessary, we diregard E1).
+  var merge = addLogMerge(function mergeRaw(E1, E2, ICtx1, ICtx2) {
     if(editActions.__debug) {
-      printDebug("merge "+keepFirst, E1, E2);
+      printDebug("merge ", E1, E2);
     }
     let E1IsRaw = false, E1Original = E1;
     let E2IsRaw = false, E2Original = E2;
@@ -2612,26 +2777,27 @@ var editActions = {};
             Since applyZ(E1, rrCtx) was defined, applyZ(ck, rrCtx) was defined. By induction, we conclude.
             QED;
           */
-          printDebug("#1");
-          result.push(New(mapChildren(E1.childEditActions, (k, c) => merge(c, E2, access(E1.model.value, k) ? undefined : KEEP_E1)), E1.model));
+          result.push(New(mapChildren(E1.childEditActions, (k, c) =>
+            access(E1.model.value, k) ? merge(c, E2, AddInputContext(E1, ICtx1), ICtx2) : mergeInto(c, E2, ICtx2)), E1.model));
         }
       }
       if(E2IsInsert) {
         if(E2IsReusingBelow) {
           /** Proof: Same as above*/
-          result.push(New(mapChildren(E2.childEditActions, (k, c) => merge(E1, c, access(E2.model.value, k) ? undefined : KEEP_E2)), E2.model));
+          result.push(New(mapChildren(E2.childEditActions, (k, c) =>
+            access(E2.model.value, k) ? merge(E1, c, ICtx1, AddInputContext(E2, ICtx2)) : mergeInto(c, E1, ICtx1)), E2.model));
         }
       }
       if(!E1IsReusingBelow && !E2IsReusingBelow) {
-        if(E1IsInsert && keepFirst !== KEEP_E2) {
+        if(E1IsInsert) {
           /** Proof: Trivial */
-          result.push(E1Original);
+          result.push(mergeInto(E1Original, E2, ICtx2));
         }
-        if(E2IsInsert && keepFirst !== KEEP_E1) {
+        if(E2IsInsert) {
           /** Proof: Trivial */
-          result.push(E2Original);
+          result.push(mergeInto(E2Original, E1, ICtx1));
         }
-        if(E1IsInsert && keepFirst !== KEEP_E2|| E2IsInsert && keepFirst !== KEEP_E1) {
+        if(E1IsInsert || E2IsInsert) {
           /** Proof that result is not empty:
               if E1IsInsert, then result contains E1. If E2IsInsert, then result contains E2. QED */
           break merge_cases;
@@ -2657,7 +2823,7 @@ var editActions = {};
       let E1IsAppend = E1IsConcatReuse && isAppend(E1);
       let E2IsAppend = E2IsConcatReuse && isAppend(E2);
       if(E1IsAppend && E2IsAppend) {
-        let newRemaining = merge(E1.first, E2.first);
+        let newRemaining = merge(E1.first, E2.first, AddInputContext(E1, ICtx1), AddInputContext(E2, ICtx2));
         // There might be only one solution is the prepended thing is the same.
         if(isConst(E1.second) && isConst(E2.second)) {
           let v1 = valueIfConst(E1.second);
@@ -2675,7 +2841,7 @@ var editActions = {};
         }
       }
       if(E1IsPrepend && E2IsPrepend) {
-        let newRemaining = merge(E1.second, E2.second);
+        let newRemaining = merge(E1.second, E2.second, AddInputContext(E1, ICtx1), AddInputContext(E2, ICtx2));
         // There might be only one solution is the prepended thing is the same.
         if(isConst(E1.first) && isConst(E2.first)) {
           let v1 = valueIfConst(E1.first);
@@ -2694,29 +2860,22 @@ var editActions = {};
       }
       // Particular case for two Prepend and two Append so that we don't compute them.
       if(E1IsConcatReuse) {
-        let E2IsDownOffset = isDown(E2) && isOffset(E2.keyOrOffset);
-        if(keepFirst === false && E2IsDownOffset && isPrepend(E1) && E2.keyOrOffset.count > 1) {
-          result.push(merge(E1.second, E2, keepFirst));
-        } else /*if(E2IsDownOffset && isAppend(E1) && E2.keyOrOffset.newLength !== undefined && E2.keyOrOffset.count + E2.keyOrOffset.newLength < E1. {
-          For this, we would need to know what is the inCount of E1's right.
-        } else */{
-          let newLeft = merge(E1.first, E2, E1.firstReuse ? undefined : KEEP_E1);
-          let newLeftLength = outLength(newLeft);
-          printDebug("newLeftLength", newLeftLength);
-          if(newLeftLength === undefined) newLeftLength = E1.count;
-          result.push(
-            Concat(newLeftLength, newLeft,
-                   merge(E1.second, E2, E1.secondReuse ? undefined : KEEP_E1), undefined, E1.firstReuse, E1.secondReuse));
-        }
+        let newFirst = E1.firstReuse ? merge(E1.first, E2, AddInputContext(E1, ICtx1), ICtx2) : mergeInto(E1.first, E2, ICtx2);
+        let newFirstLength = outLength(newFirst);
+        printDebug("newFirstLength", newFirstLength);
+        if(newFirstLength === undefined) newFirstLength = E1.count;
+        let newRight = E1.secondReuse ? merge(E1.second, E2, AddInputContext(E1, ICtx1), ICtx2) : mergeInto(E1.second, E2, ICtx2);
+        result.push(
+          Concat(newFirstLength, newFirst, newRight, undefined, E1.firstReuse, E1.secondReuse));
       }
       if(E2IsConcatReuse) {
-        let newLeft = merge(E1, E2.first, E2.firstReuse ? undefined : KEEP_E2);
-        let newLeftLength = outLength(newLeft);
-        printDebug("newLeftLength", newLeftLength);
-        if(newLeftLength === undefined) newLeftLength = E2.count;
+        let newFirst = E2.firstReuse ? merge(E1, E2.first, ICtx1, AddInputContext(E2, ICtx2)) : mergeInto(E2.first, E1, ICtx1);
+        let newFirstLength = outLength(newFirst);
+        printDebug("newFirstLength", newFirstLength);
+        if(newFirstLength === undefined) newFirstLength = E2.count;
+        let newSecond = E2.secondReuse ? merge(E1, E2.second, ICtx1, AddInputContext(E2, ICtx2)) : mergeInto(E2.second, E1, ICtx1);
         result.push(
-          Concat(newLeftLength, newLeft,
-                 merge(E1, E2.second, E2.secondReuse ? undefined : KEEP_E2), undefined, E2.firstReuse, E2.secondReuse));
+          Concat(newFirstLength, newFirst, newSecond, undefined, E2.firstReuse, E2.secondReuse));
       }
       if(!E1IsConcatReuse && !E2IsConcatReuse) {
         if(E1IsConcatNotReplace) {
@@ -2739,18 +2898,16 @@ var editActions = {};
       let E1IsPureDown = isDown(E1) && !isRemoveExcept(E1);
       let E2IsPureDown = isDown(E2) && !isRemoveExcept(E2);
       if(E1IsPureDown && E2IsPureDown && keyOrOffsetAreEqual(E1.keyOrOffset, E2.keyOrOffset)) {
-        result.push(Down(E1.keyOrOffset, merge(E1.subAction, E2.subAction)));
+        result.push(Down(E1.keyOrOffset, merge(E1.subAction, E2.subAction, Up(E1.keyOrOffset, AddInputContext(E1, ICtx1)), Up(E2.keyOrOffset, AddInputContext(E2, ICtx2)))));
       } else {
         // Not the same keys or offsets.
         if(E1IsPureDown) {
+          result.push(mergeInto(E1, E2, ICtx2));
           // Let's see if we can apply the key or offset to E2.
-          let E2changed = keyOrOffsetIn(E1.keyOrOffset, E2);
-          result.push(Down(E1.keyOrOffset, merge(E1.subAction, E2changed)));
         }
         if(E2IsPureDown) {
+          result.push(mergeInto(E2, E1, ICtx1));
           // Let's see if we can apply the key or offset to E2.
-          let E1changed = keyOrOffsetIn(E2.keyOrOffset, E1);
-          result.push(Down(E2.keyOrOffset, merge(E1changed, E2.subAction)));
         }
       }
       if(E1IsPureDown ||
@@ -2762,13 +2919,15 @@ var editActions = {};
       let E1IsUp = E1.ctor == Type.Up;
       let E2IsUp = E2.ctor == Type.Up;
       if(E1IsUp && E2IsUp && keyOrOffsetAreEqual(E1.keyOrOffset, E2.keyOrOffset)) {
-        result.push(Up(E1.keyOrOffset, merge(E1.subAction, E2.subAction)));
+        result.push(Up(E1.keyOrOffset, merge(E1.subAction, E2.subAction, walkInUp(E1.keyOrOffset, E1, ICtx1)[1], walkInUp(E2.keyOrOffset, E2, ICtx2)[1])));
       } else { // If they are both Up and not equal, it means they are different offsets.
         if(E1IsUp) {
-          result.push(E1);
+          result.push(mergeInto(E1, E2, ICtx2));
+          //result.push(E1);
         }
         if(E2IsUp) {
-          result.push(E2);
+          result.push(mergeInto(E2, E1, ICtx1));
+          //result.push(E2);
         }
       }
       if(E1IsUp ||
@@ -2779,20 +2938,30 @@ var editActions = {};
       // No more New, Concat, Down or Up
       // Only Reuse, Replace, and RemoveExcept now.
       
+      /*let [keepOnlyCount, keepOnlySub] = argumentsIfKeepOnly(E1);
+      if(keepOnlyCount !== undefined && isIdentity(keepOnlySub) && keepOnlyCount > 0) {
+        // We replace the KeepOnly by an explicit Replace and RemoveAll, which is better suited for merging.
+        console.log("Old E1", stringOf(E1));
+        E1 = Keep(keepOnlyCount, RemoveAll());
+        console.log("New E1", stringOf(E1));
+      }
+      let [keepOnlyCount2, keepOnlySub2] = argumentsIfKeepOnly(E2);
+      if(keepOnlyCount2 !== undefined && isIdentity(keepOnlySub2) && keepOnlyCount2 > 0) {
+        // We replace the KeepOnly by an explicit Replace and RemoveAll, which is better suited for merging.
+        E2 = Keep(keepOnlyCount2, RemoveAll());
+        console.log("New E2", stringOf(E2));
+      }*/
+      
       // We start by all Reuse pairs:
       // Reuse / Reuse
       if(isReuse(E1) && isReuse(E2)) {
         // Merge key by key.
         let o = mapChildren(E1.childEditActions, (k, c) => {
-          if(k in E2.childEditActions) {
-            return merge(c, E2.childEditActions[k]);
-          } else {
-            return c;
-          }
+          return merge(c, k in E2.childEditActions ? E2.childEditActions[k] : Reuse(), AddInputContext(E1, ICtx1), AddInputContext(E2, ICtx2));
         }, /*canReuse*/false);
         for(let k in E2.childEditActions) {
           if(!(k in E1.childEditActions)) {
-            o[k] = E2.childEditActions[k];
+            o[k] = merge(Reuse(), E2.childEditActions[k], AddInputContext(E1, ICtx1), AddInputContext(E2, ICtx2));
           }
         }
         result.push(New(o, ExtendModel(E1.model.create || E2.model.create)));
@@ -2800,46 +2969,76 @@ var editActions = {};
       } else if(isReuse(E1) && isReplace(E2)) {
         let [inCount, outCount, left, right] = argumentsIfReplace(E2);
         let [o1, l1, r1] = splitIn(inCount, E1);
-        let newFirst = merge(l1, left);
-        let newSecond = merge(r1, right);
+        let newFirst = merge(l1, left, Up(Offset(0, inCount), AddInputContext(E1, ICtx1)),
+                                       Up(Offset(0, inCount), AddInputContext(E2, ICtx2)));
+        let newSecond = merge(r1, right, Up(Offset(inCount), AddInputContext(E1, ICtx1)),
+                                         Up(Offset(inCount), AddInputContext(E2, ICtx2)));
         let newCount = outLength(newFirst);
         if(newCount === undefined) newCount = outCount;
         result.push(Replace(inCount, outCount, newFirst, newSecond));
       } else if(isReuse(E2) && isReplace(E1)) {
         let [inCount, outCount, left, right] = argumentsIfReplace(E1);
         let [o2, l2, r2] = splitIn(inCount, E2);
-        let newFirst = merge(left, l2);
-        let newSecond = merge(right, r2);
+        let newFirst = merge(left, l2, Up(Offset(0, inCount), AddInputContext(E1, ICtx1)),
+                                       Up(Offset(0, inCount), AddInputContext(E2, ICtx2)));
+        let newSecond = merge(right, r2, Up(Offset(inCount), AddInputContext(E1, ICtx1)),
+                                         Up(Offset(inCount), AddInputContext(E2, ICtx2)));
         let newCount = outLength(newFirst);
         if(newCount === undefined) newCount = outCount;
         result.push(Replace(inCount, outCount, newFirst, newSecond));
       } else if(isReuse(E1) && isRemoveExcept(E2)) {
         // E1 being a Reuse, offsetIn is always defined.
-        let restricted = offsetIn(E2.keyOrOffset, E1);
-        result.push(RemoveExcept(E2.keyOrOffset, merge(restricted, E2.subAction)));
+        let restricted = offsetIn(E2.keyOrOffset, E1)[0];
+        result.push(RemoveExcept(E2.keyOrOffset,
+          merge(restricted, E2.subAction, Up(E2.keyOrOffset, AddInputContext(E1, ICtx1)),
+                                          Up(E2.keyOrOffset, AddInputContext(E2, ICtx2)))));
       } else if(isReuse(E2) && isRemoveExcept(E1)) {
-        let restricted = offsetIn(E1.keyOrOffset, E2);
+        let restricted = offsetIn(E1.keyOrOffset, E2)[0];
         // E2 being a Reuse, offsetIn is always defined.
-        result.push(RemoveExcept(E1.keyOrOffset, merge(E1.subAction, restricted)));
+        result.push(RemoveExcept(E1.keyOrOffset,
+          merge(E1.subAction, restricted, Up(E2.keyOrOffset, AddInputContext(E1, ICtx1)),
+                                          Up(E2.keyOrOffset, AddInputContext(E2, ICtx2)))));
         // No more Reuse now.
       } else if(isRemoveExcept(E1) && isRemoveExcept(E2)) {
-        let commonOffset = intersectOffsets(E1.keyOrOffset, E2.keyOrOffset);
-        printDebug("commonOffset", keyOrOffsetToString(commonOffset));
-        // We change the input. So we use offsetIn.
-        result.push(RemoveExcept(commonOffset, merge(offsetIn(commonOffset, E1), offsetIn(commonOffset, E2))));;
+        if(keyOrOffsetAreEqual(E1.keyOrOffset, E2.keyOrOffset)) {
+          let sub = merge(E1.subAction, E2.subAction,
+              Up(E1.keyOrOffset, AddInputContext(E1, ICtx1)),
+              Up(E1.keyOrOffset, AddInputContext(E2, ICtx2))
+            );
+          result.push(RemoveExcept(E1.keyOrOffset, sub));
+        } else {
+          let commonOffset = intersectOffsets(E1.keyOrOffset, E2.keyOrOffset);
+          printDebug("Prepending RemoveExcept(", commonOffset);
+          let sub = merge(offsetIn(commonOffset, E1, false, true)[0], offsetIn(commonOffset, E2, false, true)[0],
+              Up(commonOffset, AddInputContext(E1, ICtx1)),
+              Up(commonOffset, AddInputContext(E2, ICtx2))
+            );
+          // We change the input. So we use offsetIn.
+          result.push(//Remove(commonOffset.count,
+                      RemoveExcept(commonOffset, 
+            sub));
+        }
       } else if(isRemoveExcept(E1) && isReplace(E2)) {
-        result.push(RemoveExcept(E1.keyOrOffset, merge(E1.subAction, offsetIn(E1.keyOrOffset, E2))));
+        let subResult = merge(E1.subAction, offsetIn(E1.keyOrOffset, E2)[0],
+              Up(E1.keyOrOffset, AddInputContext(E1, ICtx1)),
+              Up(E1.keyOrOffset, AddInputContext(E2, ICtx2)));
+        result.push(RemoveExcept(E1.keyOrOffset, subResult));
       } else if(isReplace(E1) && isRemoveExcept(E2)) {
-        result.push(RemoveExcept(E2.keyOrOffset, merge(offsetIn(E2.keyOrOffset, E1), E2.subAction)));
+        let subResult = merge(offsetIn(E2.keyOrOffset, E1)[0], E2.subAction,
+              Up(E2.keyOrOffset, AddInputContext(E1, ICtx1)),
+              Up(E2.keyOrOffset, AddInputContext(E2, ICtx2)));
+        result.push(RemoveExcept(E2.keyOrOffset, subResult));
       } else if(isReplace(E1) && isReplace(E2)) {
         printDebug("Two replaces");
         let [inCount1, outCount1, left1, right1] = argumentsIfReplace(E1);
         let [inCount2, outCount2, left2, right2] = argumentsIfReplace(E2);
-        if(inCount1 == 0) { // First is an prepend
-          result.push(Prepend(outCount1, left1, merge(right1, E2)));
+        if(inCount1 == 0) {
+          result.push(Prepend(outCount1, UpIfNecessary(Offset(0, 0), left1),
+            merge(right1, E2, AddInputContext(E1, ICtx1), ICtx2)));
         }
-        if(inCount2 == 0) { // Second is an prepend
-          result.push(Prepend(outCount2, left2, merge(E1, right2)));
+        if(inCount2 == 0) {
+          result.push(Prepend(outCount2, UpIfNecessary(Offset(0, 0), left2),
+            merge(E1, right2, ICtx1, AddInputContext(E2, ICtx2))));
         }
         if(inCount1 == 0 || inCount2 == 0) { // done prepending
           break merge_cases;
@@ -2849,19 +3048,32 @@ var editActions = {};
           let minRemove = Math.min(inCount1, inCount2);
           result.push(Remove(minRemove, merge(
             inCount1 == minRemove ? right1 : Remove(inCount1 - minRemove, right1),
-            inCount2 == minRemove ? right2 : Remove(inCount2 - minRemove, right2)
-          )));
+            inCount2 == minRemove ? right2 : Remove(inCount2 - minRemove, right2),
+            Up(Offset(minRemove), AddInputContext(E1, ICtx1)),
+            Up(Offset(minRemove), AddInputContext(E2, ICtx1)))));
         // We are left with non-Prepends which are not both deletions.
         } else if(inCount1 == inCount2) { // Aligned replaces
-          let newLeft = merge(left1, left2);
+          let newLeft = merge(left1, left2,
+            Up(Offset(0, inCount1), AddInputContext(E1, ICtx1)),
+            Up(Offset(0, inCount1), AddInputContext(E2, ICtx2))
+          );
           let newLeftCount = MinUndefined(outLength(newLeft, inCount1), outCount1 + outCount2);
-          result.push(Replace(inCount1, newLeftCount, newLeft, merge(right1, right2)));
+          let newRight = merge(right1, right2,
+            Up(Offset(inCount1), AddInputContext(E1, ICtx1)),
+            Up(Offset(inCount1), AddInputContext(E2, ICtx2))
+          );
+          result.push(Replace(inCount1, newLeftCount, newLeft, newRight));
         } else if(inCount1 < inCount2) {
           let [o2, l2, r2] = splitIn(inCount1, E2); // We split the bigger left if possible.
           if(r2 !== undefined) {
-            let newLeft = merge(left1, l2);
-            let newRight = merge(right1, r2);
+            let newLeft = merge(left1, l2,
+              Up(Offset(0, inCount1), AddInputContext(E1, ICtx1)),
+              Up(Offset(0, inCount1), AddInputContext(E2, ICtx2)));
+            let newRight = merge(right1, r2,
+              Up(Offset(inCount1), AddInputContext(E1, ICtx1)),
+              Up(Offset(inCount1), AddInputContext(E2, ICtx2)));
             let newLeftCount = MinUndefined(outLength(newLeft, inCount1), outCount1 + outCount2);
+            printDebug("#-1")
             result.push(Replace(inCount1, newLeftCount, newLeft, newRight));
           } else {
             // We were not able to split E2 at the given count.
@@ -2869,12 +3081,18 @@ var editActions = {};
             // We split the right if possible
             let [o1, l1, r1] = splitIn(inCount2, E1);
             if(r1 !== undefined) {
-              let newLeft = merge(l1, left2);
-              let newRight = merge(r1, right2);
+              let newLeft = merge(l1, left2,
+                Up(Offset(0, inCount2), AddInputContext(E1, ICtx1)),
+                Up(Offset(0, inCount2), AddInputContext(E2, ICtx2)));
+              let newRight = merge(r1, right2,
+                Up(Offset(inCount2), AddInputContext(E1, ICtx1)),
+                Up(Offset(inCount2), AddInputContext(E2, ICtx2)));
               let newLeftCount = MinUndefined(outLength(newLeft, inCount2), outCount1 + outCount2);
+              printDebug("#0")
               result.push(Replace(inCount2, newLeftCount, newLeft, newRight));
             } else {
-              result.push(merge(E1, toSplitInCompatibleAt(E2, inCount1)));
+              printDebug("#1")
+              result.push(merge(E1, toSplitInCompatibleAt(E2, inCount1), ICtx1, AddInputContext(E2, ICtx2)));
               //result.push(merge(toSplitInCompatibleAt(E1, inCount2), E2));
             }
           }
@@ -2883,21 +3101,32 @@ var editActions = {};
           // [  inCount2   ][     .... ]
           let [o1, l1, r1] = splitIn(inCount2, E1);
           if(r1 !== undefined) {
-            let newLeft = merge(l1, left2);
-            let newRight = merge(r1, right2);
+            let newLeft = merge(l1, left2,
+                Up(Offset(0, inCount2), AddInputContext(E1, ICtx1)),
+                Up(Offset(0, inCount2), AddInputContext(E2, ICtx2)));
+            let newRight = merge(r1, right2,
+                Up(Offset(inCount2), AddInputContext(E1, ICtx1)),
+                Up(Offset(inCount2), AddInputContext(E2, ICtx2)));
             let newLeftCount = outLength(newLeft, inCount2);
             printDebug("newLeftCount", newLeftCount);
             newLeftCount = MinUndefined(newLeftCount, outCount1 + outCount2);
+            printDebug("#2")
             result.push(Replace(inCount2, newLeftCount, newLeft, newRight));
           } else {
             let [o2, l2, r2] = splitIn(inCount1, E2); // We split the bigger left first if possible.
             if(r2 !== undefined) {
-              let newLeft = merge(left1, l2);
-              let newRight = merge(right1, r2);
+              let newLeft = merge(left1, l2,
+                Up(Offset(0, inCount1), AddInputContext(E1, ICtx1)),
+                Up(Offset(0, inCount1), AddInputContext(E2, ICtx2)));
+              let newRight = merge(right1, r2,
+                Up(Offset(inCount1), AddInputContext(E1, ICtx1)),
+                Up(Offset(inCount1), AddInputContext(E2, ICtx2)));
               let newLeftCount = MinUndefined(outLength(newLeft, inCount1), outCount1 + outCount2);
+              printDebug("#3")
               result.push(Replace(inCount1, newLeftCount, newLeft, newRight));
             } else {
-              result.push(merge(toSplitInCompatibleAt(E1, inCount2), E2));
+              printDebug("#4")
+              result.push(merge(toSplitInCompatibleAt(E1, inCount2), E2, AddInputContext(E1, ICtx1), E2));
               //result.push(merge(E1, toSplitInCompatibleAt(E2, inCount1))); // Not always possible, since we don't know the output length of the right of E2
             }
           }
@@ -3459,13 +3688,14 @@ var editActions = {};
   editActions.backPropagate = backPropagate;
   
   // Computes the output length that a children of ChildEditActions would produce on original data
-  function lengthOfArray(childEditActions) {
+  function lengthOfArray(childEditActions, minLength) {
+    printDebug("lengthOfArray", childEditActions, minLength);
     var i = 0;
-    var length = 0;
+    if(minLength === undefined) return undefined;
     forEach(childEditActions, (c, k) => {
-      length = Math.max(length, k + 1);
+      minLength = Math.max(minLength, k + 1);
     })
-    return length;
+    return minLength;
   }
   
   // Computes the length that a given edit action would produce when it is applied on something of length inCount
@@ -3492,21 +3722,14 @@ var editActions = {};
     }
     if(editAction.ctor == Type.New) {
       if(isReuse(editAction)) {
-        if(editActions.__debug) console.log("inCount", inCount);
-        let l = inCount || 0;
-        let hadSome = false;
-        for(let k in editAction.childEditActions) {
-          if(Number(k) > l) l = Number(k);
-          hadSome = true;
-        }
-        let result = hadSome ? l : typeof inCount != "undefined" ? l : undefined;
-        if(editActions.__debug) console.log("Results in ", result);
+        if(inCount === undefined) return undefined;
+        let result = lengthOfArray(editAction.childEditActions, inCount);
         return result;
       } else {
         if(typeof editAction.model.value === "string") {
           return editAction.model.value.length;
         } else {
-          return lengthOfArray(editAction.childEditActions);
+          return lengthOfArray(editAction.childEditActions, 0);
         }
       }
     }
@@ -5110,6 +5333,14 @@ var editActions = {};
     });
     return numberKeyWrapping == 1;
   }
+  function keyIfInsert(editAction) {
+    if(!isConst(editAction)) return false;
+    let desiredKey = undefined;
+    forEach(editAction.model.value, (child, k) => {
+      if(child) { desiredKey = k; }
+    });
+    return desiredKey;
+  }
   function isInsertAll(editAction) {
     if(!isConst(editAction)) return false;
     // We detect inserts.
@@ -5141,12 +5372,12 @@ var editActions = {};
     });
     return numberKeyWrapping === 0;
   }
-  
+  function print() {
+    let lastWasEditAction = false;
+    console.log([...arguments].map((x, index) => isEditAction(x) ? (lastWasEditAction = true, "\n├┬") + addPadding(uneval(x), "│├") : (index == 0 ? "" : lastWasEditAction ? (lastWasEditAction=false, "\n├ ") : " ") + (typeof x == "string" ? x : uneval(x))).join(""));
+  }
   function printDebug() {
-    if(editActions.__debug) {
-      let lastWasEditAction = false;
-      console.log([...arguments].map((x, index) => isEditAction(x) ? (lastWasEditAction = true, "\n├┬") + addPadding(uneval(x), "│├") : (index == 0 ? "" : lastWasEditAction ? (lastWasEditAction=false, "\n├ ") : " ") + (typeof x == "string" ? x : uneval(x))).join(""));
-    }
+    if(editActions.__debug) { print(...arguments); }
   }
   
   // Plus with support for a or b to be undefined (infinity);
@@ -5303,15 +5534,17 @@ var editActions = {};
       return str;
     } else if(self.ctor == Type.Down) {
       if(self.isRemove && isOffset(self.keyOrOffset)) {
-        let k = self.keyOrOffset;
-        if((k.count === 0 && k.oldLength === undefined || 
-            k.count === k.oldLength) && self.keyOrOffset.newLength === 0) {
-          let k = self.keyOrOffset.oldLength !== undefined ? self.keyOrOffset.oldLength : "";
+        let {count, newLength, oldLength} = self.keyOrOffset;
+        if((count === 0 && oldLength === undefined || 
+            count === oldLength) && newLength === 0) {
+          let k = oldLength !== undefined ? oldLength : "";
           let c = isIdentity(self.subAction) && k == "" ? "" : stringOf(self.subAction);
           return "RemoveAll(" + c + (k != "" ? ", " : "") + k + ")";
-        } else if(self.keyOrOffset.newLength === undefined && self.keyOrOffset.oldLength === undefined) {
+        } else if(newLength === undefined && oldLength === undefined) {
           let c = isIdentity(self.subAction) ? "" : ", " + stringOf(self.subAction);
-          return "Remove(" + self.keyOrOffset.count + c + ")";
+          return "Remove(" + count + c + ")";
+        } else if(newLength !== undefined && count === 0) {
+          return "KeepOnly(" + newLength + (isIdentity(self.subAction) ? "": ", " + stringOf(self.subAction)) + ")";
         } else {
           return "RemoveExcept(" + keyOrOffsetToString(self.keyOrOffset) + (isIdentity(self.subAction) ? "": ", " + stringOf(self.subAction)) + ")";
         }
@@ -5534,9 +5767,7 @@ var editActions = {};
   // apply(Ej, x, LCtx ++ (k-c, r[c..c+n[)::(Offset(c, n, o), r)::rCtx)
   // = apply(mapUpHere(Ej, Offset(-c, o, n), mkPath(LCtx, Up(k))), x, LCtx ++ (k, r)::rCtx) 
   function mapUpHere(editAction, offset, pathToHere = Reuse()) {
-    if(editActions.__debug) {
-      console.log("mapUpHere(", stringOf(editAction), stringOf(pathToHere));
-    }
+    printDebug("mapUpHere", editAction, offset, pathToHere);
     switch(editAction.ctor) {
     case Type.Up:
       // Only the first. Guaranteed to be a key.
