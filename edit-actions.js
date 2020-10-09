@@ -2702,7 +2702,7 @@ var editActions = {};
   // then applyZ(merge(E1, E2), rrCtx) is defined.
   var merge = addLogMerge(function mergeRaw(E1, E2, ICtx1, ICtx2) {
     if(editActions.__debug) {
-      printDebug("merge ", E1, E2);
+      printDebug("merge ", E1, E2, ICtx1, ICtx2);
     }
     let E1IsRaw = false, E1Original = E1;
     let E2IsRaw = false, E2Original = E2;
@@ -2957,11 +2957,11 @@ var editActions = {};
       if(isReuse(E1) && isReuse(E2)) {
         // Merge key by key.
         let o = mapChildren(E1.childEditActions, (k, c) => {
-          return merge(c, k in E2.childEditActions ? E2.childEditActions[k] : Reuse(), AddInputContext(E1, ICtx1), AddInputContext(E2, ICtx2));
+          return Down(k, merge(Up(k, c), k in E2.childEditActions ? Up(k, E2.childEditActions[k]) : Reuse(), Up(k, AddInputContext(E1, ICtx1)), Up(k, AddInputContext(E2, ICtx2))));
         }, /*canReuse*/false);
         for(let k in E2.childEditActions) {
           if(!(k in E1.childEditActions)) {
-            o[k] = merge(Reuse(), E2.childEditActions[k], AddInputContext(E1, ICtx1), AddInputContext(E2, ICtx2));
+            o[k] = Down(k, merge(Reuse(), Up(k, E2.childEditActions[k]), Up(k, AddInputContext(E1, ICtx1)), Up(k, AddInputContext(E2, ICtx2))));
           }
         }
         result.push(New(o, ExtendModel(E1.model.create || E2.model.create)));

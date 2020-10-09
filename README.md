@@ -196,11 +196,12 @@ By `~=`, we mean they have the same semantics when applied, but they are merged 
 * `Interval(start[, endExcluded])` = `Offset(start, endExcluded-start, undefined)` is arguably a nicer way to present offsets. However, Offsets have the power to represent the assumption of the old length, which Interval do not.
 * `Replace(n, m, EA1[, EA2])` ~= `Concat(m, Down(Interval(0, n), EA1), Down(Interval(n), EA2 | Reuse()))` to perform an edit actions `EA1` on the first n elements. If provided, `EA2` performs an edit on the remaining elements. Whereas the `Replace` actually forks the back-propagation mechanism into two back-propagation problems, Concat alone starts creating an expression to back-propagate at the current location.
 * `Keep(n, EA2)` = `Replace(n, n, Reuse(), EA2)` to just keep the first `n` elements of the string or array as such, and to perform `EA2` on the remaining
+* `Prepend(n, I, EA2)` ~= `Concat(n, I, EA2)` inserts the result of applying I before the array, and applies `EA2` on the array itself.
+* `Append(n, EA1, I)` ~= `Concat(n, EA1, I)` inserts the result of applying I before the array, and applies `EA2` on the array itself. If I is New(scalar), the New can be omitted.
 * `RemoveExcept(offset, EA2)` ~= `Down(offset, EA2)` except that `Down` says "just replace the array there by the elements at this offset after applying EA2 to it", whereas `RemoveExcept` says "Remove everything that is not in the offset, and apply EA2 to the remaining".
 * `Remove(n, EA2)` = `RemoveExcept(Offset(n), EA2)` to delete the first `n` elements of the string or array as such, and to perform `EA2` on the remaining. `EA2` can be omitted.
 * `RemoveAll(EA2[, n])` = `RemoveExcept(Offset(0, 0[, n]), EA2)` to delete all elements of the array, possibly providing the length `n` of the string or array, and to perform `EA2` on the remaining, typically an insertion. `EA2` can be omitted.
-* `Prepend(n, I, EA2)` ~= `Concat(n, I, EA2)` inserts the result of applying I before the array, and applies `EA2` on the array itself.
-* `Append(n, EA1, I)` ~= `Concat(n, EA1, I)` inserts the result of applying I before the array, and applies `EA2` on the array itself. If I is New(scalar), the New can be omitted.
+* `KeepOnly(n[, EA2])` = `RemoveExcept(Offset(0, n), EA2)` to delete all elements except the first n one, possibly applying EA2 on them.
 * `Insert(d, {...d: EA...})` ~= `New({...d: EA...})` except that we explicitely say that the current record is wrapped in EA.
 * `InsertAll({...d: EA...})` ~= `New({...d: EA...})` except that we explicitely say that every key in the record depends on the current record.
 

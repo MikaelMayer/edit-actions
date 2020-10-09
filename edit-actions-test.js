@@ -70,8 +70,6 @@ shouldBeEqual(
   Keep(10, Prepend(7, RemoveExcept(Interval(10, 15), Keep(3, Prepend(2, "ab"))), Keep(10, Remove(5)))),
 );
 
-// TODO: Enhance merge so that these test cases pass.
-
 shouldBeEqual(
   merge(
     Replace(3, 3, Reuse({1: New(2)}), Prepend(1, ["a"])),
@@ -714,11 +712,6 @@ shouldBeEqual(
   // [[D],B, 1, 2, 3]
   // [D, 5, 3]
  
-// TODO, line 108, restore the Replace / Concat, no the inner Reuse
-// ["a", "b",| "c", "d"]
-// => ["d", "c",| "b", "a"]
-// => ["b", "c", "d", "a"]
-
 /*
 apply(Down(Offset(2), Reuse({0: up(2 or 0?})), r, ctx)
 = apply(Reuse({0, up(2 or 0)}), r[2,...[, (Offset(2), r)::ctx)
@@ -784,7 +777,6 @@ testAndThen(
   ["A", "B", "C", "D", "E", "F", "G"]
 ); 
 
-// TODO: Could optimize the result of andThen?
 testAndThen(
   Reuse({a: Keep(3, Reuse({0: New(1)}))}),
   Reuse({a: Prepend(4, Up("a", Down("b")), Reuse())}),
@@ -836,13 +828,18 @@ shouldBeEqual(
   a: Concat(0, Up("a", Down("b")), New([1, 8, 9, 2]))})
 );
 
-/* // Todo: make it work.
 shouldBeEqual(
   merge(
-    Reuse({a: Up("a", Down("b", Create({x: Reuse(), c: Up("b", Down("a"))})))}),
-    Reuse({a: Reuse({d: New(1)})})),
-  Reuse({a: Up("a", Down("b", Create({x: Reuse(), c: Up("b", Down("a", Reuse({d: New(1)})))})))})
-)*/
+    Reuse({a: Up("a", Down("b", New({x: Reuse(), c: Up("b", Down("x"))})))}),
+    Reuse({x: Reuse({y: New(1)})})),
+  Reuse({
+    a: Up("a", Down("b", New({
+      x: Reuse(),
+      c: Up("b", Down("x", Reuse({
+        y: New(1)})))}))),
+    x: Reuse({
+      y: New(1)})})
+)
 
 shouldBeEqual(
   merge(
@@ -1149,9 +1146,15 @@ testBackPropagate(
 testBackPropagate(
   Reuse({a: Down("c"), b: Down("e")}),
     Reuse({a: New({x: New({y: Up("a", Down("b", Reuse({d: New(1)})))})})}),
-  Reuse({a: Reuse({c: New({x: New({y: Up("c", "a", Down("b", "e"))})})}),
-    b: Reuse({e: Reuse({d: New(1)})})
-  })
+  Reuse({
+    a: Reuse({
+      c: New({
+        x: New({
+          y: Up("c", "a", Down("b", "e", Reuse({
+            d: New(1)})))})})}),
+    b: Reuse({
+      e: Reuse({
+        d: New(1)})})})
 );
 
 testBackPropagate(
@@ -1286,8 +1289,6 @@ testBackPropagate(
   Keep(1, Remove(3, Keep(1, Remove(2))))
 )
 
-// TODO: It won't work with strings
-// That's because the Remove makes it so it thinks he has to recover the value of the Replace, instead of trying to back-propagate the Replace. Here, the Replace should be like Reuse and stop the building of the edit action, and give it back to back-propagation.
 testBackPropagate(
   Remove(3, Keep(2, Remove(2))),
     Keep(1, Remove(3, Keep(1, Remove(2)))),
@@ -2272,37 +2273,7 @@ shouldBeEqual(apply(backPropagate(diff(p1, p2), diff(p2, p3)), p1), p4, "Prepend
 
 addHTMLCapabilities(editActions)
 
-findNextSimilar = debugFun(function findNextSimilar(inArray, toElement, fromIndex) {
-  var unevaledToElement = uneval(toElement);
-  var isElement = editActions.isElement(toElement);
-  var i = fromIndex;
-  while(i < inArray.length) {
-    var currentElement = inArray[i];
-    if(unevaledToElement == uneval(currentElement)) return i;
-    if(isElement && editActions.isElement(currentElement)) {
-      let currentTag = editActions.getTag(currentElement);
-      let currentId = editActions.getId(currentElement);
-      let currentClasses = editActions.getClasses(currentElement);
-      let toTag = editActions.getTag(toElement);
-      let toId = editActions.getId(toElement);
-      let toClasses = editActions.getClasses(toElement);
-      if(editActions.uniqueTags[currentTag] && currentTag == toTag) {
-        return i;
-      }
-      if(currentId === toId && typeof currentId === "string") {
-        return i;
-      }
-      if(currentTag === toTag && currentClasses === toClasses && currentClasses != "") {
-        // TODO: Might not be very useful. We should check if the content is similar. Or unique. Maybe compute Levenshtein distance?
-        return i;
-      }
-    }
-    i++;
-  }
-  return -1;
-});
-
-var defaultDiffOptions = {findNextSimilar, onlyReuse: true,
+var defaultDiffOptions = { onlyReuse: true,
    isCompatibleForReuseArray: (oldValue, newValue) => !editActions.isNode(oldValue) && !editActions.isNode(newValue)};
 
 testBackPropagate(
@@ -2890,7 +2861,8 @@ shouldBeEqual(backPropagate(
           p: Up("p", "e", Down("d"))}))),
         e: Up("e", Down("d"))})})})),
   Reuse({
-    f: Up("f", Down("c", "e")),
+    f: Up("f", Down("c", "e", Reuse({
+      p: Up("p", "e", "c", Down("f"))}))),
     c: Reuse({
       e: Reuse({
         p: Up("p", "e", "c", Down("f"))})})}));
@@ -2909,9 +2881,11 @@ shouldBeEqual(backPropagate(
         e: Up("e", Down( "d"))})})})),
   Reuse({
     f: Up("f", Down("c", ReuseAsIs({
-      p: Up("p", "c", Down("f"))}))),
-    c: Reuse({e: Up("e","c", Down("f"))})
-  }));
+      p: Up("p", "c", Down("f")),
+      e: Up("e", "c", Down("f"))}))),
+    c: Reuse({
+      e: Up("e", ReuseAsIs({
+        p: Up("p", "c", Down("f"))}))})}));
 
 shouldBeEqual(backPropagate(
   Reuse({
@@ -2934,22 +2908,12 @@ shouldBeEqual(backPropagate(
 shouldBeEqual(backPropagate(
   New({a: New({b: Down("c", Reuse({d: Up("d", "c", Down("f"))})) })}),
   Reuse({a: Reuse({b: Reuse({d: Up("d", Down("e", Reuse({p: Up("p", "e", Down("d"))}))), e: Up("e", Down( "d"))})})})),
-  /*Reuse({
-  f: Up("f", Down("c", "e")),
-  c: Reuse({
-    e: Up("e", "c", Down("f"))})})*/
   Reuse({
-  f: Up("f", Down("c", "e")),
-  c: Reuse({
-    e: Reuse({
-      p: Up("p", "e", "c", Down("f"))})})})
-  /*
-  Reuse(
-    {f: Up("f", Down("c", "e",
-      Reuse({p:
-        Up("p", "e", "c", Down("f"))}))),
-     c: Reuse({e: Up("e", "c", Down("f"))})
-    })*/);
+    f: Up("f", Down("c", "e", Reuse({
+      p: Up("p", "e", "c", Down("f"))}))),
+    c: Reuse({
+      e: Reuse({
+        p: Up("p", "e", "c", Down("f"))})})}));
 
 shouldBeEqual(backPropagate(
   Reuse({a: New({k: Up("a", Down( "b", "c")), p: Up("a", Down( "b", "d"))}), b: Up("b", Down( "a", "m"))}),
