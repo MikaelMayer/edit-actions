@@ -306,7 +306,7 @@ var editActions = {};
   }
   editActions.Up = Up;
   
-  function DownLike(isRemove, ifTwoArgsLastIsNotNecessaryEdit = true) {
+  function DownLike(isRemove, ifTwoArgsLastIsNotNecessaryEdit = true, cloneOriginalIfPossible = false) {
     return function Down(keyOrOffset, subAction) {
       let ik = isOffset(keyOrOffset);
       if(isRemove && !ik) {
@@ -358,7 +358,7 @@ var editActions = {};
           }
         }
       }
-      return {ctor: Type.Down, keyOrOffset: keyOrOffset, subAction: subAction, isRemove: isRemove ? true : false};
+      return {ctor: Type.Down, keyOrOffset: keyOrOffset, subAction: subAction, isRemove: isRemove ? true : false, cloneOriginalIfPossible};
     }
   }
   var Down = DownLike(false, false);
@@ -367,6 +367,9 @@ var editActions = {};
   editActions.Down = ForgivingDown;
   editActions.RemoveExcept = RemoveExcept;
   editActions.Down.pure = Down;
+  // Experimental
+  var DownClone = DownLike(false, false, true);
+  editActions.Down.clone = DownClone;
 
   function SameDownAs(editActionOrIsRemove) {
     if(typeof editActionOrIsRemove == "object" && editActionOrIsRemove.ctor == Type.Down) {
@@ -3254,10 +3257,82 @@ var editActions = {};
   }
   editActions.__ReuseUp = ReuseUp;
   
+  /* Same as partitionEdit but only outputs an edit that mimics U on the context of E, without creating sub-problems.
+     Down of E are converted to Reuse({: })
+  */
+  function cloneOf(E, U, ECtx) {
+    printDebug("cloneOf", E, U, ECtx);
+    if(E.ctor == Type.Down) {
+      printDebug("prepending Reuse({ ", E.keyOrOffset, ": ...})");
+      return ReuseKeyOrOffset(E.keyOrOffset, cloneOf(E.subAction, U, Up(E.keyOrOffset, ECtx)));
+    }
+    if(E.ctor == Type.Up) {
+      printDebug("prepending Up(", E.keyOrOffset, ", ...)");
+      return Up(E.keyOrOffset, cloneOf(E.subAction, U, Down(E.keyOrOffset, ECtx)));
+    }
+    let wasRaw = false, UOriginal = U;
+    if(!isEditAction(U)) {
+      wasRaw = true;
+      U = New(U);
+    }
+    if(U.ctor == Type.Up) {
+      if(ECtx === undefined) {
+        console.trace("/!\\ Error, trying to go up " + keyOrOffsetToString(U.keyOrOffset) + " but empty context");
+      }
+      if(ECtx.ctor == Type.Up || ECtx.ctor == Type.Down) {
+        let newECtx = ECtx.subAction;
+        if(editActions.__debug) {
+          console.log("Pre-pending " + (ECtx.ctor == Type.Up ? "Up" : "Down") + "(" + keyOrOffsetToString(ECtx.keyOrOffset) + ", |)");
+        }
+        let solution = cloneOf(E, U, newECtx)
+        if(ECtx.ctor == Type.Up) {
+          return Up(ECtx.keyOrOffset, solution);
+        }
+        //if(ECtx.ctor == Type.Down) {
+        return Down(ECtx.keyOrOffset, solution);
+        //}
+      }
+      let [E1p, E1Ctxp, newSecondUpOffset] = walkUpActionCtx(U.keyOrOffset, E, ECtx);
+      return cloneOf(E1p, newSecondUpOffset ? Up(newSecondUpOffset, U.subAction) : U.subAction, E1Ctxp);
+    }
+    if(U.ctor == Type.Down) {
+      if(isReuse(E) && !isOffset(U.keyOrOffset)) {
+        let childE = childIfReuse(E, U.keyOrOffset);
+        return Down(U.keyOrOffset, cloneOf(childE, U.subAction, Up(U.keyOrOffset, AddContext(U.keyOrOffset, E, ECtx))));
+      }
+      // Not a good idea, because the Ups and Down in ECtx will be converted to Reuse...
+      let [E1p, E1Ctxp] = walkDownActionCtx(U.keyOrOffset, E, ECtx, U.isRemove);
+      if(editActions.__debug) {
+        console.log("After walking down " + keyOrOffsetToString(U.keyOrOffset) + ", we get "+stringOf(E1p));
+        console.log("E1Ctxp: "+stringOf(E1Ctxp));
+      }
+      return cloneOf(E1p,  U.subAction,  E1Ctxp);
+    }
+    if(isReuse(U)) {
+      if(isReuse(E)) {
+        printDebug("Prepending Reuse(...)")
+        let childrenReuse = mapChildren(U.childEditActions, (k, c) => {
+          printDebug("Inside Reuse({", k, ": ...})")
+          return Down(k, cloneOf(childIfReuse(E, k), childIfReuse(U, k), Up(k, AddContext(k, E, ECtx))));
+        });
+        return New(childrenReuse, E.model);
+      }
+      throw "TODO: CloneOf when E is Concat, Replace, Append, Prepend, or even a custom lens"
+    }
+    if(isNew(U)) {
+      printDebug("Prepending New(...)")
+      let newChildren = mapChildren(U.childEditActions, (k, c) => {
+        printDebug("Inside New({", k, ": ...})")
+        return cloneOf(E, childIfNew(U, k), ECtx);
+      });
+      return rawIfPossible(New(newChildren, U.model), wasRaw);
+    }
+    throw "TODO CloneOf when U is Concat, Replace, Append, Prepend"
+  }
+  
   /* Returns [e', subs] where
      e' is an edit built from U suitable to apply on the given context.
      subs are the sub back-propagation problems to solve and merge to the final result
-  
   */
   /** Specification:
     Assuming apply(E, r, rCtx) is defined,
@@ -3298,7 +3373,11 @@ var editActions = {};
       return partitionEdit(E1p, newSecondUpOffset ? Up(newSecondUpOffset, U.subAction) : U.subAction, E1Ctxp, outCountU);
     }
     if(U.ctor == Type.Down) {
-      let [E1p, E1Ctxp] = walkDownActionCtx(U.keyOrOffset, E, ECtx);
+      if(U.cloneOriginalIfPossible && !isOffset(U.keyOrOffset) && isReuse(E)) {
+        let result = DownClone(U.keyOrOffset, cloneOf(childIfReuse(E, U.keyOrOffset), U.subAction, Up(U.keyOrOffset, AddContext(U.keyOrOffset, E, ECtx))));
+        return [result, []];
+      }
+      let [E1p, E1Ctxp] = walkDownActionCtx(U.keyOrOffset, E, ECtx, U.isRemove);
       if(editActions.__debug) {
         console.log("After walking down " + keyOrOffsetToString(U.keyOrOffset) + ", we get "+stringOf(E1p));
         console.log("E1Ctxp: "+stringOf(E1Ctxp));
@@ -5549,6 +5628,9 @@ var editActions = {};
           return "RemoveExcept(" + keyOrOffsetToString(self.keyOrOffset) + (isIdentity(self.subAction) ? "": ", " + stringOf(self.subAction)) + ")";
         }
       }
+      if(self.cloneOriginalIfPossible) {
+        return "Down.clone(" + keyOrOffsetToString(self.keyOrOffset) + (isIdentity(self.subAction) ? "" : ", " + stringOf(self.subAction)) + ")";
+      }
       let str = ""; // We'll prepend the Down( later just in case we need pure Down
       let selfIsIdentity = false;
       let removeStart = self.isRemove;
@@ -5979,6 +6061,10 @@ var editActions = {};
     return key in editAction.childEditActions ? Up(key, editAction.childEditActions[key]) : Reuse();
   }
   transform.childIfReuse = childIfReuse;
+  function childIfNew(editAction, key) {
+    return editAction.childEditActions[key];
+  }
+  transform.childIfNew = childIfNew;
   function isRaw(editAction) {
     return !isEditAction(editAction);
   }

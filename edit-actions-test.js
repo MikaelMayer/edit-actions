@@ -6,6 +6,92 @@ var bs = "\\\\";
 var failAtFirst = true;
 
 shouldBeEqual(
+  backPropagate(
+    Reuse({
+      head: Down("info", Reuse({name: Down("first")})),
+      tail: Reuse({
+        head: Down("info", Reuse({name: Down("first")}))
+      })
+    }),
+    New({
+      head: Down.clone("head", Reuse({name: "David", surname: Up("surname", Down("name"))})),
+      tail: Reuse()
+    })
+  ),
+  New({
+    head: Down.clone("head", Reuse({
+      info: Reuse({
+        name: Reuse({
+          first: "David"}),
+        surname: Up("surname", Down("name"))
+          })})),
+    tail: Reuse(),
+  })
+);
+
+/*
+debug(
+  backPropagate(
+    New({
+      ctor: "SocialBook",
+      data: Down("data", Reuse({
+        head: {
+          ctor: "SocialGroup",
+          name: Down("name"),
+          people: Reuse({
+            head: Down("data", "name"),
+            tail: Reuse({
+              Down("data", "name")
+            })
+          })
+        },
+        tail: Reuse({
+          head: {
+            ctor: "SocialGroup",
+            name: Down("name"),
+            people: Reuse({
+              head: Down("data", "name")
+            })
+          },
+        })
+      }))
+    }),
+    Reuse({
+      data: New({
+        ctor: "Cons",
+        head: Down("tail", "head", Reuse({
+          
+        })),
+        tail: Reuse({
+          head: Reuse({
+            people: Down("tail") // Remove Alice fro coworkers
+          })
+          tail: Up("tail", Down("head", Reuse({
+            name: "family",
+            data: New({ctor: "Nil"})
+          })))
+        })
+        Reuse({
+        head: Reuse({
+          people: New({
+            head: Up("people", "head", Down("tail", "head", "people", "head")),
+            tail: Reuse({
+              tail: New(undefined)
+            })
+          })
+        })
+        
+      })
+    })
+    
+    )
+)
+e()
+*/
+
+
+
+shouldBeEqual(
   editActions.__keyIn(3, Down(Interval(2), Remove(2))),
   Reuse()
 );
@@ -3062,13 +3148,21 @@ function a(x) {
   return F(x)+G(x);
 }
 `;
+var delta = Remove(38, Append(25, Up(Offset(38), Down(Interval(0, 38)))))
+var epsilon = Keep(25+11, Remove(1, Prepend(1, "y", Keep(15, Remove(1, Prepend(1, "y", Keep(4, Remove(1, Prepend(1, "y")))))))));
+var deltaPrime = Keep(11, Remove(1, Prepend(1, "y", Keep(15, Remove(1, Prepend(1, "y", Keep(4, Remove(1, Prepend(1, "y")))))))));
+
 shouldBeEqual(
-  backPropagate(
-    Remove(38, Append(25, Up(Offset(38), Down(Interval(0, 38))))),
-    Keep(25+11, Remove(1, Prepend(1, "y", Keep(15, Remove(1, Prepend(1, "y", Keep(4, Remove(1, Prepend(1, "y")))))))))
+  backPropagate(delta, epsilon),deltaPrime);
+
+shouldBeEqual(
+  merge(
+    deltaPrime,
+    delta
   ),
-  Keep(11, Remove(1, Prepend(1, "y", Keep(15, Remove(1, Prepend(1, "y", Keep(4, Remove(1, Prepend(1, "y"))))))))));
-  
+  andThen(epsilon, delta)
+);
+
 // Custom
 var plusEditAction =
   Custom(Down("args"),
