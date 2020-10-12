@@ -18,7 +18,8 @@ var editActions = {};
      Concat: "Concat", // Concatenates two instances of monoids.
      Custom: "Custom",
      UseResult: "UseResult", // Not supported for andThen, backPropagation and merge.
-     Choose: "Choose", // Alternative choice options
+     Choose: "Choose", // Alternative choice options;
+     Clone: "Clone" // Ensures we clone the previously reused structure, not the view.
   };
   function isObject(v) {
     return typeof v == "object";
@@ -306,7 +307,7 @@ var editActions = {};
   }
   editActions.Up = Up;
   
-  function DownLike(isRemove, ifTwoArgsLastIsNotNecessaryEdit = true, cloneOriginalIfPossible = false) {
+  function DownLike(isRemove, ifTwoArgsLastIsNotNecessaryEdit = true) {
     return function Down(keyOrOffset, subAction) {
       let ik = isOffset(keyOrOffset);
       if(isRemove && !ik) {
@@ -358,7 +359,7 @@ var editActions = {};
           }
         }
       }
-      return {ctor: Type.Down, keyOrOffset: keyOrOffset, subAction: subAction, isRemove: isRemove ? true : false, cloneOriginalIfPossible};
+      return {ctor: Type.Down, keyOrOffset: keyOrOffset, subAction: subAction, isRemove: isRemove ? true : false};
     }
   }
   var Down = DownLike(false, false);
@@ -367,9 +368,6 @@ var editActions = {};
   editActions.Down = ForgivingDown;
   editActions.RemoveExcept = RemoveExcept;
   editActions.Down.pure = Down;
-  // Experimental
-  var DownClone = DownLike(false, false, true);
-  editActions.Down.clone = DownClone;
 
   function SameDownAs(editActionOrIsRemove) {
     if(typeof editActionOrIsRemove == "object" && editActionOrIsRemove.ctor == Type.Down) {
@@ -581,11 +579,20 @@ var editActions = {};
         return SameDownAs(editAction)(editAction.keyOrOffset, first(editAction.subAction));
       case Type.Choose:
         return first(Collection.firstOrDefault(editAction.subActions, Reuse()));
+      case Type.Clone:
+        return Clone(first(editAction.subAction));
       default:
         return editAction;
     }
   }
   editActions.first = first;
+  
+  // Change the way the edit action will be back-propagated.
+  function Clone(editAction = Reuse()) {
+    if(isObject(editAction) && editAction.ctor == Type.Clone) return editAction;
+    return {ctor: Type.Clone, subAction: editAction};
+  }
+  editActions.Clone = Clone;
   
   //// HELPERS and syntactic sugar:
   // Extend, Reuse, Replace, Interval Prepend, Keep, Remove, RemoveAll, RemoveExcept
@@ -1012,6 +1019,9 @@ var editActions = {};
         apply(subAction, prog, ctx, resultCtx)
       );*/
     }
+    if(editAction.ctor == Type.Clone) {
+      return apply(editAction.subAction, prog, ctx, resultCtx);
+    }
     let isReuse = editAction.model.ctor == TypeNewModel.Extend;
     let model = modelToCopy(editAction, prog);
     let childEditActions = editAction.childEditActions;
@@ -1114,11 +1124,17 @@ var editActions = {};
         = apply(Reuse(), apply(E1, r, rCtx), apply(ECtx, r, rCtx))
     */
     if(isIdentity(secondAction)) return firstActionOriginal;
+    if(firstAction.ctor == Type.Clone) {
+      return Clone(recurse(secondAction, firstAction.subAction, firstActionContext));
+    }
+    if(secondAction.ctor == Type.Clone) {
+      return Clone(recurse(secondAction.subAction, firstAction, firstActionContext));
+    }
       
     if(secondAction.ctor == Type.Choose) {
-      return Choose(...Collection.map(secondAction.subActions, subAction => andThen(subAction, firstActionOriginal, firstActionContext)));
+      return Choose(...Collection.map(secondAction.subActions, subAction => recurse(subAction, firstActionOriginal, firstActionContext)));
     } else if(firstAction.ctor == Type.Choose) {
-      return Choose(...Collection.map(firstAction.subActions, subAction => andThen(secondActionOriginal, subAction, firstActionContext)));
+      return Choose(...Collection.map(firstAction.subActions, subAction => recurse(secondActionOriginal, subAction, firstActionContext)));
     } else if(secondAction.ctor == Type.Up) {
       if(firstActionContext === undefined) {
         console.trace("Error empty context for Up in andThen", firstAction, ";", secondAction);
@@ -1772,6 +1788,8 @@ var editActions = {};
       return Up(editAction.keyOrOffset, downAt(key, editAction.subAction));
     case Type.Down:
       return Down(editAction.keyOrOffset, downAt(key, editAction.subAction));
+    case Type.Clone:
+      return Clone(downAt(key, editAction.subACtion));
     default:
       /**Proof:
           apply(downAt(f, C), r, rCtx)
@@ -2381,6 +2399,8 @@ var editActions = {};
       return SameDownAs(editAction.isRemove || isRemove && isOffset(editAction.keyOrOffset))(editAction.keyOrOffset, offsetAt(offset, editAction.subAction, isRemove));
     case Type.Choose:
       return Choose(Collection.map(editAction.subActions, x => offsetAt(offset, x)));
+    case Type.Clone:
+      return Clone(offsetAt(offset, editAction.subACtion));
     default: // editAction.ctor == Custom
       /**Proof:
           apply(offsetAt(f, C), r, rCtx)
@@ -2720,11 +2740,17 @@ var editActions = {};
         Now, since applyZ(E1, rrCtx) = applyZ(E1.subActions[0],rrCtx) is defined,
         by induction, we obtain the result. QED;
       */
-      return Choose(...Collection.map(E1.subActions, x => merge(x, E2Original)));
+      return Choose(...Collection.map(E1.subActions, x => merge(x, E2Original, ICtx1, ICtx2)));
     }
     if(E2.ctor == Type.Choose) {
       /** Proof: Same as above. */
-      return Choose(...Collection.map(E2.subActions, x => merge(E1Original, x)));
+      return Choose(...Collection.map(E2.subActions, x => merge(E1Original, x, ICtx1, ICtx2)));
+    }
+    if(E1.ctor == Type.Clone) {
+      return Clone(merge(E1.subAction, E2, ICtx1, ICtx2));
+    }
+    if(E2.ctor == Type.Clone) {
+      return Clone(merge(E1, E2.subAction, ICtx1, ICtx2));
     }
     let result = [];
     merge_cases: {
@@ -3261,7 +3287,12 @@ var editActions = {};
      Down of E are converted to Reuse({: })
   */
   function cloneOf(E, U, ECtx) {
-    printDebug("cloneOf", E, U, ECtx);
+    printDebug("cloneOf", "E", E, "U", U, "ECtx", ECtx);
+    let EWasRaw, ERaw = E;
+    if(!isEditAction(E)) {
+      EWasRaw = true;
+      E = New(E);
+    }
     if(E.ctor == Type.Down) {
       printDebug("prepending Reuse({ ", E.keyOrOffset, ": ...})");
       return ReuseKeyOrOffset(E.keyOrOffset, cloneOf(E.subAction, U, Up(E.keyOrOffset, ECtx)));
@@ -3298,7 +3329,7 @@ var editActions = {};
     if(U.ctor == Type.Down) {
       if(isReuse(E) && !isOffset(U.keyOrOffset)) {
         let childE = childIfReuse(E, U.keyOrOffset);
-        return Down(U.keyOrOffset, cloneOf(childE, U.subAction, Up(U.keyOrOffset, AddContext(U.keyOrOffset, E, ECtx))));
+        return (SameDownAs(U))(U.keyOrOffset, cloneOf(childE, U.subAction, Up(U.keyOrOffset, AddContext(U.keyOrOffset, E, ECtx))));
       }
       // Not a good idea, because the Ups and Down in ECtx will be converted to Reuse...
       let [E1p, E1Ctxp] = walkDownActionCtx(U.keyOrOffset, E, ECtx, U.isRemove);
@@ -3317,7 +3348,12 @@ var editActions = {};
         });
         return New(childrenReuse, E.model);
       }
-      throw "TODO: CloneOf when E is Concat, Replace, Append, Prepend, or even a custom lens"
+      // Here we are reusing something that was overwritten, so we can just gather all edits made on this context.
+      let finalCloneEdit = identity;
+      forEach(U.childEditActions, (subU, k) => {
+        finalCloneEdit = merge(finalCloneEdit, cloneOf(E, subU, ECtx));
+      });
+      return finalCloneEdit;
     }
     if(isNew(U)) {
       printDebug("Prepending New(...)")
@@ -3326,6 +3362,9 @@ var editActions = {};
         return cloneOf(E, childIfNew(U, k), ECtx);
       });
       return rawIfPossible(New(newChildren, U.model), wasRaw);
+    }
+    if(U.ctor == Type.Clone) {
+      return Clone(cloneOf(E, U.subACtion, ECtx));
     }
     throw "TODO CloneOf when U is Concat, Replace, Append, Prepend"
   }
@@ -3340,7 +3379,7 @@ var editActions = {};
     
     partitionEdit returns a quadruplet [E', sub, ECtx', outCount']
     such that:
-    apply(prefixReuse(ECtx', E'), firstRecord(r, rCtx)) is correctly defined.
+    apply(prefixReuse(pathAT(ECtx'), E'), firstRecord(r, rCtx)) is correctly defined.
     and the record at the context of E' has length outCount' if defined.
     
     and sub are well-defined backPropagate problems.
@@ -3377,10 +3416,6 @@ var editActions = {};
       return partitionEdit(E1p, newSecondUpOffset ? Up(newSecondUpOffset, U.subAction) : U.subAction, E1Ctxp, outCountU);
     }
     if(U.ctor == Type.Down) {
-      if(U.cloneOriginalIfPossible && !isOffset(U.keyOrOffset) && isReuse(E)) {
-        let result = DownClone(U.keyOrOffset, cloneOf(childIfReuse(E, U.keyOrOffset), U.subAction, Up(U.keyOrOffset, AddContext(U.keyOrOffset, E, ECtx))));
-        return [result, []];
-      }
       // We used to walk E with the offset and key, and hope that when U is Reuse(), we just keep E. 
       let [E1p, E1Ctxp] = walkDownActionCtx(U.keyOrOffset, E, ECtx, U.isRemove);
       if(editActions.__debug) {
@@ -3388,6 +3423,9 @@ var editActions = {};
         console.log("E1Ctxp: "+stringOf(E1Ctxp));
       }
       return partitionEdit(E1p,  U.subAction,  E1Ctxp, outCountU);
+    }
+    if(U.ctor == Type.Clone) {
+      return [Clone(cloneOf(E, U.subAction, ECtx)), []];
     }
     if(isReuse(U) && !U.model.create) {
       if(E.ctor == Type.Up) {
@@ -5640,9 +5678,6 @@ var editActions = {};
           return "RemoveExcept(" + keyOrOffsetToString(self.keyOrOffset) + (isIdentity(self.subAction) ? "": ", " + stringOf(self.subAction)) + ")";
         }
       }
-      if(self.cloneOriginalIfPossible) {
-        return "Down.clone(" + keyOrOffsetToString(self.keyOrOffset) + (isIdentity(self.subAction) ? "" : ", " + stringOf(self.subAction)) + ")";
-      }
       let str = ""; // We'll prepend the Down( later just in case we need pure Down
       let selfIsIdentity = false;
       let removeStart = self.isRemove;
@@ -5817,6 +5852,12 @@ var editActions = {};
       })
       str += ")";
       return str;
+    } else if(self.ctor == Type.Clone) {
+      let str = "Clone(";
+      let outerPadding = toSpaces(str);
+      str += addPadding(stringOf(self.subAction), outerPadding);
+      str += ")";
+      return str;
     } else {
       return self.ctor;
     }
@@ -5974,10 +6015,18 @@ var editActions = {};
     case Type.Custom: {
       /** 1) Trivial, same pathToHere */
       let newSubAction = mapUpHere(editAction.subAction, offset, pathToHere);
-      if(newSubAction = editAction.subAction) {
+      if(newSubAction === editAction.subAction) {
         return editAction;
       } else {
         return {...editAction, subAction: newSubAction}; 
+      }
+    }
+    case Type.Clone: {
+      let newSubAction = mapUpHere(editAction.subAction, offset, pathToHere);
+      if(newSubAction === editAction.subACtion) {
+        return editAction; 
+      } else {
+        return Clone(newSubAction);
       }
     }
     default: return editAction;

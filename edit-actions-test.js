@@ -1,5 +1,12 @@
 var editActions = require("./edit-actions.js");
-var {List,Reuse,New,Concat,Replace,Keep,Prepend, Append,Remove,RemoveExcept,RemoveAll,KeepOnly,Up,Down,Custom,UseResult,Type,Offset,__AddContext,__ContextElem,isOffset,uneval,apply,andThen, splitAt, downAt, offsetAt, stringOf, Sequence, merge, ReuseOffset, backPropagate, isIdentity, Choose, diff, first, debug, Interval, Insert, InsertAll, ExtendModel, ReuseAsIs, transform, mergeInto} = editActions;
+var {New,Concat,Up,Down,Custom,UseResult,Choose,Clone,
+     Offset, Interval, 
+     apply, andThen, merge, backPropagate,
+     isIdentity, stringOf, diff, first, debug} = editActions;
+var {List,Reuse,Replace,Keep,Prepend, Append,Remove,RemoveExcept,RemoveAll,KeepOnly,Type,__AddContext,__ContextElem,isOffset,uneval, splitAt, downAt, offsetAt, Sequence, ReuseOffset, Insert, InsertAll, ExtendModel, ReuseAsIs, transform, mergeInto} = editActions;
+
+
+
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
@@ -14,20 +21,42 @@ shouldBeEqual(
       })
     }),
     New({
-      head: Down.clone("head", Reuse({name: "David", surname: Up("surname", Down("name"))})),
+      head: Clone(Down("head", Reuse({name: "David", surname: Up("surname", Down("name"))}))),
       tail: Reuse()
     })
   ),
   New({
-    head: Down.clone("head", Reuse({
+    head: Clone(Down("head", Reuse({
       info: Reuse({
         name: Reuse({
           first: "David"}),
         surname: Up("surname", Down("name"))
-          })})),
+          })}))),
     tail: Reuse(),
   })
 );
+
+shouldBeEqual(
+  backPropagate(
+    New({
+      name: Down("first"),
+      people: New({
+        x: Down("data")
+      })
+    }),
+    Clone(Reuse({
+      name: "new name",
+      people: Reuse({
+        x: New(1)
+      })
+    }))
+  ),
+  Clone(Reuse({
+    first: "new name",
+    data: New(1)
+  }))
+);
+
 /*
 n();
 debug(
@@ -58,30 +87,29 @@ debug(
     }),
     Reuse({
       data: Reuse({
-        head: Up("head", Down("tail", Down.clone("head", Reuse({
+        head: Up("head", Down("tail", Clone(Down("head", Reuse({
           people: Reuse({
             tail: New({
-              head: Up("tail", "people", "head", Down("tail", "head", "people", Down.clone("head"))),
+              head: Up("tail", "people", "head", Down("tail", "head", "people", Clone(Down("head")))),
               tail: Reuse({
                 tail: Reuse()
               })
           })
-        })})))),
+        })}))))),
         tail: Reuse({
-          head: Up("head", "tail", Down.clone("head", Reuse({
+          head: Up("head", "tail", Clone(Down("head", Reuse({
             people: Down("tail") // Remove Alice fro coworkers
-          }))),
-          tail: Up("tail", Down.clone("head", Reuse({
+          })))),
+          tail: Up("tail", Clone(Down("head", Reuse({
             name: "family",
             data: New({ctor: "Nil"})
-          })))
+          }))))
         })
       })
     }))
 );
 e()
-
-*/
+//*/
 
 shouldBeEqual(
   editActions.__keyIn(3, Down(Interval(2), Remove(2))),
