@@ -28,8 +28,8 @@ shouldBeEqual(
     tail: Reuse(),
   })
 );
-
 /*
+n();
 debug(
   backPropagate(
     New({
@@ -38,58 +38,50 @@ debug(
         head: {
           ctor: "SocialGroup",
           name: Down("name"),
-          people: Reuse({
+          people: Down("people", Reuse({
             head: Down("data", "name"),
             tail: Reuse({
-              Down("data", "name")
+              head: Down("data", "name")
             })
-          })
+          }))
         },
         tail: Reuse({
           head: {
             ctor: "SocialGroup",
             name: Down("name"),
-            people: Reuse({
+            people: Down("people", Reuse({
               head: Down("data", "name")
-            })
+            }))
           },
         })
       }))
     }),
     Reuse({
-      data: New({
-        ctor: "Cons",
-        head: Down("tail", "head", Reuse({
-          
-        })),
-        tail: Reuse({
-          head: Reuse({
-            people: Down("tail") // Remove Alice fro coworkers
+      data: Reuse({
+        head: Up("head", Down("tail", Down.clone("head", Reuse({
+          people: Reuse({
+            tail: New({
+              head: Up("tail", "people", "head", Down("tail", "head", "people", Down.clone("head"))),
+              tail: Reuse({
+                tail: Reuse()
+              })
           })
-          tail: Up("tail", Down("head", Reuse({
+        })})))),
+        tail: Reuse({
+          head: Up("head", "tail", Down.clone("head", Reuse({
+            people: Down("tail") // Remove Alice fro coworkers
+          }))),
+          tail: Up("tail", Down.clone("head", Reuse({
             name: "family",
             data: New({ctor: "Nil"})
           })))
         })
-        Reuse({
-        head: Reuse({
-          people: New({
-            head: Up("people", "head", Down("tail", "head", "people", "head")),
-            tail: Reuse({
-              tail: New(undefined)
-            })
-          })
-        })
-        
       })
-    })
-    
-    )
-)
+    }))
+);
 e()
+
 */
-
-
 
 shouldBeEqual(
   editActions.__keyIn(3, Down(Interval(2), Remove(2))),

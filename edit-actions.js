@@ -3347,10 +3347,14 @@ var editActions = {};
   */
   function partitionEdit(E, U, ECtx, outCountU) {
     printDebug("partitionEdit", E, "<=", U, "-|", ECtx, outCountU);
-    let wasRaw = false;
+    let UWasRaw = false, EWasRaw = false;
     if(!isEditAction(U)) {
-      wasRaw = true;
+      UWasRaw = true;
       U = New(U);
+    }
+    if(!isEditAction(E)) {
+      EWasRaw = true;
+      E = New(E);
     }
     if(U.ctor == Type.Up) {
       if(ECtx === undefined) {
@@ -3377,6 +3381,7 @@ var editActions = {};
         let result = DownClone(U.keyOrOffset, cloneOf(childIfReuse(E, U.keyOrOffset), U.subAction, Up(U.keyOrOffset, AddContext(U.keyOrOffset, E, ECtx))));
         return [result, []];
       }
+      // We used to walk E with the offset and key, and hope that when U is Reuse(), we just keep E. 
       let [E1p, E1Ctxp] = walkDownActionCtx(U.keyOrOffset, E, ECtx, U.isRemove);
       if(editActions.__debug) {
         console.log("After walking down " + keyOrOffsetToString(U.keyOrOffset) + ", we get "+stringOf(E1p));
@@ -3385,24 +3390,59 @@ var editActions = {};
       return partitionEdit(E1p,  U.subAction,  E1Ctxp, outCountU);
     }
     if(isReuse(U) && !U.model.create) {
-      let buildPart = buildingPartOf(E);
-      if(editActions.__debug) {
-        console.log("Recovered a build part: " + stringOf(buildPart));
+      if(E.ctor == Type.Up) {
+        let [sol, nexts, newCtx, outCountUbis] = partitionEdit(E.subAction, U, Down(E.keyOrOffset, ECtx), outCountU);
+        //print("Up-Compare with ", prevResult);
+        return [Up(E.keyOrOffset, sol), nexts, ECtx, outCountUbis];
       }
-      return [buildPart, [[E, U, ECtx]], ECtx, outCountU];
+      if(E.ctor == Type.Down) {
+        let [sol, nexts, newCtx, outCountU2] = partitionEdit(E.subAction, U, Up(E.keyOrOffset, ECtx), outCountU);
+        return [Down(E.keyOrOffset, sol), nexts, ECtx, outCountU2];
+      }
+      if(E.ctor == Type.New) {
+        if(isReuse(E) && !E.model.create) {
+          return [Reuse(), [[E, U, ECtx]], ECtx, outCountU];
+        }
+        let o = {};
+        let finalNexts = [];
+        for(let k in E.childEditActions) {
+          let [sol, nexts, newCtx, outCountUbis] = partitionEdit(E.childEditActions[k], U, ECtx, outCountU);
+          o[k] = sol;
+          finalNexts.push(...nexts);
+        }
+        //print("New-Compare with ", prevResult, "EWasRaw", EWasRaw);
+        return [rawIfPossible(New(o, E.model), EWasRaw), finalNexts, ECtx, outCountU];
+      }
+      if(E.ctor == Type.Concat) {
+        //print("Concat-PartitionEdit: E,U,ECtx", E, U, ECtx)
+        //print("Concat-PartitionEdit-Left");
+        let [newU, newUCount] = offsetIn(Offset(0, E.count), U, false, true, outCountU);
+        let [left, nextsLeft, newCtxLeft, outCountU1] = partitionEdit(E.first, newU, AddContext(Offset(0, E.count), E, ECtx), newUCount);
+        //print("Concat-PartitionEdit-Right")
+        let [newURight, newUCountRight] = offsetIn(Offset(E.count), U, false, true, outCountU);
+        let [right, nextsRight, newCtxRight, outCountU2] = partitionEdit(E.second,
+          newURight,
+          AddContext(Offset(E.count), E, ECtx), newUCountRight);
+        //print("Concat-Compare with ", prevResult);
+        return [Concat(E.count, left, right, E.replaceCount, E.firstReuse, E.secondReuse),
+          nextsLeft.concat(nextsRight),
+          ECtx, outCountU
+        ];
+      }
+      return [E, [], ECtx, outCountU];
     }
     if(U.ctor == Type.New) {
       let o = {};
-      let next = [];
+      let finalNexts= [];
       for(let k in U.childEditActions) {
         if(editActions.__debug) {
           console.log("Pre-pending New({..."+k+": | })");
         }
-        let [subK, nexts] = partitionEdit(E, U.childEditActions[k], ECtx);
+        let [subK, nexts, outCtx, outCountX] = partitionEdit(E, U.childEditActions[k], ECtx);
         o[k] = subK;
-        next.push(...nexts);
+        finalNexts.push(...nexts);
       }
-      return [rawIfPossible(New(o, U.model), wasRaw), next, ECtx, outCountU];
+      return [rawIfPossible(New(o, U.model), UWasRaw), finalNexts, ECtx, outCountU];
     }
     if(U.ctor == Type.Concat) {
       // Even replaces, we treat them like Concat when we try to resolve partitionEdit. At this point, we are already creating something new from old pieces.
@@ -3428,36 +3468,8 @@ var editActions = {};
     throw "Case not supported in partitionEdit: " + stringOf(U);
   }
   editActions.partitionEdit = partitionEdit;
-
-  // Returns the building part that starts an edit action (the Up, Down, New, Concat)
-  // 
-  function buildingPartOf(E) {
-    if(E.ctor == Type.Up) {
-      let buildingPart = buildingPartOf(E.subAction);
-      return Up(E.keyOrOffset, buildingPart);
-    }
-    if(E.ctor == Type.Down) {
-      let buildingPart = buildingPartOf(E.subAction);
-      return Down(E.keyOrOffset, buildingPart);
-    }
-    if(E.ctor == Type.New) {
-      if(isReuse(E) && !E.model.create) {
-        return Reuse();
-      }
-      let o = {};
-      for(let k in E.childEditActions) {
-        o[k] = buildingPartOf(E.childEditActions[k]);
-      }
-      return New(o, E.model);
-    }
-    if(E.ctor == Type.Concat) {
-      let left = buildingPartOf(E.first);
-      let right = buildingPartOf(E.second);
-      return Concat(E.count, left, right, E.replaceCount, E.firstReuse, E.secondReuse);
-    }
-    return E;
-  }
   
+  // Extract the Up-only path of an action context.
   function pathAt(ctx) {
     if(typeof ctx == "object") {
       if(ctx.ctor == Type.Up) {
