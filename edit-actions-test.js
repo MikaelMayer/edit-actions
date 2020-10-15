@@ -14,6 +14,14 @@ var failAtFirst = true;
 
 shouldBeEqual(
   backPropagate(
+    Reuse({tl: Reuse({tl: Reuse({tl: Reuse({tl: Down("tl")})})})}),
+    Reuse({tl: Reuse({tl: Reuse({tl: Reuse({tl: Up("tl", "tl", "tl", "tl", ReuseAsIs({tl: ReuseAsIs({tl: Down("tl", "tl")})}))})})})})
+  ),
+  Reuse({tl: Reuse({tl: Reuse({tl: Reuse({tl: Reuse({tl: Up("tl", "tl", "tl", "tl", "tl", ReuseAsIs({tl: ReuseAsIs({tl: Down("tl", "tl", "tl")})}))})})})})}),
+);
+
+shouldBeEqual(
+  backPropagate(
     Reuse({
       head: Down("info", Reuse({name: Down("first")})),
       tail: Reuse({
@@ -2986,12 +2994,11 @@ shouldBeEqual(backPropagate(
           p: Up("p", "e", Down("d"))}))),
         e: Up("e", Down( "d"))})})})),
   Reuse({
-    f: Up("f", Down("c", ReuseAsIs({
-      p: Up("p", "c", Down("f")),
-      e: Up("e", "c", Down("f"))}))),
+    f: Up("f", Down("c", "e", ReuseAsIs({
+      p: Up("p", "e", "c", Down("f"))}))),
     c: Reuse({
-      e: Up("e", ReuseAsIs({
-        p: Up("p", "c", Down("f"))}))})}));
+      e: ReuseAsIs({
+        p: Up("p", "e", "c", Down("f"))})})}));
 
 shouldBeEqual(backPropagate(
   Reuse({

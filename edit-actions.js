@@ -2560,7 +2560,7 @@ var editActions = {};
     return undefined;
   }
   
-  // E2 is the edit action that applies at the 
+  // E2 is the edit action that applies at the current level.
   function walkInUp(keyOrOffset, E2, ICtx2) {
     printDebug("walkInUp", keyOrOffset, E2, ICtx2);
     if(isUp(ICtx2)) { // ICtx2 is an input context element.
@@ -3427,7 +3427,7 @@ var editActions = {};
     if(U.ctor == Type.Clone) {
       return [Clone(cloneOf(E, U.subAction, ECtx)), []];
     }
-    if(isReuse(U) && !U.model.create) {
+    if(isReuse(U)) { // We need to return Reuse in context, so we navigate E to the correct location.
       if(E.ctor == Type.Up) {
         let [sol, nexts, newCtx, outCountUbis] = partitionEdit(E.subAction, U, Down(E.keyOrOffset, ECtx), outCountU);
         //print("Up-Compare with ", prevResult);
@@ -3437,6 +3437,8 @@ var editActions = {};
         let [sol, nexts, newCtx, outCountU2] = partitionEdit(E.subAction, U, Up(E.keyOrOffset, ECtx), outCountU);
         return [Down(E.keyOrOffset, sol), nexts, ECtx, outCountU2];
       }
+    }
+    if(isReuse(U) && !U.model.create) {
       if(E.ctor == Type.New) {
         if(isReuse(E) && !E.model.create) {
           return [Reuse(), [[E, U, ECtx]], ECtx, outCountU];
