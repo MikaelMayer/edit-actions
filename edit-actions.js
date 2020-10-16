@@ -1676,7 +1676,7 @@ var editActions = {};
     }
     // !isOffset(upKeyOrOffset)
     if(isOffset(keyOrOffset)) { // We just skip it.
-      return walkUpActionCtx(upKeyOrOffset, newFirstAction, newFirstActionContext);
+      return [newFirstAction, newFirstActionContext, upKeyOrOffset];
     }
     if(upKeyOrOffset != keyOrOffset) {
       console.log("/!\\ Warning, going up " + upKeyOrOffset + " after a down " + keyOrOffset + " in walkUpActionCtx");

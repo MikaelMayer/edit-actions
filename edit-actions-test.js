@@ -13,6 +13,17 @@ var bs = "\\\\";
 var failAtFirst = true;
 
 shouldBeEqual(
+  andThen(
+    Reuse({a: Down(Interval(5, 10), New([Up("a", Down("b"))]))}),
+    Reuse({b: Reuse({d: New(1)})})),
+  Reuse({
+    b: Reuse({
+      d: New(1)}),
+    a: Down(Interval(5, 10), New([Up(Interval(5, 10), "a", Down("b", Reuse({
+        d: New(1)})))]))})
+);
+
+shouldBeEqual(
   backPropagate(
     Reuse({tl: Reuse({tl: Reuse({tl: Reuse({tl: Down("tl")})})})}),
     Reuse({tl: Reuse({tl: Reuse({tl: Reuse({tl: Up("tl", "tl", "tl", "tl", ReuseAsIs({tl: ReuseAsIs({tl: Down("tl", "tl")})}))})})})})
