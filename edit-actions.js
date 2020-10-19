@@ -2561,6 +2561,7 @@ var editActions = {};
   }
   
   // E2 is the edit action that applies at the current level.
+  // Returns a sub action and a context
   function walkInUp(keyOrOffset, E2, ICtx2) {
     printDebug("walkInUp", keyOrOffset, E2, ICtx2);
     if(isUp(ICtx2)) { // ICtx2 is an input context element.

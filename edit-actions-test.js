@@ -11,6 +11,15 @@ var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
+/*
+shouldBeEqual(
+  merge(
+    Insert("a", {a: Insert("b", {b: Reuse()})}),
+    Insert("c", {c: Insert("d", {d: Reuse()})}),
+  ),
+  Reuse()
+)
+e();*/
 
 shouldBeEqual(
   andThen(
@@ -54,6 +63,7 @@ shouldBeEqual(
     tail: Reuse(),
   })
 );
+e();
 
 shouldBeEqual(
   backPropagate(
