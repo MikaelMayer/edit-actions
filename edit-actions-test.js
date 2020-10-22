@@ -11,6 +11,15 @@ var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
+
+n()
+var v = {a: { c: 1 }, b: {d: 2}}
+editActions.applyMutate(Reuse({a: Reuse({c: Up("c", "a", Down("b", "d"))}), b: Reuse({d: Up("d", "b", Down("a"))})}), v);
+shouldBeEqual(
+  v, {a: { c: 2 }, b: {d: { c: 1 }}}
+);
+e();
+
 /*
 shouldBeEqual(
   merge(
@@ -63,7 +72,6 @@ shouldBeEqual(
     tail: Reuse(),
   })
 );
-e();
 
 shouldBeEqual(
   backPropagate(
@@ -1275,7 +1283,10 @@ testBackPropagate(
 testBackPropagate(
   Reuse({a: Down("c")}),
     New({x: Down("a", New({y: Up("a", Down("b"))}))}),
-  New({x: New({y: Down("b")})})
+  //New({x: New({y: Down("b")})})
+  New({
+    x: Down("a", New({
+      y: Up("a", Down("b"))}))})
 );
 
 testBackPropagate(
@@ -1319,7 +1330,8 @@ testBackPropagate(
 );
 
 testBackPropagate(
-  Reuse({c: Remove(3), x: Remove(2)}),
+  Reuse({
+    c: Remove(3), x: Remove(2)}),
     Reuse({d: Concat(2, Up("d", Down("c", Remove(5))), Up("d", Down("x", Keep(7, Remove(3)))))}),
   Reuse({
   d: Concat(2, Up("d", Down("c", Interval(8))), Up("d", Concat(7, Down("x", Interval(2, 9)), Down("x", Interval(12)))))})

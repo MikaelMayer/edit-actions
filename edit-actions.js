@@ -1046,6 +1046,110 @@ var editActions = {};
   }
   editActions.apply = apply;
   
+  // Applies the edit action to the given program by mutating it.
+  // Returns an edit action that, if applied on the result, would produce the original program.
+  function applyMutate(editAction, prog, ctx, resultCtx) {
+    if(editActions.__debug) {
+      console.log("applyMutate(");
+      console.log(stringOf(editAction));
+      console.log(uneval(prog));
+      console.log("-|" + stringOf(ctx));
+    }
+    let isReuse = isExtend(editAction);
+    if(isReuse) {
+      let recovered = {};
+      forEach(editAction.childEditActions, (child, k) => {
+        let editChild = Up(k, child);
+        printDebug("applyMutate-child", k, editChild);
+        if(isExtend(editChild)) {
+          printDebug("is extend")
+          // no need to assign, it will be changed.
+          recovered[k] = Down(k, applyMutate(editChild, prog[k], AddContext(k, {prog, recovered: Extend(recovered)}, ctx), AddContext(k, prog, resultCtx)));
+        } else {
+          printDebug("is not extend")
+          printDebug("recovered so far:", recovered);
+          recovered[k] = Down(k, New(prog[k]))
+          prog[k] = applyMutateRecover(editChild, prog[k], {}, AddContext(k, {prog, recovered: Extend(recovered)}, ctx), AddContext(k, prog, resultCtx));
+        }
+      });
+      return Extend(recovered);
+    }
+    throw "Cannot mutate top-level records or strings"
+  }
+  editActions.applyMutate = applyMutate;
+  
+  // Applies the edit action to the given program/context and returns the result
+  function applyMutateRecover(editAction, prog, recovered, ctx, resultCtx) {
+    if(editActions.__debug) {
+      console.log("applyMutateRecover(");
+      console.log(stringOf(editAction));
+      console.log(uneval(prog));
+      console.log(uneval(recovered));
+      console.log("-|" + List.toArray(ctx).map(prog => uneval(prog)).join(","));
+    }
+    if(!isObject(editAction) || !(editAction.ctor in Type)) {
+      return applyMutateRecover(New(editAction), prog, recovered, ctx, resultCtx);
+    }
+    if(editAction.ctor == Type.Up) {
+      let [newProgRecovered, newCtx, mbUpOffset] = walkUpCtx(editAction.keyOrOffset, prog, ctx);
+      return applyMutateRecover(mbUpOffset ? Up(mbUpOffset, editAction.subAction) : editAction.subAction, newProgRecovered.prog, newProgRecovered.recovered, newCtx, resultCtx);
+    }
+    if(editAction.ctor == Type.Down) {
+      if(!isOffset(editAction.keyOrOffset) && isExtend(recovered) && editAction.keyOrOffset in recovered.childEditActions) {
+        return applyMutateRecover(editAction.subAction, apply(recovered.childEditActions[editAction.keyOrOffset], prog), {}, AddContext(editAction.keyOrOffset, {prog, recovered}, ctx), resultCtx);
+      }
+      let [newProg, newCtx] = walkDownCtx(editAction.keyOrOffset, prog, ctx);
+      return applyMutateRecover(editAction.subAction, newProg, {}, newCtx, resultCtx);
+    }
+    if(editAction.ctor == Type.Custom) {
+      let tmpResult = applyMutateRecover(editAction.subAction, prog, recovered, ctx, resultCtx);
+      return editAction.lens.apply(tmpResult, prog, ctx);
+    }
+    if(editAction.ctor == Type.UseResult) {
+      return apply(editAction.subAction, undefined, resultCtx);
+    }
+    if(editAction.ctor == Type.Concat) {
+      let o1 = applyMutateRecover(editAction.first, prog, recovered, ctx, resultCtx);
+      let monoid = monoidOf(o1);
+      if(monoid.length(o1) != editAction.count) {
+        console.log("/!\\ Warning, checkpoint failed. The edit action\n"+stringOf(editAction)+"\n applied to \n" +uneval(prog)+ "\n returned on the first sub edit action " + uneval(o1) + "\n of length " + o1.length + ", but the edit action expected " + editAction.count);
+      }
+      let o2 = applyMutateRecover(editAction.second, prog, recovered, ctx, resultCtx);
+      return monoid.add(o1, o2);
+    }
+    if(editAction.ctor == Type.Choose) {
+      // Just return the first one.
+      return applyMutateRecover(Collection.firstOrDefault(editAction.subActions, Reuse()), prog, recovered, ctx, resultCtx);
+      /*return Collection.map(editAction.subActions, subAction =>
+        applyMutateRecover(subAction, prog, ctx, resultCtx)
+      );*/
+    }
+    if(editAction.ctor == Type.Clone) {
+      return applyMutateRecover(editAction.subAction, prog, recovered, ctx, resultCtx);
+    }
+    let isReuse = editAction.model.ctor == TypeNewModel.Extend;
+    let model = modelToCopy(editAction, prog);
+    let childEditActions = editAction.childEditActions;
+    if(!hasAnyProps(childEditActions)) {
+      return model;
+    } else if(typeof prog !== "object" && isReuse) {
+      console.trace("applyMutateRecover problem. program not extensible but got keys to extend it: ", prog);
+      console.log(stringOf(editAction));
+      console.log("context:\n",List.toArray(ctx).map(x => uneval(x.prog, "  ")).join("\n"));
+    }
+    let t = treeOpsOf(model);
+    let o = t.init();
+    forEach(model, (c, k) => {
+      t.update(o, k, c);
+    });
+    forEach(childEditActions, (child, k) => {
+      printDebug("applyMutateRecover-child", k, child);
+      t.update(o, k,
+         applyMutateRecover(child, prog, recovered, ctx, AddContext(k, o, resultCtx)));
+    });
+    return o;
+  }
+  
   function andThenWithLog(secondAction, firstAction, firstActionContext = undefined) {
     let res = andThen(secondAction, firstAction, firstActionContext);
     if(editActions.__debug) {
@@ -3417,6 +3521,10 @@ var editActions = {};
       return partitionEdit(E1p, newSecondUpOffset ? Up(newSecondUpOffset, U.subAction) : U.subAction, E1Ctxp, outCountU);
     }
     if(U.ctor == Type.Down) {
+      if(isReuse(E) && !isOffset(U.keyOrOffset)) {
+        let [ESol, next, newEctx, outCountp] = partitionEdit(childIfReuse(E, U.keyOrOffset), U.subAction, Up(U.keyOrOffset, AddContext(U.keyOrOffset, E, ECtx)));
+        return [Down(U.keyOrOffset, ESol), next, ECtx, outCountp];
+      }
       // We used to walk E with the offset and key, and hope that when U is Reuse(), we just keep E. 
       let [E1p, E1Ctxp] = walkDownActionCtx(U.keyOrOffset, E, ECtx, U.isRemove);
       if(editActions.__debug) {
