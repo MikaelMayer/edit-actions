@@ -254,58 +254,72 @@ var editActions = {};
   function isOffsetIdentity(offset) {
     return offset.count == 0 && offset.oldLength === offset.newLength;
   }
+  function isKey(k) {
+    return !isOffset(k);
+  }
   
   function isPathElement(elem) {
     return typeof elem == "string" || typeof elem == "number" || isOffset(elem);
   }
   
-  function Up(keyOrOffset, subAction) {
-    if(arguments.length == 1) subAction = Reuse();
-    let subActionIsPureEdit = isEditAction(subAction);
-    if(arguments.length > 2 || arguments.length == 2 && !subActionIsPureEdit && isPathElement(subAction)) {
-      return Up(arguments[0], Up(...[...arguments].slice(1)));
-    }
-    let ik = isOffset(keyOrOffset);
-    if(ik && isOffsetIdentity(keyOrOffset)) return subAction;
-    if(subActionIsPureEdit) {
-      if(subAction.ctor == Type.Up) {
-        let isk = isOffset(subAction.keyOrOffset);
-        if(ik && isk) {
-          let newOffset = upUpOffset(keyOrOffset, subAction.keyOrOffset);
-          let newDownOffset = upToDownOffset(newOffset);
-          if(newDownOffset !== undefined) {
-            return Down(newDownOffset, subAction.subAction);
-          } else {
+  function UpLike(ifTwoArgsLastIsNotNecessaryEdit = true) {
+    return function Up(keyOrOffset, subAction) {
+      if(arguments.length == 1) subAction = Reuse();
+      let subActionIsPureEdit = isEditAction(subAction);
+      if(ifTwoArgsLastIsNotNecessaryEdit) {
+        if(arguments.length > 2 || arguments.length == 2 && !subActionIsPureEdit && isPathElement(subAction)) {
+          return Up(arguments[0], Up(...[...arguments].slice(1)));
+        }
+      } else {
+        if(arguments.length > 2) {
+          return Up(arguments[0], Up(...[...arguments].slice(1)));
+        }
+      }
+      let ik = isOffset(keyOrOffset);
+      if(ik && isOffsetIdentity(keyOrOffset)) return subAction;
+      if(subActionIsPureEdit) {
+        if(subAction.ctor == Type.Up) {
+          let isk = isOffset(subAction.keyOrOffset);
+          if(ik && isk) {
+            let newOffset = upUpOffset(keyOrOffset, subAction.keyOrOffset);
+            let newDownOffset = upToDownOffset(newOffset);
+            if(newDownOffset !== undefined) {
+              return Down(newDownOffset, subAction.subAction);
+            } else {
+              return Up(newOffset, subAction.subAction);
+            }
+          } 
+        } else if(subAction.ctor == Type.Down && !subAction.isRemove) {
+          let isk = isOffset(subAction.keyOrOffset);
+          if(!ik && !isk) {
+            if(keyOrOffset == subAction.keyOrOffset) {
+              return subAction.subAction;
+            }
+          } else if(ik && isk) {
+            let newOffset = upDownOffsetReturnsUp(keyOrOffset, subAction.keyOrOffset);
+            if(isOffsetIdentity(newOffset)) return subAction.subAction;
+            let newDownOffset = upToDownOffset(newOffset);
+            if(newDownOffset !== undefined) {
+              return Down(newDownOffset, subAction.subAction);
+            }
             return Up(newOffset, subAction.subAction);
           }
-        } 
-      } else if(subAction.ctor == Type.Down && !subAction.isRemove) {
-        let isk = isOffset(subAction.keyOrOffset);
-        if(!ik && !isk) {
-          if(keyOrOffset == subAction.keyOrOffset) {
-            return subAction.subAction;
-          }
-        } else if(ik && isk) {
-          let newOffset = upDownOffsetReturnsUp(keyOrOffset, subAction.keyOrOffset);
-          if(isOffsetIdentity(newOffset)) return subAction.subAction;
-          let newDownOffset = upToDownOffset(newOffset);
-          if(newDownOffset !== undefined) {
-            return Down(newDownOffset, subAction.subAction);
-          }
-          return Up(newOffset, subAction.subAction);
-        }
-      } else { // subAction is not a Down, Up, New
-        if(ik) {
-          let possibleDown = upToDownOffset( keyOrOffset);
-          if(possibleDown !== undefined) {
-            return Down(possibleDown, subAction.subAction);
+        } else { // subAction is not a Down, Up, New
+          if(ik) {
+            let possibleDown = upToDownOffset( keyOrOffset);
+            if(possibleDown !== undefined) {
+              return Down(possibleDown, subAction.subAction);
+            }
           }
         }
       }
+      return {ctor: Type.Up, keyOrOffset: keyOrOffset, subAction: subAction};
     }
-    return {ctor: Type.Up, keyOrOffset: keyOrOffset, subAction: subAction};
   }
-  editActions.Up = Up;
+  var Up = UpLike(false);
+  var ForgivingUp = UpLike(true);
+  editActions.Up = ForgivingUp;
+  editActions.Up.pure = Up;
   
   function DownLike(isRemove, ifTwoArgsLastIsNotNecessaryEdit = true) {
     return function Down(keyOrOffset, subAction) {
@@ -625,7 +639,7 @@ var editActions = {};
   // A constant, useful for pretty-printing
   var WRAP = true;
   editActions.WRAP = WRAP;
-  var NEW = true;
+  var NEW = false;
   editActions.NEW = NEW;
   // The intent is that the element at key is the one that reuses the original record.
   // If no key is provided
@@ -1095,7 +1109,7 @@ var editActions = {};
       return applyMutateRecover(mbUpOffset ? Up(mbUpOffset, editAction.subAction) : editAction.subAction, newProgRecovered.prog, newProgRecovered.recovered, newCtx, resultCtx);
     }
     if(editAction.ctor == Type.Down) {
-      if(!isOffset(editAction.keyOrOffset) && isExtend(recovered) && editAction.keyOrOffset in recovered.childEditActions) {
+      if(isKey(editAction.keyOrOffset) && isExtend(recovered) && editAction.keyOrOffset in recovered.childEditActions) {
         return applyMutateRecover(editAction.subAction, apply(recovered.childEditActions[editAction.keyOrOffset], prog), {}, AddContext(editAction.keyOrOffset, {prog, recovered}, ctx), resultCtx);
       }
       let [newProg, newCtx] = walkDownCtx(editAction.keyOrOffset, prog, ctx);
@@ -1754,7 +1768,7 @@ var editActions = {};
     let {hd: {keyOrOffset: keyOrOffset, prog: newFirstAction}, tl: newFirstActionContext} = ECtx;
     // Normally we should go up an offset.
     if(isOffset(upKeyOrOffset)) {
-       if(!isOffset(keyOrOffset)) {
+       if(isKey(keyOrOffset)) {
         console.trace("/!\\ Warning, going up with offset " + keyOrOffsetToString(upKeyOrOffset) + " but ctx started with key " + keyOrOffsetToString(keyOrOffset));
         return [E1, ECtx];
       }
@@ -1778,7 +1792,7 @@ var editActions = {};
         offsetAt(newDownOffset, newFirstAction, false), 
         AddContext(newDownOffset, newFirstAction, newFirstActionContext)];
     }
-    // !isOffset(upKeyOrOffset)
+    // isKey(upKeyOrOffset)
     if(isOffset(keyOrOffset)) { // We just skip it.
       return [newFirstAction, newFirstActionContext, upKeyOrOffset];
     }
@@ -3302,7 +3316,7 @@ var editActions = {};
     while(!isIdentity(finalUp)) {
       printDebug("ReuseUp", initUp, action);
       // only here we can combine key and offset into a single key.
-      if(finalUp.subAction && isOffset(finalUp.subAction.keyOrOffset) && !isOffset(finalUp.keyOrOffset)) {
+      if(finalUp.subAction && isOffset(finalUp.subAction.keyOrOffset) && isKey(finalUp.keyOrOffset)) {
         /** Proof:
           apply(rev(Up(k, offset, X), acc), applyZ(ReuseUp(Up(k, offset, X), E), <r, rCtx>), [])
         = apply(rev(Up(k, offset, X), acc), applyZ(ReuseUp(Up(k+c, X), mapUpHere(E, O(-c, o, n), Up(k))), <r, rCtx>), [])
@@ -3432,7 +3446,7 @@ var editActions = {};
       return cloneOf(E1p, newSecondUpOffset ? Up(newSecondUpOffset, U.subAction) : U.subAction, E1Ctxp);
     }
     if(U.ctor == Type.Down) {
-      if(isReuse(E) && !isOffset(U.keyOrOffset)) {
+      if(isReuse(E) && isKey(U.keyOrOffset)) {
         let childE = childIfReuse(E, U.keyOrOffset);
         return (SameDownAs(U))(U.keyOrOffset, cloneOf(childE, U.subAction, Up(U.keyOrOffset, AddContext(U.keyOrOffset, E, ECtx))));
       }
@@ -3521,7 +3535,7 @@ var editActions = {};
       return partitionEdit(E1p, newSecondUpOffset ? Up(newSecondUpOffset, U.subAction) : U.subAction, E1Ctxp, outCountU);
     }
     if(U.ctor == Type.Down) {
-      if(isReuse(E) && !isOffset(U.keyOrOffset)) {
+      if(isReuse(E) && isKey(U.keyOrOffset)) {
         let [ESol, next, newEctx, outCountp] = partitionEdit(childIfReuse(E, U.keyOrOffset), U.subAction, Up(U.keyOrOffset, AddContext(U.keyOrOffset, E, ECtx)));
         return [Down(U.keyOrOffset, ESol), next, ECtx, outCountp];
       }
@@ -4041,7 +4055,7 @@ var editActions = {};
   editActions.uneval = uneval;
  
   function isSimpleChildClone(editAction) {
-    return editAction.ctor == Type.Down && isIdentity(editAction.subAction) && !isOffset(editAction.keyOrOffset);
+    return editAction.ctor == Type.Down && isIdentity(editAction.subAction) && isKey(editAction.keyOrOffset);
   }
   // Find all paths from complexVal to simpleVal if complexVal contains simpleVal, up to given depth
   /** Invariant: if x in allClonePaths_(complexVal, simpleVal, _)
@@ -5691,7 +5705,7 @@ var editActions = {};
     }
     var {hd: {keyOrOffset: keyOrOffset, prog: originalProg}, tl: originalUpCtx} = ctx;
     if(isOffset(upKeyOrOffset)) {
-      if(!isOffset(keyOrOffset)) {
+      if(isKey(keyOrOffset)) {
         console.log("Error: up " + keyOrOffsetToString(upKeyOrOffset) + " but no offset context available on " + uneval(prog), ctx);
         return [prog, ctx];
       }

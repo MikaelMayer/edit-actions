@@ -5,20 +5,37 @@ var {New,Concat,Up,Down,Custom,UseResult,Choose,Clone,
      isIdentity, stringOf, diff, first, debug} = editActions;
 var {List,Reuse,Replace,Keep,Prepend, Append,Remove,RemoveExcept,RemoveAll,KeepOnly,Type,__AddContext,__ContextElem,isOffset,uneval, splitAt, downAt, offsetAt, Sequence, ReuseOffset, Insert, InsertAll, ExtendModel, ReuseAsIs, transform, mergeInto} = editActions;
 
-
-
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
 
-n()
+
+shouldBeEqual(
+  andThen(
+    Reuse({
+    'state': New({}),
+    'local_vars' : New({
+      'name' : Up("local_vars", Down("state", "exp", "exprs", 0, "value"))}),
+    }),
+    Reuse({
+    'state' : New({
+      'exp' : Up("state", Down("stack", "tail", New({
+        'exprs' : Up("tail", "stack", Down("state", "val", "value", New([
+          Up("value", "val", {
+    'ctor' : 'vstore_ref','value' : 5})
+        ])))})))})})),
+  Reuse({
+    state: New({}),
+    local_vars: New({
+      name: Up("local_vars", Down.pure("state", 5))})}));
+
 var v = {a: { c: 1 }, b: {d: 2}}
-editActions.applyMutate(Reuse({a: Reuse({c: Up("c", "a", Down("b", "d"))}), b: Reuse({d: Up("d", "b", Down("a"))})}), v);
+editActions.applyMutate(
+  Reuse({a: Reuse({c: Up("c", "a", Down("b", "d"))}), b: Reuse({d: Up("d", "b", Down("a"))})}), v);
 shouldBeEqual(
   v, {a: { c: 2 }, b: {d: { c: 1 }}}
 );
-e();
 
 /*
 shouldBeEqual(
@@ -1334,7 +1351,7 @@ testBackPropagate(
     c: Remove(3), x: Remove(2)}),
     Reuse({d: Concat(2, Up("d", Down("c", Remove(5))), Up("d", Down("x", Keep(7, Remove(3)))))}),
   Reuse({
-  d: Concat(2, Up("d", Down("c", Interval(8))), Up("d", Concat(7, Down("x", Interval(2, 9)), Down("x", Interval(12)))))})
+  d: Concat(2, Up("d", Down("c", Interval(8))), Up("d", Down("x", Concat(7, Down(Interval(2, 9)), Down(Interval(12))))))})
 );
 
 testBackPropagate(
