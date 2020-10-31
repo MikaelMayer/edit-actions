@@ -564,7 +564,8 @@ var editActions = {};
          let [E, initUp] = originalFirstActionAndContext(firstAction, firstActionContext);
          return backPropagate(E, UBeforeSecond, initUp);
        },
-      name: () => "Follow this by " + stringOf(secondAction) + " under " + stringOf(firstActionContext)});
+      name: () => "Follow this by " + stringOf(secondAction) + " under " + stringOf(firstActionContext),
+      secondAction, firstActionContext});
   }
   editActions.Sequence = Sequence;
   
@@ -1248,7 +1249,18 @@ var editActions = {};
     if(secondAction.ctor == Type.Clone) {
       return Clone(recurse(secondAction.subAction, firstAction, firstActionContext));
     }
-      
+    if(firstActionContext === undefined && firstAction.ctor === Type.Custom && ("firstActionContext" in firstAction.lens) && firstAction.lens.firstActionContext === undefined) {  // It's a sequence
+      /** Proof:
+        apply(andThen(E2, Sequence(X, E1, E1Ctx), E2Ctx), r, rCtx)
+        = apply(Sequence(X, andThen(E2, E1)), r, rCtx)
+        = apply(andThen(E2, E1), apply(X, r, rCtx))
+        = apply(E2, apply(E1, apply(X, r, rCtx)))
+        = apply(E2, apply(E1, apply(X, r, rCtx), apply(E1Ctx, r, rCtx)), apply(E2Ctx, r, rCtx))
+        = apply(E2, apply(Sequence(X, E1), r, rCtx), apply(E2Ctx, r, rCtx))
+        QED;
+      */
+      return Sequence(firstAction.subAction, recurse(secondAction, firstAction.lens.secondAction));
+    }
     if(secondAction.ctor == Type.Choose) {
       return Choose(...Collection.map(secondAction.subActions, subAction => recurse(subAction, firstActionOriginal, firstActionContext)));
     } else if(firstAction.ctor == Type.Choose) {

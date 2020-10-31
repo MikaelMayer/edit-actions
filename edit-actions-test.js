@@ -10,6 +10,23 @@ var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
 
+shouldBeEqual(
+andThen(
+Reuse({stack: New(1)}),
+andThen(
+  Reuse({state: New(2)}),
+  Custom(Reuse(),
+    x => x,
+    y => y,
+    "dummy"
+  ))),
+andThen(
+Reuse({state: New(2), stack: New(1)}),
+  Custom(Reuse(),
+    x => x,
+    y => y,
+    "dummy"
+  )), "test"),
 
 shouldBeEqual(
   andThen(
