@@ -1083,8 +1083,8 @@ var editActions = {};
         } else {
           printDebug("is not extend")
           printDebug("recovered so far:", recovered);
-          recovered[k] = Down(k, New(prog[k]))
-          prog[k] = applyMutateRecover(editChild, prog[k], {}, AddContext(k, {prog, recovered: Extend(recovered)}, ctx), AddContext(k, prog, resultCtx));
+          recovered[k] = Down(k, New(prog[k]));
+          prog[k] = applyMutateRecover(child, prog, Extend(recovered), ctx, AddContext(k, prog, resultCtx));
         }
       });
       return Extend(recovered);
@@ -1111,10 +1111,11 @@ var editActions = {};
     }
     if(editAction.ctor == Type.Down) {
       if(isKey(editAction.keyOrOffset) && isExtend(recovered) && editAction.keyOrOffset in recovered.childEditActions) {
-        return applyMutateRecover(editAction.subAction, apply(recovered.childEditActions[editAction.keyOrOffset], prog), {}, AddContext(editAction.keyOrOffset, {prog, recovered}, ctx), resultCtx);
+        let [newProg, newCtx] = walkDownCtx(editAction.keyOrOffset, prog, ctx);
+        return applyMutateRecover( editAction.subAction, newProg, Up(editAction.keyOrOffset, recovered.childEditActions[editAction.keyOrOffset]), AddContext(editAction.keyOrOffset, {prog, recovered}, ctx));
       }
       let [newProg, newCtx] = walkDownCtx(editAction.keyOrOffset, prog, ctx);
-      return applyMutateRecover(editAction.subAction, newProg, {}, newCtx, resultCtx);
+      return applyMutateRecover(editAction.subAction, newProg, Reuse(), newCtx, resultCtx);
     }
     if(editAction.ctor == Type.Custom) {
       let tmpResult = applyMutateRecover(editAction.subAction, prog, recovered, ctx, resultCtx);
@@ -1143,6 +1144,11 @@ var editActions = {};
       return applyMutateRecover(editAction.subAction, prog, recovered, ctx, resultCtx);
     }
     let isReuse = editAction.model.ctor == TypeNewModel.Extend;
+    if(isReuse && !isIdentity(recovered)) {
+      let sub = apply(recovered, prog);
+      printDebug("Applying recovered for extend", editAction, sub);
+      return applyMutateRecover(editAction, sub, Reuse(), ctx, resultCtx);
+    }
     let model = modelToCopy(editAction, prog);
     let childEditActions = editAction.childEditActions;
     if(!hasAnyProps(childEditActions)) {

@@ -10,6 +10,17 @@ var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
 
+
+var v = {a: "prev", d: "x"}
+editActions.applyMutate(
+  Reuse({
+    a: New("a"),
+    d: Up("d", Reuse({c: New("c")}))
+  }), v);
+shouldBeEqual(
+  v, {a: "a", d: {a: "prev", d: "x", c: "c"}}
+);
+
 shouldBeEqual(
 andThen(
 Reuse({stack: New(1)}),
