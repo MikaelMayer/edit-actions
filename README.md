@@ -20,7 +20,7 @@ Edit actions can be
 
 # Sandbox online
 
-The [sandbox](https://mikaelmayer.github.io/bam/sandbox.html) is a nice place to experiment with Edit Actions. Click on the buttons to apply edit actions to objects, and to back-propagate edit actions from edit actions.
+The [sandbox](https://mikaelmayer.github.io/bam/sandbox-edit-actions.html) is a nice place to experiment with Edit Actions. Click on the buttons to apply edit actions to objects, and to back-propagate edit actions from edit actions.
 
 To illustrate the example explained in details below:
 * Put `{a: 1}` in the top left box
