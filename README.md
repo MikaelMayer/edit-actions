@@ -1,4 +1,4 @@
-# edit-actions
+# Edit actions: Reversible interpreter steps
 
 *edit-actions* is a JavaScript implementation of Edit Actions.  
 Edit actions are a powerful minimalistic language to model tree-to-tree transformations, including
