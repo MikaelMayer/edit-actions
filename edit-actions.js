@@ -6254,7 +6254,7 @@ var editActions = {};
       return isReplace(editAction) ||isTracableHere(editAction.first) || isTracableHere(editAction.second);
     }
     if(editAction.ctor === Type.Custom) {
-      return isTracableHere(editAction.subAction);
+      return true;
     }
     if(editAction.ctor === Type.Choose) {
       return Collection.firstOrDefault(

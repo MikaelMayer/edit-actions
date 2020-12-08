@@ -12,6 +12,16 @@ var failAtFirst = true;
 
 shouldBeEqual(
   backPropagate(
+    Down("state", 
+      Append(17, Append(13, 
+        Up("state", Down("files", "source", Interval(10, 23))),
+        Up("state", Down("files", "source", Interval(25, 29)))), "test")),
+    Keep(14, Prepend(4, "well"))
+  ),
+  Reuse({files: Reuse({source: Keep(26, Prepend(4, "well"))})}));
+
+shouldBeEqual(
+  backPropagate(
     Down("state", "val", "value", 
       Append(26,
         Up("value", "val", "state", Down("files", "source")), "test")),
