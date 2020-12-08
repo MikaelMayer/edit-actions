@@ -3900,15 +3900,21 @@ var editActions = {};
     // E is New(Extend), Concat(Pure,Prepend,Append,Replace)
     // U is Up, Down, New(Const), Concat(Pure,Prepend,Append), Custom
     } else if(isPrepend(U)) {
-      if(isConcat(E) && !isAppend(E) && !isPrepend(E) && !isReplace(E)) {
-        let solutionPrepend = backPropagate(E.first, Prepend(U.count, U.first), AddContext(Offset(0, E.count), E, ECtx), U.count);
-        if(E.count == 0) { // Two solutions.
+      if(isConcat(E) && (!isReplace(E) || isTracableHere(E.first))) {
+        // If E.first is a New, we don't want that. We would prefer to back-propagate on the second.
+        let isFirstTracableHere = isTracableHere(E.first) || isReplace(E);
+        let UPrepend = Prepend(U.count, U.first);
+        let solutionPrepend = 
+              isFirstTracableHere ?
+                 backPropagate(E.first, UPrepend, AddContext(Offset(0, E.count), E, ECtx), U.count) :
+                 backPropagate(E.second, UPrependPrepend(U.count, U.first), AddContext(Offset(E.count), E, ECtx), U.count);
+        if(E.count == 0 && isFirstTracableHere && isTracableHere(E.second)) { // Two solutions.
           solutionPrepend = Choose(solutionPrepend,
-            backPropagate(E.second, Prepend(U.count, U.first), AddContext(Offset(E.count), E, ECtx), U.count));
+            backPropagate(E.second, UPrepend, AddContext(Offset(E.count), E, ECtx), U.count));
         }
         subProblems.push(solutionPrepend);
         subProblems.push([E, U.second, ECtx, MinusUndefined(outCountU, U.count)]);
-      } else { // E is Reuse, Prepend, Append or Replace. We emit the prepending at the current position.
+      } else { // E is Reuse or Replace. We emit the prepending at the current position.
         let [s, probs, newECtx] = partitionEdit(E, U.first, ECtx, U.count);
         // Now we prefix action with the Reuse and ReuseOffset from the context and call it a solution.
         let rightLength = MinusUndefined(outCountU, U.count);
@@ -3918,11 +3924,17 @@ var editActions = {};
     // E is New(Extend), Concat(Pure,Prepend,Append,Replace)
     // U is Up, Down, New(Const), Concat(Pure,Append), Custom
     } else if(isAppend(U)) {
-      if(isConcat(E) && !isAppend(E) && !isPrepend(E) && !isReplace(E)) {
+      if(isConcat(E) && (!isReplace(E) || isTracableHere(E.second))) {
+        let isSecondTracableHere = isTracableHere(E.second) || isReplace(E);
         // TODO: There could be two solutions if we knew the length of E and it was the same as E.count
         subProblems.push([E, U.first, ECtx, U.count]);
-        subProblems.push([E.second, Append(MinusUndefined(U.count, E.count), U.second), AddContext(Offset(E.count), E, ECtx), undefined]); // TODO: Can we find the length of U?
-      } else { // E is Reuse, Prepend, Append or Replace
+        let UAppend = Append(MinusUndefined(U.count, E.count), U.second);
+        if(isSecondTracableHere) {
+          subProblems.push([E.second, UAppend, AddContext(Offset(E.count), E, ECtx), undefined]); // TODO: Can we find the length of U?
+        } else {
+          subProblems.push([E.first, UAppend, AddContext(Offset(0, E.count), E, ECtx), undefined]);
+        }
+      } else { // E is Reuse
         let [s, probs, newECtx,] = partitionEdit(E, U.second, ECtx);
         subProblems.push(prefixReuse(newECtx, Append(U.count, s))); // We don't know the length of this Append
         subProblems.push([E, U.first, ECtx, U.count], ...probs);
@@ -6222,6 +6234,35 @@ var editActions = {};
   }
   function isPureConcat(editAction) {
     return isConcat(editAction) && !editAction.firstReuse && !editAction.secondReuse && editAction.replaceCount === undefined;
+  }
+  function isTracableHere(editAction) {
+    //printDebug("isTracableHere",editAction);
+    if(!isEditAction(editAction)) {
+      return false;
+    }
+    if(editAction.ctor === Type.Down ||
+       editAction.ctor === Type.Up) {
+      return isTracableHere(editAction.subAction);
+    }
+    if(isReuse(editAction)) {
+      return true;
+    }
+    if(isPureNew(editAction)) {
+      return false;
+    }
+    if(isConcat(editAction)) {
+      return isReplace(editAction) ||isTracableHere(editAction.first) || isTracableHere(editAction.second);
+    }
+    if(editAction.ctor === Type.Custom) {
+      return isTracableHere(editAction.subAction);
+    }
+    if(editAction.ctor === Type.Choose) {
+      return Collection.firstOrDefault(
+      Collection.filter(
+      Collection.map(editAction.subActions, isTracableHere),
+        x => x), false);
+    }
+    return false;
   }
   
   /** How to traverse and manipulate edit actions */

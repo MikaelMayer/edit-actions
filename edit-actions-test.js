@@ -10,6 +10,14 @@ var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
 
+shouldBeEqual(
+  backPropagate(
+    Down("state", "val", "value", 
+      Append(26,
+        Up("value", "val", "state", Down("files", "source")), "test")),
+    Keep(2, Prepend(4, "well"))
+  ),
+  Reuse({files: Reuse({source: Keep(2, Prepend(4, "well"))})}));
 
 var v = {a: "prev", d: "x"}
 editActions.applyMutate(
