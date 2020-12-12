@@ -3678,7 +3678,7 @@ var editActions = {};
     if(U.ctor == Type.Clone) {
       return [Clone(cloneOf(E, U.subAction, ECtx)), []];
     }
-    if(isReuse(U)) { // We need to return Reuse in context, so we navigate E to the correct location.
+    if(isReuse(U) || isReplace(U)) { // We need to return Reuse in context, so we navigate E to the correct location.
       if(E.ctor == Type.Up) {
         let [sol, nexts, newCtx, outCountUbis] = partitionEdit(E.subAction, U, Down(E.keyOrOffset, ECtx), outCountU);
         //print("Up-Compare with ", prevResult);
@@ -3692,7 +3692,7 @@ var editActions = {};
     if(isReuse(U) && !U.model.create) {
       if(E.ctor == Type.New) {
         if(isReuse(E) && !E.model.create) {
-          return [Reuse(), [[E, U, ECtx]], ECtx, outCountU];
+          return [Reuse(), [[E, U, ECtx, outCountU]], ECtx, outCountU];
         }
         let o = {};
         let finalNexts = [];
@@ -3745,16 +3745,16 @@ var editActions = {};
       if(editActions.__debug && U.count > 0) {
         console.log("Pre-pending Concat("+U.count+", ... , |)");
       }
-      let [F2, next2] = partitionEdit(E, U.second, ECtx, MinusUndefined(outCountU, U.count));
+      let [F2, next2, F2Ctx, outCountF2] = partitionEdit(E, U.second, ECtx, MinusUndefined(outCountU, U.count));
       if(U.count == 0) { // We don't bother about building first element.
         return [F2, next2, ECtx, outCountU];
       }
       if(editActions.__debug) {
         console.log("Inside Concat("+U.count+", | , [done])");
       }
-      let [F1, next1] = partitionEdit(E, U.first, ECtx, U.count);
+      let [F1, next1, F1Ctx, outCountF1] = partitionEdit(E, U.first, ECtx, U.count);
       
-      return [Concat(U.count, F1, F2, U.forkAt, U.firstReuse, U.secondReuse), next1.concat(next2), ECtx, outCountU];
+      return [Concat(U.count, F1, F2, U.replaceCount, U.firstReuse, U.secondReuse), next1.concat(next2), ECtx, outCountU];
     }
     throw "Case not supported in partitionEdit: " + stringOf(U);
   }
@@ -3995,7 +3995,7 @@ var editActions = {};
         } else if(count + newLength === 0) {
           if(E.ctor == Type.Concat) { // Always true.
             subProblems.push([E.first, RemoveAll(E.count), AddContext(Offset(0, E.count), E, ECtx), 0]);
-            subProblems.push([E.second, RemoveAll(), AddContext(Offset(0, E.count), E, ECtx), 0]);
+            subProblems.push([E.second, RemoveAll(), AddContext(Offset(E.count), E, ECtx), 0]);
           }
         } else {
           let [ERight, ECtxRight] = walkDownActionCtx(Offset(count + newLength), E, ECtx);
@@ -4013,7 +4013,7 @@ var editActions = {};
               isFirstTracableHere ?
                  backPropagate(E.first, UPrepend, AddContext(Offset(0, E.count), E, ECtx), U.count) :
                  backPropagate(E.second, UPrependPrepend(U.count, U.first), AddContext(Offset(E.count), E, ECtx), U.count);
-        if(E.count == 0 && isFirstTracableHere && isTracableHere(E.second)) { // Two solutions.
+        if(E.count == 0 && isFirstTracableHere && isTracableHere(E.second)) { // Two solutions that should not be merged.
           solutionPrepend = Choose(solutionPrepend,
             backPropagate(E.second, UPrepend, AddContext(Offset(E.count), E, ECtx), U.count));
         }

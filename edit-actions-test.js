@@ -1405,11 +1405,18 @@ testBackPropagate(
 );
 
 testBackPropagate(
+    Reuse({
+      c: Remove(3),
+      x: Remove(2)}),
+    Reuse({
+      d: Concat(2,
+           Up("d", Down("c", Remove(5))),
+           Up("d", Down("x",
+           Keep(7, Remove(3)))))}),
   Reuse({
-    c: Remove(3), x: Remove(2)}),
-    Reuse({d: Concat(2, Up("d", Down("c", Remove(5))), Up("d", Down("x", Keep(7, Remove(3)))))}),
-  Reuse({
-  d: Concat(2, Up("d", Down("c", Interval(8))), Up("d", Down("x", Concat(7, Down(Interval(2, 9)), Down(Interval(12))))))})
+    d: Concat(2,
+      Up("d", Down("c", Interval(8))),
+      Up("d", Down("x", Interval(2), Keep(7, Drop(3)))))})
 );
 
 testBackPropagate(
