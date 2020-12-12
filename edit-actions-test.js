@@ -3,12 +3,24 @@ var {New,Concat,Up,Down,Custom,UseResult,Choose,Clone,
      Offset, Interval, 
      apply, andThen, merge, backPropagate,
      isIdentity, stringOf, diff, first, debug} = editActions;
-var {List,Reuse,Replace,Keep,Prepend, Append,Remove,RemoveExcept,RemoveAll,KeepOnly,Type,__AddContext,__ContextElem,isOffset,uneval, splitAt, downAt, offsetAt, Sequence, ReuseOffset, Insert, InsertAll, ExtendModel, ReuseAsIs, transform, mergeInto} = editActions;
+var {List,Reuse,Replace,Keep,Prepend, Append,Drop,DropAll,DropAfter,Remove,RemoveExcept,RemoveAll,KeepOnly,Type,__AddContext,__ContextElem,isOffset,uneval, splitAt, downAt, offsetAt, Sequence, ReuseOffset, Insert, InsertAll, ExtendModel, ReuseAsIs, transform, mergeInto} = editActions;
 
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
+
+shouldBeEqual(merge(Drop(5), Keep(2, Prepend(2, "ab"))), Drop(5));
+shouldBeEqual(merge(Remove(5), Keep(2, Prepend(2, "ab"))), Remove(2, Prepend(2, "ab", Remove(3))));
+
+shouldBeEqual(
+  merge(Remove(1), Replace(1, 2, Prepend(1, " "))),
+  Replace(1, 1, Prepend(1, " ", RemoveAll()))
+);
+shouldBeEqual(
+  merge(Replace(1, 2, Prepend(1, " ")), Remove(1)),
+  Replace(1, 1, Prepend(1, " ", RemoveAll()))
+);
 
 shouldBeEqual(
   backPropagate(
@@ -270,10 +282,10 @@ shouldBeEqual(
 // Insertion of removed portion before
 shouldBeEqual(
   merge(
-    Keep(10, Prepend(5, RemoveExcept(Interval(10, 15)), Keep(10, Remove(5)))),
+    Keep(10, Prepend(5, RemoveExcept(Interval(10, 15)), Keep(10, Drop(5)))),
     Keep(23, Prepend(2, "ab"))
   ),
-  Keep(10, Prepend(7, RemoveExcept(Interval(10, 15), Keep(3, Prepend(2, "ab"))), Keep(10, Remove(5)))),
+  Keep(10, Prepend(7, RemoveExcept(Interval(10, 15), Keep(3, Prepend(2, "ab"))), Keep(10, Drop(5)))),
 );
 
 shouldBeEqual(
@@ -287,10 +299,10 @@ shouldBeEqual(
 // Insertion of removed portion after
 shouldBeEqual(
   merge(
-    Keep(10, Remove(5, Keep(5, Prepend(5, Up(Offset(10, undefined, 5)))))),
+    Keep(10, Drop(5, Keep(5, Prepend(5, Up(Offset(10, undefined, 5)))))),
     Keep(13, Prepend(2, "ab"))
   ),
-  Keep(10, Remove(5, Keep(5, Prepend(7, Up(Offset(10, undefined, 5), Keep(3, Prepend(2, "ab")))))))
+  Keep(10, Drop(5, Keep(5, Prepend(7, Up(Offset(10, undefined, 5), Keep(3, Prepend(2, "ab")))))))
 );
 
 shouldBeEqual(
@@ -303,7 +315,7 @@ shouldBeEqual(
 
 shouldBeEqual(
   backPropagate(
-    Keep(2, Remove(1, Down(Interval(0, 1)))),
+    Keep(2, Remove(1, DropAfter(1))),
     Remove(3)),
   Remove(2, Keep(1, Remove(1)))
 );
@@ -1169,11 +1181,11 @@ shouldBeEqual(
     Replace(3, 2, Append(0, RemoveAll(), New([1, Down(0)])), Reuse({0: New(1), 1: New(3)})),
     RemoveExcept(Interval(1, 4))
   ),
-  RemoveExcept(Interval(1, 4), Replace(2, 2,
+  Replace(3, 2,
     Append(0,
       RemoveAll(),
-      New([1, Up(Interval(1, 3), Down(0))])),
-    Reuse({
+      New([1, Down(0)])),
+    KeepOnly(1, Reuse({
     0: New(1)})))
 );
 shouldBeEqual(
@@ -1186,10 +1198,10 @@ shouldBeEqual(
 
 shouldBeEqual(
   merge(
-    Remove(1, Prepend(2, New([1, 2]), Reuse({1: Reuse({b: New(5)})}))),
+    Drop(1, Prepend(2, New([1, 2]), Reuse({1: Reuse({b: New(5)})}))),
     Replace(3, 3, Reuse({2: Reuse({c: New(6)})}), Prepend(1, New([2]), RemoveAll()))
   ),
-  Remove(1, Prepend(2, New([1, 2]),
+  Drop(1, Prepend(2, New([1, 2]),
     Replace(2, 2,
       Reuse({
         1: Reuse({
@@ -1201,9 +1213,9 @@ shouldBeEqual(
 shouldBeEqual(
   merge(
     Replace(3, 3, Reuse({2: Reuse({c: New(6)})}), New([2])),
-    Remove(1, Prepend(2, New([1, 2]), Reuse({1: Reuse({b: New(5)})})))
+    Drop(1, Prepend(2, New([1, 2]), Reuse({1: Reuse({b: New(5)})})))
   ),
-  Remove(1,
+  Drop(1,
   Prepend(2, New([1, 2]),
   Replace(2, 2,
     Reuse({1: Reuse({c: New(6), b: New(5)})}),
@@ -1515,14 +1527,14 @@ testBackPropagate(
 testBackPropagate(
   Remove(5),
   RemoveExcept(Offset(2, 4)),
-  KeepOnly(11, Keep(5, Remove(2))),
+  Keep(5, RemoveExcept(Interval(2, 6))),
   "slice back-propagation bis"
 );
 
 testBackPropagate(
   Remove(5),
   Remove(2, Keep(2, RemoveAll())),
-  KeepOnly(9, Keep(5, Remove(2))),
+  Keep(5, RemoveExcept(Interval(2, 4))),
   "slice back-propagation bis"
 );
 
@@ -1635,7 +1647,7 @@ testBackPropagate(
   Concat(4, Down(Offset(0, 4-0)),
          Down(Offset(5))),
   Keep(2, RemoveAll()),
-  KeepOnly(5, Keep(2, Remove(2))), "Reinject the omitted element"
+  Keep(2, RemoveExcept(Interval(2, 3))), "Reinject the omitted element"
 );
 
 testBackPropagate(
@@ -1657,7 +1669,7 @@ testBackPropagate(
   Reuse({a: RemoveExcept(Offset(6, 8-6))}),
   Reuse({
     b: Remove(4),
-    a: KeepOnly(9, Keep(5, Remove(2)))}),
+    a: Keep(5, RemoveExcept(Interval(2, 4)))}),
   "Shifted slice on separate branches"
 );
 
@@ -1668,7 +1680,7 @@ testBackPropagate(
   Reuse({
     b: Keep(1, Remove(3-1)),
     c: Remove(2),
-    a: KeepOnly(9, Keep(5, Remove(2)))}),
+    a: Keep(5, RemoveExcept(Interval(2, 4)))}),
   "Shifted slice on separate branches"
 );
 
@@ -1687,7 +1699,7 @@ testBackPropagate(
 testBackPropagate(
   Keep(4, Remove(5-4)),
   Keep(1, Remove(2-1, Keep(3-2, RemoveAll()))),
-  KeepOnly(5, Keep(1, Remove(1, Keep(1, Remove(1))))),
+  Keep(1, Remove(1, Keep(1, RemoveExcept(Interval(1, 2))))),
   "right-aligned concat."
 );
 testBackPropagate(
@@ -1696,7 +1708,7 @@ testBackPropagate(
   Keep(2, Remove(6-2, Keep(8-6, RemoveAll()))),
   //Keep(2, RemoveExcept(Interval(2, 7), Keep(1, RemoveExcept(Interval(2, 4)))))
   //Keep(2,Remove(4-2,Keep(5-4,Remove(7-5,Keep(9-7, RemoveAll())))))
-  KeepOnly(9, Keep(2, Remove(2, Keep(1, Remove(2)))))
+  Keep(2, RemoveExcept(Interval(2, 7), Keep(1, Remove(2))))
   ,"back-Propagation of bigger concat"
 );
 
@@ -1824,7 +1836,7 @@ testMergeAndReverse(
 testMergeAndReverse(
   Remove(1, Keep(4, RemoveAll())),
   Remove(6),
-  RemoveExcept(Interval(6, 6)), "Merge two slices 5");
+  RemoveExcept(Interval(5, 5)), "Merge two slices 5");
 
 testMergeAndReverse(
   Remove(5),
@@ -1840,7 +1852,13 @@ testMergeAndReverse(
 
 testMergeAndReverse(
   Remove(5), Replace(4, 3, New("abc"), Reuse()),
-  Remove(5), "prepend removed");
+  Replace(4, 3,
+    New("abc"),
+    Remove(1)), "prepend removed");
+
+testMergeAndReverse(
+  Drop(5), Replace(4, 3, New("abc"), Reuse()),
+  Drop(5), "prepend removed");
 
 testMergeAndReverse(
   Remove(5),
@@ -1893,7 +1911,14 @@ shouldBeEqual(
   merge(Keep(5, Remove(3)),
         Keep(7,
           Prepend(3, New("abc")))),
-  Keep(5, Remove(3))
+  Keep(5, Remove(2, Prepend(3, New("abc"), Remove(1))))
+);
+
+shouldBeEqual(
+  merge(Keep(5, Drop(3)),
+        Keep(7,
+          Prepend(3, New("abc")))),
+  Keep(5, Drop(3))
 );
 
 shouldBeEqual(Down("a", "b", Up("b", "a")), Reuse(), "path1");
@@ -3241,7 +3266,12 @@ testBackPropagate(
 shouldBeEqual(
   merge(
     Remove(7), Keep(2, Prepend(1, "a"))),
-  Remove(7));
+  Remove(2, Prepend(1, "a", Remove(5))));
+
+shouldBeEqual(
+  merge(
+    Drop(7), Keep(2, Prepend(1, "a"))),
+  Drop(7));
 
 shouldBeEqual(
   backPropagate(

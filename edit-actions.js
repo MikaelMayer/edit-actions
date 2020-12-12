@@ -755,6 +755,9 @@ var editActions = {};
     // Concat(count, Down(Offset(0, count)), Down(Offset(count, subAction))
   }
   editActions.Keep = Keep;
+  
+  editActions.DropExcept = Down;
+  
   // Remove back-propagates deletions, not building up the array. To build up the array, prefix the Replace with a Down(Offset(0, totalLength, undefined), 
   function Remove(count, subAction = Reuse()) {
     return RemoveExcept(Offset(count), subAction);
@@ -762,6 +765,11 @@ var editActions = {};
     // return Replace(count, 0, New(?), subAction)
   }
   editActions.Remove = Remove;
+  
+  function Drop(count, subAction = Reuse()) {
+    return Down(Offset(count), subAction);
+  }
+  editActions.Drop = Drop;
   
   // If oldLength is provided, will position the current cursor at oldLength, the end of the array.
   function RemoveAll(subAction, oldLength) {
@@ -777,10 +785,27 @@ var editActions = {};
   }
   editActions.RemoveAll = RemoveAll;
   
+  function DropAll(subAction, oldLength) {
+    if(isEditAction(oldLength) || typeof subAction == "number") {
+      let tmp = subAction;
+      subAction = oldLength;
+      oldLength = tmp;
+    }
+    if(subAction === undefined) {
+      subAction = Reuse();
+    }
+    return Down(Offset(oldLength !== undefined ? oldLength : 0, 0, oldLength), subAction);
+  }
+  editActions.DropAll = DropAll;
+  
   function KeepOnly(count, subAction = Reuse()) {
     return RemoveExcept(Offset(0, count), subAction);
   }
   editActions.KeepOnly = KeepOnly;
+  function DropAfter(count, subAction = Reuse()) {
+    return Down(Offset(0, count), subAction);
+  }
+  editActions.DropAfter = DropAfter;
   
   // ReuseOffset(offset, X) is to Down(offset, X)
   // what Reuse({key: X}) is to Down(key, X)
@@ -2110,6 +2135,13 @@ var editActions = {};
       let [inCount, outCount, left, right] = argumentsIfReplace(editAction);
       if(right !== undefined) {
         if(inCount <= n) {
+          // Problem: If there are insertions on the left of left, we are dismissing them.
+          /*let [newLeft, newLeftOutLength] = offsetInAux(Offset(inCount, 0), left, outCount, inCount);
+          let [newRight, newRightOutLength] = offsetInAux(Offset(n-inCount, newLength), right, MinusUndefined(originalOutCount, outCount), MinusUndefined(originalInCount, inCount));
+          printDebug("newLeftOutLength", newLeftOutLength, "newLeft", newLeft);
+          if(newLeftOutLength != 0) {
+            //return [Replace(0, newLeftOutLength, newLeft, newRight), PlusUndefined(newLeftOutLength, newRightOutLength)];
+          }*/
           /* Outdated Proof:
               apply(editAction, r, rCtx)
             = apply(Replace(i, o, L, R), r, rCtx)
@@ -2578,14 +2610,15 @@ var editActions = {};
   
   // Computes the intersection of two offsets.
   function intersectOffsets(offset1, offset2) {
-    let newCount = offset1.newLength == 0 && offset2.newLength == 0 ?
-      Math.min(offset1.count, offset2.count) :
-      Math.max(offset1.count, offset2.count);
+    printDebug("intersectOffsets", offset1, offset2);
+    let newCount = Math.min(offset1.count, offset2.count);
     let end1 = PlusUndefined(offset1.count, offset1.newLength);
     let end2 = PlusUndefined(offset2.count, offset2.newLength);
-    let newEnd = MaxUndefined(MinUndefined(end1, end2), 0);
-    let newLength = MaxUndefined(MinusUndefined(newEnd, newCount), 0);
-    return Offset(newCount, newLength, offset1.oldLength);
+    let newStart = Math.max(offset1.count, offset2.count);
+    let newEnd = MinUndefined(end1, end2);
+    let result = Interval(MinUndefined(newStart, newEnd), newEnd);
+    printDebug("intersectOffsets(", offset1, offset2, ")=", result);
+    return result;
   }
   
   /** Proof:
@@ -3064,15 +3097,28 @@ var editActions = {};
       let E1IsPureDown = isDown(E1) && !isRemoveExcept(E1);
       let E2IsPureDown = isDown(E2) && !isRemoveExcept(E2);
       if(E1IsPureDown && E2IsPureDown && keyOrOffsetAreEqual(E1.keyOrOffset, E2.keyOrOffset)) {
-        result.push(Down(E1.keyOrOffset, merge(E1.subAction, E2.subAction, Up(E1.keyOrOffset, AddInputContext(E1, ICtx1)), Up(E2.keyOrOffset, AddInputContext(E2, ICtx2)))));
+        result.push(Down(E1.keyOrOffset,
+          merge(E1.subAction, E2.subAction,
+            Up(E1.keyOrOffset, AddInputContext(E1, ICtx1)),
+            Up(E2.keyOrOffset, AddInputContext(E2, ICtx2)))));
       } else {
         // Not the same keys or offsets.
         if(E1IsPureDown) {
-          result.push(mergeInto(E1, E2, ICtx2));
+          let newE2 = keyOrOffsetIn(E1.keyOrOffset, E2);
+          result.push(
+            Down(E1.keyOrOffset,
+              merge(E1.subAction, newE2,
+                Up(E1.keyOrOffset, AddInputContext(E1, ICtx1)),
+                Up(E1.keyOrOffset, AddInputContext(E2, ICtx2)))));
           // Let's see if we can apply the key or offset to E2.
         }
-        if(E2IsPureDown) {
-          result.push(mergeInto(E2, E1, ICtx1));
+        if(E2IsPureDown && !E1IsPureDown) {
+          let newE1 = keyOrOffsetIn(E2.keyOrOffset, E1);
+          result.push(
+            Down(E2.keyOrOffset,
+              merge(newE1, E2.subAction,
+                Up(E1.keyOrOffset, AddInputContext(E1, ICtx1)),
+                Up(E1.keyOrOffset, AddInputContext(E2, ICtx2)))));
           // Let's see if we can apply the key or offset to E2.
         }
       }
@@ -3185,15 +3231,116 @@ var editActions = {};
             sub));
         }
       } else if(isRemoveExcept(E1) && isReplace(E2)) {
-        let subResult = merge(E1.subAction, offsetIn(E1.keyOrOffset, E2)[0],
-              Up(E1.keyOrOffset, AddInputContext(E1, ICtx1)),
-              Up(E1.keyOrOffset, AddInputContext(E2, ICtx2)));
-        result.push(RemoveExcept(E1.keyOrOffset, subResult));
+        
+        // RemoveExcept(Offset(count, newLength), ERemaining)
+        // 1) Apply removals on the left and on the right
+        // 2) If ERemaining is not Reuse(), merge with
+        //      if newLength != undefined
+        //           Keep(count, Replace(newLength, newOutLength, ERemaining))
+        //      else Keep(count, ERemaining)
+        let [inCount, outCount, left, right] = argumentsIfReplace(E2);
+        let {count, newLength, oldLength} = E1.keyOrOffset;
+        // Special case if E2 is a Keep
+        let [keepCount, keepAction] = argumentsIfReplaceIsKeep(inCount, outCount, left, right);
+        if(keepCount !== undefined && count >= keepCount) {
+          // We just remove the Keep
+          result.push(Remove(keepCount, merge(RemoveExcept(Offset(count - keepCount, MinusUndefined(newLength, keepCount), MinusUndefined(oldLength, keepCount)), E1.subAction), keepAction,
+            Up(Offset(keepCount), AddInputContext(E1, ICtx1)),
+            Up(Offset(keepCount), AddInputContext(E2, ICtx2))
+          )));
+        } else if(keepCount !== undefined && count > 0) {
+          result.push(Remove(count, merge(RemoveExcept(Offset(0, MinusUndefined(newLength, count), MinusUndefined(oldLength, count)), E1.subAction), Keep(keepCount - count, keepAction),
+            Up(Offset(count), AddInputContext(E1, ICtx1)),
+            Up(Offset(count), AddInputContext(E2, ICtx2))
+          )));
+        } else {
+          let newLeft = left, newRight = right;
+          if(count != 0 || !LessThanEqualUndefined(inCount, PlusUndefined(count, newLength))) {
+            let leftStart = MinUndefined(count, inCount);
+            let leftEnd = MinUndefined(PlusUndefined(count, newLength), inCount);
+            newLeft = merge(leftStart === leftEnd ?
+                RemoveAll() :
+                RemoveExcept(
+                  Interval(leftStart, leftEnd)), left,
+              Up(Offset(0, inCount), AddInputContext(E1, ICtx1)),
+              Up(Offset(0, inCount), AddInputContext(E2, ICtx2)))
+          }
+          if(count > inCount || newLength !== undefined) {
+            let newStart = Math.max(0, count - inCount);
+            let newEnd = MinusUndefined(PlusUndefined(count, newLength), inCount);
+            newRight = merge(RemoveExcept(Interval(newStart, newEnd)), right,
+                  Up(Offset(inCount), AddInputContext(E1, ICtx1)),
+                  Up(Offset(inCount), AddInputContext(E2, ICtx2)))
+          }
+          let newLeftLength = outLength(newLeft, inCount);
+          let newE2 = Replace(inCount, newLeftLength, newLeft, newRight);
+          if(isIdentity(E1.subAction)) {
+            result.push(newE2);
+          } else {
+            let subInLength = newLength;
+            let subOutLength = outLength(E1.subAction, subInLength);
+            result.push(
+              merge(newLength !== undefined ?
+                  Keep(count, Replace(subInLength, subOutLength, E1.subAction)) :
+                  Keep(count, E1.subAction),
+                  newE2,
+                  ICtx1, ICtx2));
+          }
+        }
       } else if(isReplace(E1) && isRemoveExcept(E2)) {
-        let subResult = merge(offsetIn(E2.keyOrOffset, E1)[0], E2.subAction,
-              Up(E2.keyOrOffset, AddInputContext(E1, ICtx1)),
-              Up(E2.keyOrOffset, AddInputContext(E2, ICtx2)));
-        result.push(RemoveExcept(E2.keyOrOffset, subResult));
+        // RemoveExcept(Offset(count, newLength), ERemaining)
+        // 1) Apply removals on the left and on the right
+        // 2) If ERemaining is not Reuse(), merge with
+        //      if newLength != undefined
+        //           Keep(count, Replace(newLength, newOutLength, ERemaining))
+        //      else Keep(count, ERemaining)
+        let [inCount, outCount, left, right] = argumentsIfReplace(E1);
+        let {count, newLength, oldLength} = E2.keyOrOffset;
+        let [keepCount, keepAction] = argumentsIfReplaceIsKeep(inCount, outCount, left, right);
+        if(keepCount !== undefined && count >= keepCount) {
+          // We just remove the Keep
+          result.push(Remove(keepCount, merge(keepAction, RemoveExcept(Offset(count - keepCount, MinusUndefined(newLength, keepCount), MinusUndefined(oldLength, keepCount)), E2.subAction),
+            Up(Offset(keepCount), AddInputContext(E1, ICtx1)),
+            Up(Offset(keepCount), AddInputContext(E2, ICtx2))
+          )));
+        } else if(keepCount !== undefined && count > 0) {
+          result.push(Remove(count, merge(Keep(keepCount - count, keepAction), RemoveExcept(Offset(0, MinusUndefined(newLength, count), MinusUndefined(oldLength, count)), E2.subAction),
+            Up(Offset(count), AddInputContext(E1, ICtx1)),
+            Up(Offset(count), AddInputContext(E2, ICtx2))
+          )));
+        } else {
+          let newLeft = left, newRight = right;
+          if(count != 0 || !LessThanEqualUndefined(inCount, PlusUndefined(count, newLength))) {
+            let leftStart = count, leftEnd = MinUndefined(PlusUndefined(count, newLength), inCount);
+            newLeft = merge(left, leftStart === leftEnd ?
+                RemoveAll() :
+                RemoveExcept(
+                  Interval(leftStart, leftEnd)),
+              Up(Offset(0, inCount), AddInputContext(E1, ICtx1)),
+              Up(Offset(0, inCount), AddInputContext(E2, ICtx2)))
+          }
+          if(count > inCount || newLength !== undefined) {
+            let newStart = Math.max(0, count - inCount);
+            let newEnd = MinusUndefined(PlusUndefined(count, newLength), inCount);
+            newRight = merge(right, RemoveExcept(Interval(newStart, newEnd)),
+                  Up(Offset(inCount), AddInputContext(E1, ICtx1)),
+                  Up(Offset(inCount), AddInputContext(E2, ICtx2)))
+          }
+          let newLeftLength = outLength(newLeft, inCount);
+          let newE1 = Replace(inCount, newLeftLength, newLeft, newRight);
+          if(isIdentity(E2.subAction)) {
+            result.push(newE1);
+          } else {
+            let subInLength = newLength;
+            let subOutLength = outLength(E2.subAction, subInLength);
+            result.push(
+              merge(newE1,
+                  newLength !== undefined ?
+                  Keep(count, Replace(subInLength, subOutLength, E2.subAction)) :
+                  Keep(count, E2.subAction),
+                  ICtx1, ICtx2));
+          }
+        }
       } else if(isReplace(E1) && isReplace(E2)) {
         printDebug("Two replaces");
         let [inCount1, outCount1, left1, right1] = argumentsIfReplace(E1);
@@ -5817,20 +5964,37 @@ var editActions = {};
       str += ")";
       return str;
     } else if(self.ctor == Type.Down) {
-      if(self.isRemove && isOffset(self.keyOrOffset)) {
+      if(isOffset(self.keyOrOffset)) {
         let {count, newLength, oldLength} = self.keyOrOffset;
-        if((count === 0 && oldLength === undefined || 
-            count === oldLength) && newLength === 0) {
-          let k = oldLength !== undefined ? oldLength : "";
-          let c = isIdentity(self.subAction) && k == "" ? "" : stringOf(self.subAction);
-          return "RemoveAll(" + c + (k != "" ? ", " : "") + k + ")";
-        } else if(newLength === undefined && oldLength === undefined) {
-          let c = isIdentity(self.subAction) ? "" : ", " + stringOf(self.subAction);
-          return "Remove(" + count + c + ")";
-        } else if(newLength !== undefined && count === 0) {
-          return "KeepOnly(" + newLength + (isIdentity(self.subAction) ? "": ", " + stringOf(self.subAction)) + ")";
-        } else {
-          return "RemoveExcept(" + keyOrOffsetToString(self.keyOrOffset) + (isIdentity(self.subAction) ? "": ", " + stringOf(self.subAction)) + ")";
+        if(self.isRemove) {
+          if((count === 0 && oldLength === undefined || 
+              count === oldLength) && newLength === 0) {
+            let k = oldLength !== undefined ? oldLength : "";
+            let c = isIdentity(self.subAction) && k == "" ? "" : stringOf(self.subAction);
+            return "RemoveAll(" + c + (k != "" ? ", " : "") + k + ")";
+          } else if(newLength === undefined && oldLength === undefined) {
+            let c = isIdentity(self.subAction) ? "" : ", " + stringOf(self.subAction);
+            return "Remove(" + count + c + ")";
+          } else if(newLength !== undefined && count === 0) {
+            return "KeepOnly(" + newLength + (isIdentity(self.subAction) ? "": ", " + stringOf(self.subAction)) + ")";
+          } else {
+            return "RemoveExcept(" + keyOrOffsetToString(self.keyOrOffset) + (isIdentity(self.subAction) ? "": ", " + stringOf(self.subAction)) + ")";
+          }
+        } else if(!isDown(self.subAction)) {
+          if((count === 0 && oldLength === undefined || 
+              count === oldLength) && newLength === 0) {
+            let k = oldLength !== undefined ? oldLength : "";
+            let c = isIdentity(self.subAction) && k == "" ? "" : stringOf(self.subAction);
+            return "DropAll(" + c + (k != "" ? ", " : "") + k + ")";
+          } else if(newLength === undefined && oldLength === undefined) {
+            let c = isIdentity(self.subAction) ? "" : ", " + stringOf(self.subAction);
+            return "Drop(" + count + c + ")";
+          } else if(newLength !== undefined && count === 0) {
+            return "DropAfter(" + newLength + (isIdentity(self.subAction) ? "": ", " + stringOf(self.subAction)) + ")";
+          } else {
+            //return "RemoveExcept(" + keyOrOffsetToString(self.keyOrOffset) + (isIdentity(self.subAction) ? "": ", " + stringOf(self.subAction)) + ")";
+            // Regular Down here
+          }
         }
       }
       let str = ""; // We'll prepend the Down( later just in case we need pure Down

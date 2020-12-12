@@ -202,9 +202,13 @@ By `~=`, we mean they have the same semantics when applied, but they are merged 
 * `Remove(n, EA2)` = `RemoveExcept(Offset(n), EA2)` to delete the first `n` elements of the string or array as such, and to perform `EA2` on the remaining. `EA2` can be omitted.
 * `RemoveAll(EA2[, n])` = `RemoveExcept(Offset(0, 0[, n]), EA2)` to delete all elements of the array, possibly providing the length `n` of the string or array, and to perform `EA2` on the remaining, typically an insertion. `EA2` can be omitted.
 * `KeepOnly(n[, EA2])` = `RemoveExcept(Offset(0, n), EA2)` to delete all elements except the first n one, possibly applying EA2 on them.
+* `Drop(n, EA2)` = `Down(Offset(n), EA2)` to delete the first `n` elements of the string or array as such, and to perform `EA2` on the remaining. `EA2` can be omitted.
+* `DropAll(EA2[, n])` = `Down(Offset(0, 0[, n]), EA2)` to delete all elements of the array, possibly providing the length `n` of the string or array, and to perform `EA2` on the remaining, typically an insertion. `EA2` can be omitted.
+* `DropAfter(n[, EA2])` = `Down(Offset(0, n), EA2)` to delete all elements except the first n one, possibly applying EA2 on them.
 * `Insert(d, {...d: EA...})` ~= `New({...d: EA...})` except that we explicitely say that the current record is wrapped in EA.
 * `InsertAll({...d: EA...})` ~= `New({...d: EA...})` except that we explicitely say that every key in the record depends on the current record.
 
+The difference between `Drop*/Down` and `Remove*/RemoveExcept` is that `Down` *wipes out* the parts it is not focusing on, whereas `Remove` *removes every array element or string character* from the parts it is not focusing on. That means that, merging an insertion and a wiped-out portion by `Down` results in the insertion to disappear, whereas merging an insertion and a removed portion by `Remove` results in the insertion to be kept.
 
 **Full example**
 
