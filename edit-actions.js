@@ -2066,36 +2066,6 @@ var editActions = {};
       QED.
   */
   
-  /** Given an operation of array, ensures it can be splitIn at the given index n.
-    
-    Ensures applyZ(editAction, rrCtx) = applyZ(result, rrCtx)    
-  */
-  function makeSplitInCompatibleAt(n, editAction) {
-    if(isReuse(editAction)) return editAction;
-    if(editAction.ctor == Type.Concat) {
-      let [inCount1, outCount1, left1, right1] = argumentsIfReplace(editAction);
-      if(right1) {
-        if(inCount1 == n) return editAction;
-        if(inCount1 < n) return Replace(inCount1, outCount1, left1, makeSplitInCompatibleAt(n-inCount1, right1));
-        if(inCount1 > n) return Replace(inCount1, outCount1, makeSplitInCompatibleAt(n, left1), right1);
-      } else if(editAction.firstReuse || editAction.secondReuse) { // An Append or a Prepend
-        if(editAction.secondReuse) {
-          return Prepend(editAction.count, editAction.first, makeSplitInCompatibleAt(editAction.second));
-        } else if(editAction.firstReuse) {
-          return Append(editAction.count, makeSplitInCompatibleAt(editAction.first), editAction.second);
-        }
-      } else {
-        // Not a Replace, nor an prepend or an Append. We just treat it like an prepend.
-        return Prepend(outCount1, editAction.first, makeSplitInCompatibleAt(editAction.second));
-      }
-    } else if(isRemoveExcept(editAction)) {
-      let {keyOrOffset: {count, newLength, oldLength}, subAction: e} = editAction;
-      return RemoveExcept(editAction.keyOrOffset, makeSplitInCompatibleAt(n-count, e));
-    } else { // New, regular Down, Up, Concat
-      return RemoveAll(Prepend(outLength(editAction), Up(Offset(0, 0), editAction)))
-    }
-  }
-  
   // Assume editAction is neither Reuse, Replace, Prepend, Append, or Down with an offset.
   function makeOffsetInCompatibleAt(offset, editAction, originalOutCount, originalInCount) {
     printDebug("makeOffsetInCompatibleAt", offset, editAction, originalOutCount, originalInCount);
@@ -2135,13 +2105,6 @@ var editActions = {};
       let [inCount, outCount, left, right] = argumentsIfReplace(editAction);
       if(right !== undefined) {
         if(inCount <= n) {
-          // Problem: If there are insertions on the left of left, we are dismissing them.
-          /*let [newLeft, newLeftOutLength] = offsetInAux(Offset(inCount, 0), left, outCount, inCount);
-          let [newRight, newRightOutLength] = offsetInAux(Offset(n-inCount, newLength), right, MinusUndefined(originalOutCount, outCount), MinusUndefined(originalInCount, inCount));
-          printDebug("newLeftOutLength", newLeftOutLength, "newLeft", newLeft);
-          if(newLeftOutLength != 0) {
-            //return [Replace(0, newLeftOutLength, newLeft, newRight), PlusUndefined(newLeftOutLength, newRightOutLength)];
-          }*/
           /* Outdated Proof:
               apply(editAction, r, rCtx)
             = apply(Replace(i, o, L, R), r, rCtx)
@@ -2259,7 +2222,7 @@ var editActions = {};
           // Here, no need to prefix, but sub needs to have offsetIn(n-c, newLengthFinal) 
           //   and it should be prefixed with an Offset()
           let {count: countFinal, newLength: newLengthFinal} = intersectOffsets(offset, editAction.keyOrOffset);
-           let relativeOffset = Offset(n >= c ? n - c: 0, newLengthFinal);
+          let relativeOffset = Offset(n >= c ? n - c: 0, newLengthFinal);
           let [newSub, newSubCount] = offsetInAux(relativeOffset, editAction.subAction, originalOutCount, MinUndefined(MinusUndefined(originalInCount, c), l));
           return [SameDownAs(editAction)(Offset(n >= c ? 0 : c - n, LessThanUndefined(PlusUndefined(c, l), PlusUndefined(n, newLength)) ? newLengthFinal : undefined), newSub), newSubCount];
           
@@ -3117,8 +3080,8 @@ var editActions = {};
           result.push(
             Down(E2.keyOrOffset,
               merge(newE1, E2.subAction,
-                Up(E1.keyOrOffset, AddInputContext(E1, ICtx1)),
-                Up(E1.keyOrOffset, AddInputContext(E2, ICtx2)))));
+                Up(E2.keyOrOffset, AddInputContext(E1, ICtx1)),
+                Up(E2.keyOrOffset, AddInputContext(E2, ICtx2)))));
           // Let's see if we can apply the key or offset to E2.
         }
       }
@@ -3439,7 +3402,7 @@ var editActions = {};
               result.push(Replace(inCount1, newLeftCount, newLeft, newRight));
             } else {
               printDebug("#4")
-              result.push(merge(toSplitInCompatibleAt(E1, inCount2), E2, AddInputContext(E1, ICtx1), E2));
+              result.push(merge(toSplitInCompatibleAt(E1, inCount2), E2, AddInputContext(E1, ICtx1), ICtx2));
               //result.push(merge(E1, toSplitInCompatibleAt(E2, inCount1))); // Not always possible, since we don't know the output length of the right of E2
             }
           }
@@ -3975,11 +3938,6 @@ var editActions = {};
     // U is Up, Down(RemoveExcept), New(Const), Concat(Pure,Prepend,Append,Replace), Custom
     } else if(isReplace(U)) {
       let [inCount, outCount, left, right] = argumentsIfReplace(U);
-      /*let [inCountE, outCountE, leftE, rightE] = argumentsIfReplace(E);
-      if(rightE !== undefined && outCountE == 0) {
-        // Whatever the replace of the user, it does not touch the left portion.
-        subProblems.push([E.second, U, ECtx, outCountU]);
-      } else {*/
       let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, inCount), E, ECtx);
       printDebug("ELeft:", ELeft);
       subProblems.push([ELeft, left, ECtxLeft, outCount]);
