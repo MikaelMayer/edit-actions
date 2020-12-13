@@ -944,7 +944,7 @@ var editActions = {};
   
   // Up offset that can be converted to down only if c1+c2 < 0 and n2 <= n1
   function upUpOffset(offset1, offset2) {
-    return Offset(offset1.count + offset2.count, offset1.newLength, offset2.oldLength);
+    return Offset(offset1.count + offset2.count, MinUndefined(offset1.newLength, MinusUndefined(offset2.newLength, offset1.count)), offset2.oldLength);
   }
   // Might not work if the new given length is larger than the given old length
   function upToDownOffset(offset) {
@@ -1474,9 +1474,9 @@ var editActions = {};
             fi = si;
             [fc, lf, rf] = splitIn(si, firstAction); // Always returns for a Reuse
           }
-          //printDebug("First replace", fi, fc, lf, rf);
+          printDebug("First replace", fi, fc, lf, rf);
           let [os, ls, rs] = splitIn(fc, secondAction);
-          //printDebug("Second replace", os, ls, rs);
+          printDebug("Second replace", os, ls, rs);
           if(fc == 0) { // rs == secondAction, we don't want infinite recursion!
             if(editActions.__debug) {
               console.log("Pre-pending Re("+secondAction.count+", | , ..., "+secondAction.replaceCount+")");
@@ -3664,7 +3664,7 @@ var editActions = {};
     }
     if(U.ctor == Type.Down) {
       if(isReuse(E) && isKey(U.keyOrOffset)) {
-        let [ESol, next, newEctx, outCountp] = partitionEdit(childIfReuse(E, U.keyOrOffset), U.subAction, Up(U.keyOrOffset, AddContext(U.keyOrOffset, E, ECtx)));
+        let [ESol, next, newEctx, outCountp] = partitionEdit(childIfReuse(E, U.keyOrOffset), U.subAction, Up(U.keyOrOffset, AddContext(U.keyOrOffset, E, ECtx)), outCountU);
         return [Down(U.keyOrOffset, ESol), next, ECtx, outCountp];
       }
       // We used to walk E with the offset and key, and hope that when U is Reuse(), we just keep E. 
@@ -3729,7 +3729,7 @@ var editActions = {};
         if(editActions.__debug) {
           console.log("Pre-pending New({..."+k+": | })");
         }
-        let [subK, nexts, outCtx, outCountX] = partitionEdit(E, U.childEditActions[k], ECtx);
+        let [subK, nexts, outCtx, outCountX] = partitionEdit(E, U.childEditActions[k], ECtx, undefined);
         o[k] = subK;
         finalNexts.push(...nexts);
       }
@@ -3781,7 +3781,6 @@ var editActions = {};
   */
   function prefixReuse(ctx, U, outCountU) {
     let p = pathAt(ctx);
-    if(editActions.__debug) console.trace("test");
     printDebug("Building a solution with path ", p, U, outCountU);
     // First, build a path out of all the relative paths
     // Then, apply this path
@@ -3971,7 +3970,7 @@ var editActions = {};
       let {count, newLength, oldLength} = U.keyOrOffset;
       if(count > 0) {
         if(isReuse(E)) {
-          subProblems.push(prefixReuse(ECtx, Remove(count)));
+          subProblems.push(prefixReuse(ECtx, Remove(count), undefined));
         } else {
           // E is a Concat. We should not walk the context there.
           if(E.ctor == Type.Concat) { // Always true.
