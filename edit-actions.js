@@ -2071,9 +2071,9 @@ var editActions = {};
     printDebug("makeOffsetInCompatibleAt", offset, editAction, originalOutCount, originalInCount);
     // Do we need this if the second case works?
     originalOutCount = originalOutCount !== undefined ? originalOutCount : outLength(editAction);
-    if(originalOutCount !== undefined) return Prepend(originalOutCount, editAction, RemoveAll());
+    if(originalOutCount !== undefined) return Prepend(originalOutCount, editAction, originalInCount === 0 ? Reuse() : RemoveAll());
     // We don't know the length of the original out count. We use Append instead
-    return Append(0, RemoveAll(), editAction);
+    return Append(0, originalInCount === 0 ? Reuse() : RemoveAll(), editAction);
   }
   
   // If e = offsetIn(offset, editAction)
@@ -2104,7 +2104,7 @@ var editActions = {};
       }
       let [inCount, outCount, left, right] = argumentsIfReplace(editAction);
       if(right !== undefined) {
-        if(inCount <= n) {
+        if(inCount <= n && inCount > 0) {
           /* Outdated Proof:
               apply(editAction, r, rCtx)
             = apply(Replace(i, o, L, R), r, rCtx)
@@ -2246,7 +2246,7 @@ var editActions = {};
       return Up(offset, editAction);
     }
     let result = offsetInAux(offset, editAction, originalOutCount);
-    printDebug("offsetIn returns"+(originalOutCount === undefined ? "" : " (outCount = " + originalOutCount), offset, editAction, "=>", result);
+    printDebug("## offsetIn returns"+(originalOutCount === undefined ? "" : " (outCount = " + originalOutCount), offset, editAction, "=>", result);
     return result;
   }
   editActions.__offsetIn = offsetIn;
@@ -3444,7 +3444,7 @@ var editActions = {};
     while(!isIdentity(finalUp)) {
       printDebug("ReuseUp", initUp, action);
       // only here we can combine key and offset into a single key.
-      if(finalUp.subAction && isOffset(finalUp.subAction.keyOrOffset) && isKey(finalUp.keyOrOffset)) {
+      if(finalUp && finalUp.subAction && isOffset(finalUp.subAction.keyOrOffset) && isKey(finalUp.keyOrOffset)) {
         /** Proof:
           apply(rev(Up(k, offset, X), acc), applyZ(ReuseUp(Up(k, offset, X), E), <r, rCtx>), [])
         = apply(rev(Up(k, offset, X), acc), applyZ(ReuseUp(Up(k+c, X), mapUpHere(E, O(-c, o, n), Up(k))), <r, rCtx>), [])

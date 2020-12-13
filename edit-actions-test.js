@@ -10,6 +10,12 @@ var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
 
+testAndThen(
+  Replace(0, 1, New([Up(Offset(0, 0), Down(0))]), Reuse()),
+  Replace(0, 1, New([Up(Offset(0, 0), Down(5))]), Reuse()),
+  ["a", "b", "c", "d", "e", "f", "g", "h"]
+);
+
 shouldBeEqual(merge(Drop(5), Keep(2, Prepend(2, "ab"))), Drop(5));
 shouldBeEqual(merge(Remove(5), Keep(2, Prepend(2, "ab"))), Remove(2, Prepend(2, "ab", Remove(3))));
 
