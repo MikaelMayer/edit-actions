@@ -229,6 +229,24 @@ var step =
 // Displays
 // ["B", "D", "B", "C", "A", "G"]```
 
+### The StartArray command to chain edit actions.
+
+The previous example can be rewritten in a chaining style to avoid the parentheses at the end. It can also be useful for iteratively defining a transformation.
+
+```
+var prog = ["A", "B", "C", "D"];
+n();
+var step = StartArray().
+    Remove(1).                                // Remove "A"
+    Keep(1).                                  // Use "B"
+    Remove(1).                                // Remove "C"
+    Keep(1).                                  // Use "D". The remaining of array is empty
+    Prepend(2, Up(Offset(3, undefined, 2))).   // Inserts ["B", "C"]
+    Prepend(1, New([Up(Offset(4), Down(0))])). // Inserts ["A"]
+    Prepend(1, New(["G"])); // Inserts ["G"];
+// Displays
+// ["B", "D", "B", "C", "A", "G"]```
+
 ### Special case: Strings
 
 Strings can be treated either as primitives (for a full replacement regardless of how the string was edited), or using the operators `Down(Interval(...), ...), Concat, Replace, Prepend, Append, Keep, Remove` described before.  

@@ -3,12 +3,15 @@ var {New,Concat,Up,Down,Custom,UseResult,Choose,Clone,
      Offset, Interval, 
      apply, andThen, merge, backPropagate,
      isIdentity, stringOf, diff, first, debug} = editActions;
-var {List,Reuse,Replace,Keep,Prepend, Append,Drop,DropAll,DropAfter,Remove,RemoveExcept,RemoveAll,KeepOnly,Type,__AddContext,__ContextElem,isOffset,uneval, splitAt, downAt, offsetAt, Sequence, ReuseOffset, Insert, InsertAll, ExtendModel, ReuseAsIs, transform, mergeInto} = editActions;
+var {List,Reuse,Replace,Keep,Prepend, Append,Drop,DropAll,DropAfter,Remove,RemoveExcept,RemoveAll,KeepOnly,Type,__AddContext,__ContextElem,isOffset,uneval, splitAt, downAt, offsetAt, Sequence, ReuseOffset, Insert, InsertAll, ExtendModel, ReuseAsIs, transform, mergeInto, StartArray} = editActions;
 
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
+
+shouldBeEqual(StartArray().Concat(2,"ab").Keep(5).Prepend(5, "abcde").Remove(3).EndArray(), Concat(2, "ab", Keep(5, Prepend(5, "abcde", Remove(3)))));
+e();
 
 testAndThen(
   Replace(0, 1, New([Up(Offset(0, 0), Down(0))]), Reuse()),

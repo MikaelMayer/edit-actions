@@ -6483,6 +6483,63 @@ var editActions = {};
   transform.preMap = preMap;
   editActions.transform = transform;
   
+  function StartArray() {
+    let a = {
+      result: undefined,
+      objectToModify: undefined,
+      keyToModify: undefined,
+      Remove(n) {
+        let tmp = Remove(n);
+        if(this.result === undefined) {
+          this.result = tmp;
+        } else {
+          this.objectToModify[this.keyToModify] = tmp;
+        }
+        this.objectToModify = tmp;
+        this.keyToModify = "subAction";
+        return this;
+      },
+      Prepend(n, toPrepend) {
+        let tmp = Prepend(n, toPrepend);
+        if(this.result === undefined) {
+          this.result = tmp;
+        } else {
+          this.objectToModify[this.keyToModify] = tmp;
+        }
+        this.objectToModify = tmp;
+        this.keyToModify = "second";
+        return this;
+      },
+      Concat(n, first) {
+        let tmp = Concat(n, first, Reuse());
+        if(this.result === undefined) {
+          this.result = tmp;
+        } else {
+          this.objectToModify[this.keyToModify] = tmp;
+        }
+        this.objectToModify = tmp;
+        this.keyToModify = "second";
+        return this;
+      },
+      Keep(n) {
+        let tmp = Keep(n);
+        if(this.result === undefined) {
+          this.result = tmp;
+        } else {
+          this.objectToModify[this.keyToModify] = tmp;
+        }
+        this.objectToModify = tmp.second;
+        this.keyToModify = "subAction";
+        return this;
+      },
+      EndArray() {
+        return this.result === undefined ? Reuse() : this.result;
+      }
+    };
+    return a;
+  }
+  editActions.StartArray = StartArray;
+  
 })(editActions)
 
 if(typeof module === "object") {
