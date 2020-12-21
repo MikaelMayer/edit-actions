@@ -2720,8 +2720,10 @@ var editActions = {};
         }
         return [ICtx2.subAction.hd, ICtx2.subAction.tl];
       }
-    } else {
+    } else if(ICtx2 !== undefined) {
       return walkInUp(keyOrOffset, E2, ICtx2.tl);
+    } else {
+      return [ReuseKeyOrOffset(keyOrOffset, E2, outLength(E2)), NULL, NULL];
     }
   }
   // E2 is the edit action that applies at the given key or offset

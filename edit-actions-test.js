@@ -1306,7 +1306,6 @@ testBackPropagate(
   Reuse({b: Reuse({a: Reuse({e: New(1)})})})
 )
 
-n();
 testBackPropagate(
   Down("x", "b", Reuse({
     a: Up("a", "b", Down("c"))})),
