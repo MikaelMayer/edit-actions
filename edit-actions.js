@@ -2703,7 +2703,8 @@ var editActions = {};
           let newUpOffset = downUpOffsetReturnsUp(ko, keyOrOffset);
           let newDownOffset = upToDownOffset(newUpOffset);
           if(newDownOffset === undefined) { // Need to further go up.
-            return walkInUp(newUpOffset, ICtx2.subAction.hd, ICtx2.subAction.tl);
+            let nextICtx = ICtx2.subAction;
+            return walkInUp(newUpOffset, isObject(nextICtx) ? nextICtx.hd : undefined, isObject(nextICtx) ? nextICtx.tl : undefined);
           } else {
             return walkInDown(newDownOffset, ICtx2.subAction.hd, ICtx2.subAction.tl);
           }

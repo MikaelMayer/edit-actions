@@ -11,7 +11,6 @@ var bs = "\\\\";
 var failAtFirst = true;
 
 shouldBeEqual(StartArray().Concat(2,"ab").Keep(5).Prepend(5, "abcde").Remove(3).EndArray(), Concat(2, "ab", Keep(5, Prepend(5, "abcde", Remove(3)))));
-e();
 
 testAndThen(
   Replace(0, 1, New([Up(Offset(0, 0), Down(0))]), Reuse()),
