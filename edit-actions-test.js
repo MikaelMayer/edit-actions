@@ -69,12 +69,11 @@ interpreter =  Concat(1, Down(Offset(5, 1),
 input = "XYZWU1";
 shouldBeEqual(apply(interpreter, input), "2abc");
 edit = Prepend(1, "3", Remove(1))
-/*
-n();
+
 shouldBeEqual(
   backPropagate(interpreter, edit),
-  Prepend(1, "2", Remove(1)));
-e();//*/
+  Keep(5, Prepend(1, "2", Remove(1))));
+//*/
 
 shouldBeEqual(StartArray().Concat(2,"ab").Keep(5).Prepend(5, "abcde").Remove(3).EndArray(), Concat(2, "ab", Keep(5, Prepend(5, "abcde", Remove(3)))));
 
@@ -1555,10 +1554,16 @@ testBackPropagate(
 testBackPropagate(
   Remove(2, Replace(4, 4, Reuse({2: Down(0)}), Up(Offset(6), Down(Offset(0, 2))))),
     Remove(2, Replace(3, 3, Reuse({0: New(7), 1: New(2)}), RemoveAll())),
+/*  Replace(2, 1,
+  KeepOnly(1),
+  Remove(2, Reuse({
+  0: Reuse({
+    0: New(7)}),
+  1: New(2)}))))*/
   Keep(1, Remove(3, Reuse({
     0: Reuse({
       0: New(7)}),
-    1: New(2)}))));
+    1: New(2)}))))
 
 ea = Reuse({a: Custom(Up("a", New([Down("x"), Down("y")])),
 {
@@ -1809,7 +1814,7 @@ testBackPropagate(
 )
 
 testBackPropagate(
-  Concat(4, Down(Offset(0, 4-0)),
+  Concat(4, Down(Offset(0, 4)),
             Down(Offset(5))),
   Down(Offset(0, 6)),
   Concat(4, Down(Interval(0, 4)), Down(Interval(5, 7))), "Concat to slice");
@@ -2594,7 +2599,8 @@ var defaultDiffOptions = { onlyReuse: true,
    isCompatibleForReuseArray: (oldValue, newValue) => !editActions.isNode(oldValue) && !editActions.isNode(newValue)};
 
 testBackPropagate(
-  Replace(3, 3, New([Down(1), Down(2), Down(0)]), Reuse()),
+  Replace(3, 3, 
+    Remove(1, Append(2, Up(Offset(3, 0, 1)))), Reuse()),
   Keep(2, Prepend(1, New(["Prepended"]))),
   Prepend(1, New(["Prepended"])),
   "Prepend in array after reordering");

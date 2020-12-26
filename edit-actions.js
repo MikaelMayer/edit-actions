@@ -2207,7 +2207,7 @@ var editActions = {};
         let {count: c, newLength: l, oldLength: o} = editAction.keyOrOffset;
         if(l !== undefined && c + l <= n || newLength !== undefined && n + newLength <= c) {
           // Disjoint input intervals.
-          return [RemoveAll(), 0];
+          return [RemoveAll(PlusUndefined(c, l) === n ? editAction.subAction: Reuse()), 0];
         } else if(keyOrOffsetAreEqual(editAction.keyOrOffset, offset)) {
           return [editAction.subAction, originalOutCount];
         } else { // Something in the intersection.
@@ -3952,6 +3952,7 @@ var editActions = {};
     // U is Up, Down(RemoveExcept), New(Const), Concat(Pure,Prepend,Append), Custom
     // Finished reusing cases. Now everything should create an intermediate solution.
     } else if(isConst(E)) {
+      // Special cases New([Down(index)]). We can prepend and append before and after this index if it is relevant.
       if(isPrepend(U)) {
         printDebug("/!\\ Warning, cannot back-propagate a prepend on a New", E, U, "|-", ECtx);
         subProblems.push([E, U.second, ECtx, MinusUndefined(outCountU, U.count)]);
@@ -4007,6 +4008,12 @@ var editActions = {};
       }
     // E is New(Extend), Concat(Pure,Prepend,Append,Replace)
     // U is Up, Down, New(Const), Concat(Pure,Prepend,Append), Custom
+    } else if(isConcat(E) && (isPrepend(U) || isAppend(U) || isReplace(U) || isReuse(U))) {
+      // We try to splitIn U, so that we can have edits to the left and edits to the right.
+      // U === Replace(E.count, outCount, left, right)
+      let [outCount, left, right] = splitIn(E.count, U, outCountU);
+      subProblems.push([E.first, left, AddContext(Offset(0, E.count), E, ECtx), outCount]);
+      subProblems.push([E.second, right, AddContext(Offset(E.count), E, ECtx), MinusUndefined(outCountU, outCount)]);
     } else if(isPrepend(U)) {
       if(isConcat(E) && (!isReplace(E) || isTracableHere(E.first))) {
         // If E.first is a New, we don't want that. We would prefer to back-propagate on the second.
