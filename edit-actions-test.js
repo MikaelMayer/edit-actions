@@ -10,6 +10,72 @@ var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
 
+shouldBeEqual(Down(Offset(24, 7, 13)), Up(Offset(-24, 13, 7)));
+
+// Only nested custom lenses.
+interpreter = Custom(
+    Custom(
+      Custom(
+        Reuse(),
+        x => +x,
+        outEdit => transform.isConst(outEdit) ?
+          Prepend(1, "" + transform.valueIfConst(outEdit), Remove(1)) : Reuse(),
+        "str to int"),
+      x => x + 1,
+      outEdit => transform.isConst(outEdit) ?
+        New(transform.valueIfConst(outEdit) - 1) : Reuse(),
+       "increment"
+    ),
+  x => "" + x,
+  function(outEdit, oldInput, oldOutput) {
+    let newOutput = apply(outEdit, oldOutput);
+    return New(+newOutput);
+  },
+  "int to str"
+);
+input = "1";
+shouldBeEqual(apply(interpreter, input), "2");
+edit = Prepend(1, "3", Remove(1))
+
+shouldBeEqual(
+  backPropagate(interpreter, edit),
+  Prepend(1, "2", Remove(1)));
+
+// Nested custom lenses surrounded with Concat
+// For Concat, we want the user edit to be split, not propagated independently.
+// Concat gives two different provenances for two concatenated bits of data.
+// Hence the need for splitting. We want the user edits to stay grouped.
+interpreter =  Concat(1, Down(Offset(5, 1),
+  Custom(
+    Custom(
+      Custom(
+        Reuse(),
+        x => +x,
+        outEdit => transform.isConst(outEdit) ?
+          Prepend(1, "" + transform.valueIfConst(outEdit), Remove(1)) : Reuse(),
+        "str to int"),
+      x => x + 1,
+      outEdit => transform.isConst(outEdit) ?
+        New(transform.valueIfConst(outEdit) - 1) : Reuse(),
+       "increment"
+    ),
+  x => "" + x,
+  function(outEdit, oldInput, oldOutput) {
+    let newOutput = apply(outEdit, oldOutput);
+    return New(+newOutput);
+  },
+  "int to str"
+)), "abc");
+input = "XYZWU1";
+shouldBeEqual(apply(interpreter, input), "2abc");
+edit = Prepend(1, "3", Remove(1))
+/*
+n();
+shouldBeEqual(
+  backPropagate(interpreter, edit),
+  Prepend(1, "2", Remove(1)));
+e();//*/
+
 shouldBeEqual(StartArray().Concat(2,"ab").Keep(5).Prepend(5, "abcde").Remove(3).EndArray(), Concat(2, "ab", Keep(5, Prepend(5, "abcde", Remove(3)))));
 
 testAndThen(
@@ -771,7 +837,8 @@ shouldBeEqual(Up(Offset(3, 4, 9), Up(Offset(2, 9))),
 shouldBeEqual(Up(Offset(3), Down(Offset(3))), Reuse());
 shouldBeEqual(Up(Offset(3, 5, 7), Down(Offset(2, 4, 7))), Up(Offset(1, 5, 4)));
 shouldBeEqual(Up(Offset(3, 5, 7), Down(Offset(3, 4, 7))), Down(Offset(0, 4, 5)));
-shouldBeEqual(Up(Offset(3, 5, 7), Down(Offset(4, 4, 7))), Down(Offset(1, 4, 5)));
+shouldBeEqual(Down(Offset(4, 4, 7)), Up(Offset(-4, 7, 4)));
+shouldBeEqual(Up(Offset(3, 5, 7), Down(Offset(4, 3, 7))), Down(Offset(1, 3, 5)));
 
 shouldBeEqual(Down(Offset(3), Up(Offset(3))), Reuse());
 shouldBeEqual(Down(Offset(3, 5, 7), Up(Offset(2, 5, 6))), Down(Offset(1, 6, 7)));

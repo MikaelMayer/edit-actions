@@ -365,7 +365,7 @@ var editActions = {};
             }
           }
         } else {
-          if(ik && (keyOrOffset.count < 0 || keyOrOffset.count === 0 && !LessThanEqualUndefined(keyOrOffset.newLength, keyOrOffset.oldLength))) {
+          if(ik && (keyOrOffset.count < 0 || !LessThanEqualUndefined(PlusUndefined(keyOrOffset.count, keyOrOffset.newLength), keyOrOffset.oldLength))) {
             // Flip to up.
             let newUpOffset = downToUpOffset(keyOrOffset);
             /*console.trace("/!\\ Warning, Down() was given an incorrect offset. Converting it to up. "+keyOrOffsetToString(keyOrOffset)+"=>"+keyOrOffsetToString(newUpOffset));*/
@@ -948,7 +948,7 @@ var editActions = {};
   }
   // Might not work if the new given length is larger than the given old length
   function upToDownOffset(offset) {
-    if(offset.count <= 0 && LessThanEqualUndefined(offset.oldLength, offset.newLength)) {
+    if(offset.count <= 0 && LessThanEqualUndefined(MinusUndefined(offset.oldLength, offset.count), offset.newLength)) {
       return Offset(-offset.count, offset.oldLength, offset.newLength);
     }
     return undefined;
@@ -2236,7 +2236,7 @@ var editActions = {};
         */
         }
       }
-      // TODO: Deal with Choose. Change splitIn to a generator?
+      // TODO: Deal with Choose. Change offsetIn to a generator?
       /*if(editAction.ctor == Type.Choose) {
         // Return a Choose.
         return Choose(Collection.map(editAction.subActions, splitIn));
@@ -3859,6 +3859,7 @@ var editActions = {};
         return E.lens.backPropagate(Uraw, E.lens.cachedInput, E.lens.cachedOutput, E.subAction, ECtx, outCountU);
       }
     }
+    // Todo: Maybe move it later? Think about it.
     if(U.ctor == Type.Choose) {
       /** Proof: same as above for the Choose case */
       return Choose(Collection.map(U.subActions, childU => backPropagate(E, childU, ECtx, outCountU)));
@@ -6317,7 +6318,11 @@ var editActions = {};
   // apply(Up(k, E), r, rCtx)
   // == apply(UpIfNecessary(k, E), r, rCtx)
   function UpIfNecessary(keyOrOffset, subAction) {
-    if(!isEditAction(subAction)) return subAction;
+    let isRaw = false, subActionOriginal = subAction;
+    if(!isEditAction(subAction)) {
+      subAction = New(subAction);
+      isRaw = true;
+    }
     if(subAction.ctor == Type.New && !isReuse(subAction)) {
       /** Proof:
         apply(UpIfNecessary(k, New({f=E})), r[k], (k, r)::rCtx)
@@ -6329,7 +6334,7 @@ var editActions = {};
       = apply(Up(k, New({f=E})), r[k], (k, r)::rCtx)
       QED;
       */
-      return New(mapChildren(subAction.childEditActions, (k, c) => UpIfNecessary(keyOrOffset, c)), subAction.model);
+      return rawIfPossible(New(mapChildren(subAction.childEditActions, (k, c) => UpIfNecessary(keyOrOffset, c)), subAction.model), isRaw);
     }
     if(subAction.ctor == Type.Concat && !isReplace(subAction)) {
       /** Proof::
