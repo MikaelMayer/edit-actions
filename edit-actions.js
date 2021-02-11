@@ -10,6 +10,7 @@ var editActions = {};
   editActions.__syntacticSugar = true;
   editActions.__syntacticSugarReplace = true;
   editActions.choose = editActions.choose ? editActions.choose : Symbol("choose"); // For evaluation purposes.
+  editActions.toPHPString = false;
   
   var Type = {
      Up: "Up",       // Navigate the tree
@@ -5991,7 +5992,7 @@ var editActions = {};
         str = model.create ? "ReuseAsIs(" : "Reuse(";
       } else {
         if(typeof model.value != "object") {
-          str += "New(" + uneval(model.value);
+          str += (editActions.toPHPString ? "Create" : "New")+"(" + uneval(model.value);
         } else {
           if(isInsertAll(self)) {
             selfIsInsertAll = true;
@@ -6107,7 +6108,7 @@ var editActions = {};
           if(!isIdentity(second)) {
             let secondStr = addPadding(stringOf(second), "  ");
             extraSpace = extraSpace == "" && secondStr.indexOf("\n") >= 0 ? "\n " : extraSpace;
-            str += ","+extraSpace+" " + addPadding(stringOf(second), "  ");
+            str += ","+extraSpace+" " + secondStr;
           }
           str += ")";
         } else if(!self.secondReuse && self.firstReuse && editActions.__syntacticSugar) {

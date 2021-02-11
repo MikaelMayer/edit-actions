@@ -243,7 +243,8 @@ var step = StartArray().
     Keep(1).                                  // Use "D". The remaining of array is empty
     Prepend(2, Up(Offset(3, undefined, 2))).   // Inserts ["B", "C"]
     Prepend(1, New([Up(Offset(4), Down(0))])). // Inserts ["A"]
-    Prepend(1, New(["G"])); // Inserts ["G"];
+    Prepend(1, New(["G"])).
+    EndArray(); // Inserts ["G"];
 // Displays
 // ["B", "D", "B", "C", "A", "G"]```
 
