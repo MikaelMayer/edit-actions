@@ -675,7 +675,7 @@ shouldBeEqual(
 
 shouldBeEqual(
   diff(["a", "b", "c", "d"], ["a", "k", "c", "d"]),
-  Choose(Reuse({1: Remove(1, Prepend(1, New("k")))}),
+  Choose(Reuse({1: Prepend(1, New("k"), Remove(1))}),
     New([Down(0), New("k"), Down(2), Down(3)]))
 );
 
@@ -697,7 +697,7 @@ shouldBeEqual(
     Prepend(1, New([New([New("i"), New("hello")])]),
       Replace(2, 2, 
           Reuse({1:
-            Keep(2, Remove(1, Prepend(1, New("a"))))}),
+            Keep(2, Prepend(1, New("a"), Remove(1)))}),
             Remove(1))))
 );
 

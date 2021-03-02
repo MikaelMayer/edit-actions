@@ -3942,9 +3942,13 @@ var editActions = {};
     // U is Up, Down(RemoveExcept), New(Const), Concat(Pure,Prepend,Append,Replace), Custom
     } else if(isReplace(U)) {
       let [inCount, outCount, left, right] = argumentsIfReplace(U);
-      let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, inCount), E, ECtx);
-      printDebug("ELeft:", ELeft);
-      subProblems.push([ELeft, left, ECtxLeft, outCount]);
+      let [keepCount, keepSub] = argumentsIfReplaceIsKeep(inCount, outCount, left, right);
+      //printDebug("keepSub", keepSub, keepSub !== undefined);
+      if(keepSub === undefined) {
+        let [ELeft, ECtxLeft] = walkDownActionCtx(Offset(0, inCount), E, ECtx);
+        printDebug("ELeft:", ELeft);
+        subProblems.push([ELeft, left, ECtxLeft, outCount]);
+      }
       let [ERight, ECtxRight] = walkDownActionCtx(Offset(inCount), E, ECtx);
       printDebug("ERight:", ERight);
       subProblems.push([ERight, right, ECtxRight, MinUndefined(outCountU, outCount)]);
@@ -5542,7 +5546,7 @@ var editActions = {};
           if(index > 0) {
             let f = linear_diff[index - 1];
             if(f[0] == DIFF_DELETE) {
-              acc = Remove(f[1].length, Prepend(s[1].length, New(s[1]), acc));
+              acc = Prepend(s[1].length, New(s[1]), Remove(f[1].length, acc));
               index -= 2;
               break;
             }
