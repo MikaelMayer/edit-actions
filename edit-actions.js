@@ -4389,7 +4389,7 @@ var editActions = {};
                  apply(eaStrDiff(oldVal, newVal), oldVal, oldValCtx) = newVal
                  QED;
                */
-              diffs.push(eaStrDiff(oldVal, newVal));
+              diffs.push(eaStrDiff(oldVal, newVal, true));
             } else {
               /** Proof: 
                  apply(New(newVal), oldVal, oldValCtx) = newVal  -- New definition
@@ -5528,13 +5528,43 @@ var editActions = {};
     // recursively invoked
     return diff_main(text1, text2, cursor_pos, true);
   }
+  
+  // TODO: Exclamation points should be closer to letters than html symbols like < or >
+  let affinityArray = // First dimension: Left char. Second dimension: Right char
+    [ [19,9,  6, 11,1,14]  // digit vs digit, dot, words, spaces, html chars, others
+    , [ 5,0,  3, 12,1,16]  // dot vs digit, dot, words, spaces, html chars, others
+    , [ 2,18,24, 21,1,22]  // words vs digit, dot, words, spaces, html chars, others
+    , [ 8,2, 17,  7,1,20]  // spaces vs digit, dot, words, spaces, html chars, others
+    , [ 1,1,1,1,2,1]  // html vs digit, dot, words, spaces, html chars, others
+    , [15,4, 23, 10,1,13]];// others vs digit, dot, words, spaces, html chars, others
+
+  function classOf(c) {
+    if(c >= '0' && c <= '9') return 0;
+    if(c == '.') return 1;
+    if(c >= 'a' && c <= 'z' || c >= 'Z' && c <= 'Z' || c == "_" || c == "_") return 2;
+    if((/\s/.exec(c))) return 3;
+    if(c === "<" || c === ">" || c === "\"") return 4;
+    return 5;
+  }
+  
+  function affinityChar(c1, c2) {
+    return affinityArray[classOf(c1)][classOf(c2)];
+  }
+  
+  function affinity(s1, s2) {
+    if(s1.length === 0) return 25;
+    let s1Last = s1[s1.length - 1];
+    if(s2.length === 0) return 25;
+    let s2First = s2[0];
+    return affinityChar(s1Last, s2First);
+  }  
 
   strDiff.INSERT = DIFF_INSERT;
   strDiff.DELETE = DIFF_DELETE;
   strDiff.EQUAL = DIFF_EQUAL;
   
   /** Let's assume: apply(eaStrDiff(text1, text2), text1, ctx) = text2 */
-  function eaStrDiff(text1, text2) {
+  function eaStrDiff(text1, text2, withAppend = true) {
     let linear_diff = strDiff(text1, text2);
     // Conversion of List [DIFF_INSERT | DIFF_DELETE | DIFF_EQUAL, String] to ndStrDiff.
     var index = linear_diff.length - 1;
@@ -5546,12 +5576,20 @@ var editActions = {};
           if(index > 0) {
             let f = linear_diff[index - 1];
             if(f[0] == DIFF_DELETE) {
-              acc = Prepend(s[1].length, New(s[1]), Remove(f[1].length, acc));
+              acc = Prepend(s[1].length, s[1], Remove(f[1].length, acc));
               index -= 2;
               break;
+            } else if(withAppend && f[0] == DIFF_EQUAL) { // It's equal. Let's see if the affinity is towars left or towards the right.
+              let affinityBefore = affinity(f[1], s[1]);
+              let affinityAfter = index < linear_diff.length - 1 ? affinity(s[1], linear_diff[index + 1][1]) : 0;
+              if(affinityBefore > affinityAfter) {
+                acc = Keep(f[1].length - 1, Replace(1, 1 + s[1].length, Append(1, s[1]), acc));
+                index -= 2;
+                break;
+              }
             }
           }
-          acc = Prepend(s[1].length, New(s[1]), acc);
+          acc = Prepend(s[1].length, s[1], acc);
           index -= 1;
           break;
         case DIFF_DELETE: // We were already at the deletion position

@@ -10,6 +10,10 @@ var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
 
+shouldBeEqual(first(editActions.strDiff("a<", "ab<")), Replace(1, 2, Append(1, "b")));
+shouldBeEqual(first(diff("a<", "a <")), Replace(1, 2, Append(1, " ")));
+shouldBeEqual(first(diff("a<", "a\"<")), Keep(1, Prepend(1, "\"")));
+
 shouldBeEqual(Down(Offset(24, 7, 13)), Up(Offset(-24, 13, 7)));
 
 // Only nested custom lenses.
@@ -675,7 +679,7 @@ shouldBeEqual(
 
 shouldBeEqual(
   diff(["a", "b", "c", "d"], ["a", "k", "c", "d"]),
-  Choose(Reuse({1: Prepend(1, New("k"), Remove(1))}),
+  Choose(Reuse({1: Prepend(1, "k", Remove(1))}),
     New([Down(0), New("k"), Down(2), Down(3)]))
 );
 
@@ -697,7 +701,7 @@ shouldBeEqual(
     Prepend(1, New([New([New("i"), New("hello")])]),
       Replace(2, 2, 
           Reuse({1:
-            Keep(2, Prepend(1, New("a"), Remove(1)))}),
+            Keep(2, Prepend(1, "a", Remove(1)))}),
             Remove(1))))
 );
 
