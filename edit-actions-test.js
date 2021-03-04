@@ -1,6 +1,6 @@
 var editActions = require("./edit-actions.js");
 var {New,Concat,Up,Down,Custom,UseResult,Choose,Clone,
-     Offset, Interval, 
+     Offset, Interval, Extend,
      apply, andThen, merge, backPropagate,
      isIdentity, stringOf, diff, first, debug} = editActions;
 var {List,Reuse,Replace,Keep,Prepend, Append,Drop,DropAll,DropAfter,Remove,RemoveExcept,RemoveAll,KeepOnly,Type,__AddContext,__ContextElem,isOffset,uneval, splitAt, downAt, offsetAt, Sequence, ReuseOffset, Insert, InsertAll, ExtendModel, ReuseAsIs, transform, mergeInto, StartArray} = editActions;
@@ -9,6 +9,9 @@ var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
+
+editTest = Keep(3, Concat(1, Reuse(), Prepend(2, "A", Remove(2, Replace(1, 2, Prepend(1, "x"))))));
+shouldBeEqual(eval(editActions.serializeEdit(editTest)), editTest);
 
 shouldBeEqual(first(editActions.strDiff("a<", "ab<")), Replace(1, 2, Append(1, "b")));
 shouldBeEqual(first(diff("a<", "a <")), Replace(1, 2, Append(1, " ")));

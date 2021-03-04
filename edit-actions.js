@@ -616,6 +616,7 @@ var editActions = {};
   function Extend(childEditActions, create=false) {
     return New(childEditActions, ExtendModel(create));
   }
+  editActions.Extend = Extend;
   
   // apply(Reuse({a: New(1)}), {a: 2, b: 3}) = {a: 1, b: 3}
   function Reuse(childEditActions, create=false) {
@@ -4203,6 +4204,174 @@ var editActions = {};
     return "" + x;
   }
   editActions.uneval = uneval;
+ 
+  function baseNameFrom($string) {
+    $string2 = $string.replace(/[^\\w_]/, "");
+    if($string2 === "" || $string2[0].exec(/\d/)) $string2 = "s".$string2;
+    $lenExtracted = Math.min(10, $string2.length);
+    if($string[0] == "/" || $string[0] == "\\" || $string.substring(0, 2).toLowerCase == "c:") {
+      $string3 = $string2.substring($string2.length - $lenExtracted, $string2.length);
+    } else {
+      $string3 = $string2.substring(0, $lenExtracted);
+    }
+    return $string3;
+  }
+
+  // PHP equivalent: echoEdit
+  // Like uneval() but without indentation and concatenates everything.
+  // Converts Prepend, Append, Replace, Keep to Concat
+  // Converts Remove, RemoveExcept, RemoveAll, DropAfter, DropAll, DropExcept,... to Down.
+  function serializeEdit($edit, $simplify = false) {
+    $stack = [];
+    $done = false;
+    $rendering = "";
+    $stringShortcut = {};
+    $functionsDeclared = {};
+    $beforeEdit = "";
+    $result = "";
+    while(!$done) {
+      //console.log("stack", $stack, "\nedit", $edit, "\nrendering", $rendering);
+      if($edit === null) {
+        $result += "null";
+        $done = true;
+      } else if($edit === undefined) {
+        $result += "undefined";
+        $done = true;
+      } else if(typeof $edit !== "object") {
+        $rep = JSON.stringify($edit);
+        if($rep in $stringShortcut) {
+          $result += $stringShortcut[$rep];
+        } else if($rep.length > 15 && $simplify) { // Abbreviate the scalar
+          $base = baseNameFrom($rep);
+          $i = "";
+          while(($base+$i).toLowerCase() in $functionsDeclared[strtolower]) {
+            if($i === "") $i = 1;
+            $i++;
+          }
+          $funName = $base + $i;
+          $functionsDeclared[($base+$i).toLowerCase()] = true;
+          $stringShortcut[$rep] = $funName+"()";
+          $beforeEdit += "function "+$funName+"() { return "+$rep+"; }\n";
+          $result += $stringShortcut[$rep];
+        } else {
+          $result += $rep;
+        }
+        $done = true;
+      } else if(!isEditAction($edit)) {
+        $keys = Object.keys($edit);
+        if($rendering === "") {
+          $result += "{";
+          if($keys.length === 0) {
+            $result += "}";
+            $done = true;
+          } else {
+            $result += JSON.stringify($keys[0]) + ":";
+            $stack.push([$edit, 0]);
+            $edit = $edit[$keys[0]];
+            $rendering = "";
+          }
+        } else {
+          $rendering++;
+          if($rendering >= $keys.length) {
+            $result +=  "}";
+            $done = true;
+          } else {
+            $result += ","+ JSON.stringify($keys[$rendering]) + ":";
+            $stack.push([$edit, $rendering]);
+            $edit = $edit[$keys[$rendering]];
+            $rendering = "";
+          }
+        }
+      } else if($edit.ctor === Type.Down || $edit.ctor === Type.Up) {
+        if($rendering !== "subAction") {
+          $result +=  $edit.ctor === Type.Down ? ($edit.isRemove ? "RemoveExcept" : "Down") : "Up";
+          $result +=  "("+ keyOrOffsetToString($edit.keyOrOffset);
+          if(isIdentity($edit.subAction)) {
+            $result +=  ")";
+            $done = true;
+          } else {
+            $result +=  ",";
+            $stack.push([$edit, "subAction"]);
+            $edit = $edit.subAction;
+            $rendering = "";
+            continue;
+          }
+        } else {
+          $result +=  ")";
+          $done = true;
+        }
+      } else if($edit.ctor === Type.New) {
+        if($rendering === "") {
+          if($edit.model.ctor === TypeNewModel.Insert && (typeof $edit.model.value !== "object" || $edit.model.value == null)) {
+            $edit = $edit.model.value;
+            continue;
+          }
+          if($edit.model.ctor === TypeNewModel.Extend) {
+            $result += "Extend(";
+          } else {
+            $result += "Create(";
+          }
+          $stack.push([$edit, "childEditActions"]);
+          $edit = $edit.childEditActions;
+          $rendering = "";
+        } else {
+          $result += ")";
+          $done = true;
+        }
+      } else if($edit.ctor === Type.Custom) {
+        if($rendering === "") {
+          $result += "Custom(";
+          $stack.push([$edit, "subAction"]);
+          $edit = $edit.subAction;
+          $rendering = "";
+        } else if($rendering === "subAction") {
+          $result += ", ";
+          $stack.push([$edit, "name"]);
+          $edit = $edit.lens.name;
+          $rendering = "";
+        } else {
+          $result += ")";
+          $done = true;
+        }
+      } else if($edit.ctor === Type.Concat) {
+        if($rendering === "") {
+          if($edit.count === 0) {
+            $edit = $edit.second;
+            continue;
+          }
+          $result += "Concat";
+          $result += "("+ $edit.count+ ",";
+          $stack.push([$edit, "first"]);
+          $edit = $edit.first;
+          $rendering = "";
+        } else if($rendering === "first") {
+          $result +=  ",";
+          $stack.push([$edit, "second"]);
+          $edit = $edit.second;
+          $rendering = "";
+        } else {
+          if($edit.replaceCount !== undefined) {
+            $result += ", " + $edit.replaceCount;
+          } else if($edit.firstReuse) {
+            $result += ", undefined, true";
+          } else if($edit.secondReuse) {
+            $result += ", undefined, false, true";
+          }
+          $result +=  ")";
+          $done = true;
+        }
+      } else {
+        console.log($edit);
+        $result += "Unknown " + (typeof $edit);
+      }
+      if($done && $stack.length > 0) {
+        [$edit, $rendering] = $stack.pop();
+        $done = false;
+      }
+    }
+    return $beforeEdit + $result;
+  }
+  editActions.serializeEdit = serializeEdit;
  
   function isSimpleChildClone(editAction) {
     return editAction.ctor == Type.Down && isIdentity(editAction.subAction) && isKey(editAction.keyOrOffset);
