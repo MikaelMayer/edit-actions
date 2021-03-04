@@ -12,6 +12,7 @@ var failAtFirst = true;
 
 editTest = Keep(3, Concat(1, Reuse(), Prepend(2, "A", Remove(2, Replace(1, 2, Prepend(1, "x"))))));
 shouldBeEqual(eval(editActions.serializeEdit(editTest)), editTest);
+shouldBeEqual(eval(editActions.serializeWithoutStack(editTest)), editTest);
 
 shouldBeEqual(first(editActions.strDiff("a<", "ab<")), Replace(1, 2, Append(1, "b")));
 shouldBeEqual(first(diff("a<", "a <")), Replace(1, 2, Append(1, " ")));

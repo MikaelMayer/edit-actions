@@ -4238,7 +4238,7 @@ var editActions = {};
         $result += "undefined";
         $done = true;
       } else if(typeof $edit !== "object") {
-        $rep = JSON.stringify($edit);
+        $rep = uneval($edit);
         if($rep in $stringShortcut) {
           $result += $stringShortcut[$rep];
         } else if($rep.length > 15 && $simplify) { // Abbreviate the scalar
@@ -4372,7 +4372,54 @@ var editActions = {};
     return $beforeEdit + $result;
   }
   editActions.serializeEdit = serializeEdit;
- 
+ function serializeWithoutStack(edit) {
+    $result = "";
+    $i = 0;
+    $stack = [];
+    $result = "(function() { let x = StartArray();";
+    while(!isIdentity(edit)) {
+      //print(edit);
+      let [keepCount, keepSub]  = transform.extractKeep(edit);
+      if(keepSub !== undefined) {
+        $result += " x.Keep(" + keepCount + ");";
+        edit = keepSub;
+        continue;
+      }
+      if(edit.ctor === Type.Down) {
+        if(edit.isRemove) {
+          if(edit.keyOrOffset.newLength === undefined) {
+            $result += " x.Remove("+edit.keyOrOffset.count+");";
+          } else {
+            $result += " x.RemoveExcept("+keyOrOffsetToString(edit.ek)+");";
+          }
+        } else {
+          $result += " x.Down("+keyOrOffsetToString(edit.ek)+");";
+        }
+        
+        edit = edit.subAction;
+        continue;
+      }
+      if(edit.ctor === Type.Concat) {
+        if(edit.secondReuse) {
+          $result += " x.Prepend(" + edit.count + "," + uneval(edit.first) + ");";
+          edit = edit.second;
+          continue;
+        } else if(edit.replaceCount !== undefined) {
+          $result += " x.Replace(" + edit.replaceCount + "," + edit.count + "," + uneval(Up(Interval(0, edit.replaceCount), edit.first)) + ");";
+          edit = Up(Interval(edit.replaceCount), edit.second);
+          continue;
+        } else {
+          $result += " x.Concat(" + edit.count + "," + uneval(edit.first) + ");";
+          edit = edit.second;
+          continue;
+        }
+      }
+    }
+    $result += " return x.EndArraySimplify(); })()";
+    //console.log("result", $result);
+    return $result;
+  }
+  editActions.serializeWithoutStack = serializeWithoutStack;
   function isSimpleChildClone(editAction) {
     return editAction.ctor == Type.Down && isIdentity(editAction.subAction) && isKey(editAction.keyOrOffset);
   }
@@ -6713,52 +6760,113 @@ var editActions = {};
       result: undefined,
       objectToModify: undefined,
       keyToModify: undefined,
-      Remove(n) {
-        let tmp = Remove(n);
+      update(tmp) {
         if(this.result === undefined) {
-          this.result = tmp;
+          this.result = tmp; 
         } else {
-          this.objectToModify[this.keyToModify] = tmp;
+          if(Array.isArray(this.keyToModify)) {
+            this.objectToModify[this.keyToModify[0]][this.keyToModify[1]] = tmp;
+          } else {
+            this.objectToModify[this.keyToModify] = tmp;
+          }
         }
+        return tmp;
+      },
+      Remove(n) {
+        if(n === 0) return this;
+        let tmp = Remove(n);
+        this.update(tmp);
         this.objectToModify = tmp;
         this.keyToModify = "subAction";
         return this;
       },
+      PrependNonEmpty(n, toPrepend) {
+        if(n == 0) return this;
+        return this.Prepend(n, toPrepend);
+      },
       Prepend(n, toPrepend) {
-        let tmp = Prepend(n, toPrepend);
-        if(this.result === undefined) {
-          this.result = tmp;
-        } else {
-          this.objectToModify[this.keyToModify] = tmp;
-        }
+        let tmp = {ctor: Type.Concat, count: n, first: toPrepend, second: Reuse(), replaceCount: undefined, firstReuse: false, secondReuse: true};
+        this.update(tmp);
         this.objectToModify = tmp;
         this.keyToModify = "second";
         return this;
       },
+      ConcatNonEmpty(n, first) {
+        if(n == 0) return this;
+        return this.Concat(n, first);
+      },
       Concat(n, first) {
-        let tmp = Concat(n, first, Reuse());
-        if(this.result === undefined) {
-          this.result = tmp;
-        } else {
-          this.objectToModify[this.keyToModify] = tmp;
-        }
+        let tmp = {ctor: Type.Concat, count: n, first: first, second: Reuse(), replaceCount: undefined, firstReuse: false, secondReuse: false};
+        this.update(tmp);
         this.objectToModify = tmp;
         this.keyToModify = "second";
+        return this;
+      },
+      Replace(inLength, outLength, edit) {
+        let tmp = {ctor: Type.Concat, count: outLength, first: Down(Interval(0, inLength), edit), second: Down(Interval(inLength)), replaceCount: inLength, firstReuse: false, secondReuse: false};
+        this.update(tmp);
+        this.objectToModify = tmp.second;
+        this.keyToModify = "subAction";
         return this;
       },
       Keep(n) {
-        let tmp = Keep(n);
-        if(this.result === undefined) {
-          this.result = tmp;
-        } else {
-          this.objectToModify[this.keyToModify] = tmp;
-        }
-        this.objectToModify = tmp.second;
+        return this.Replace(n, n, Reuse());
+      },
+      Reuse(childEditActions, keyToModify) {
+        let tmp = Reuse(childEditActions);
+        this.update(tmp);
+        tmp.childEditActions[keyToModify] = Down(keyToModify);
+        this.objectToModify = tmp.childEditActions[keyToModify];
+        this.keyToModify = "subAction";
+        return this;
+      },
+      Create(childEditActions, keyToModify) {
+        let tmp = Create(childEditActions);
+        this.update(tmp);
+        this.objectToModify = tmp.childEditActions;
+        this.keyToModify = keyToModify;
+        return this;
+      },
+      Extend(childEditActions, keyToModify) {
+        let tmp = Extend(childEditActions);
+        this.update(tmp);
+        this.objectToModify = tmp.childEditActions;
+        this.keyToModify = keyToModify;
+        return this;
+      },
+      Up(keyOrOffset) {
+        let tmp = Up(keyOrOffset);
+        this.update(tmp);
+        this.objectToModify = tmp;
+        this.keyToModify = "subAction";
+        return this;
+      },
+      Down(keyOrOffset) {
+        let tmp = Down(keyOrOffset);
+        this.update(tmp);
+        this.objectToModify = tmp;
+        this.keyToModify = "subAction";
+        return this;
+      },
+      Remove(keyOrOffset) {
+        let tmp = Remove(keyOrOffset);
+        this.update(tmp);
+        this.objectToModify = tmp;
+        this.keyToModify = "subAction";
+        return this;
+      },
+      RemoveExcept(keyOrOffset) {
+        let tmp = RemoveExcept(keyOrOffset);
+        this.update(tmp);
+        this.objectToModify = tmp;
         this.keyToModify = "subAction";
         return this;
       },
       EndArray() {
         return this.result === undefined ? Reuse() : this.result;
+      },
+      EndArraySimplify() {
+        return this.result === undefined ? Reuse() : first(this.result);
       }
     };
     return a;
