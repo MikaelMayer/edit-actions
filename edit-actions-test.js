@@ -2,13 +2,30 @@ var editActions = require("./edit-actions.js");
 var {New,Concat,Up,Down,Custom,UseResult,Choose,Clone,
      Offset, Interval, Extend,
      apply, andThen, merge, backPropagate,
-     isIdentity, stringOf, diff, first, debug} = editActions;
+     isIdentity, stringOf, diff, first, debug, reverse} = editActions;
 var {List,Reuse,Replace,Keep,Prepend, Append,Drop,DropAll,DropAfter,Remove,RemoveExcept,RemoveAll,KeepOnly,Type,__AddContext,__ContextElem,isOffset,uneval, splitAt, downAt, offsetAt, Sequence, ReuseOffset, Insert, InsertAll, ExtendModel, ReuseAsIs, transform, mergeInto, StartArray} = editActions;
 
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
+
+prog = "<!-- WP:thing -->Hello <!-- WP:that -->world";
+originalEdit = Concat(6, Down(Offset(17, 6)), Down(Offset(39, 5)));
+shouldBeEqual(apply(originalEdit, prog), "Hello world");
+concurrentUserEdit = Keep(22, Replace(1, 7, Append(1, "great ")));
+nextProg = "<!-- WP:thing -->Hello great <!-- WP:that -->world";
+shouldBeEqual(apply(concurrentUserEdit, prog), nextProg);
+/*
+reverseUserEdit = reverse(concurrentUserEdit);
+editActions.print(reverseUserEdit);
+shouldBeEqual(apply(reverseUserEdit, nextProg), prog);
+n();
+rebasedEdit = backPropagate(reverseUserEdit, originalEdit);
+editActions.print(rebasedEdit);
+shouldBeEqual(apply(rebasedEdit, nextProg), "Hello great world");*/
+
+// Now the same but with custom lenses that cache the input.
 
 editTest = Keep(3, Concat(1, Reuse(), Prepend(2, "A", Remove(2, Replace(1, 2, Prepend(1, "x"))))));
 shouldBeEqual(eval(editActions.serializeEdit(editTest)), editTest);
@@ -3528,8 +3545,9 @@ function shouldBeEqual(x1, x2, name) {
   tests++;
   var s1 = uneval(x1, "");
   var s2 = uneval(x2, "");
-  let line = currentTestLine()
+  let line = currentTestLine();
   if(s1 == s2) {
+    console.log("Tested line "+line);
     testsPassed++;
   } else {
     linesFailed.push(line);

@@ -1019,8 +1019,155 @@ var editActions = {};
     }
   }
   
-  // Applies the edit action to the given program/context
+  
   function apply(editAction, prog, ctx, resultCtx) {
+    let stack = [];
+    let done = false;
+    let result = "";
+    let applying  = "";
+    let stackHead = undefined;
+    while(!done) {
+      if(editActions.__debug) {
+        print("applyWithoutStack(", editAction, prog, ctx, "\n|-applying", applying, "\n|-stackHead", applying === "" ? "<irrelevant>" : stackHead, "\n|-stack", stack, "\n|-result", result);
+      }
+      if(typeof editAction !== "object") {
+        result = editAction;
+        done = true;        
+      } else {
+        if(!isEditAction(editAction)) {
+          // Maybe it's an array.
+          editAction = New(editAction);
+        }
+        if(editAction.ctor == Type.Up) {
+          let [newProg, newCtx, mbUpOffset] = walkUpCtx(editAction.keyOrOffset, prog, ctx);
+          editAction = mbUpOffset ? Up(mbUpOffset, editAction.subAction) : editAction.subAction;
+          prog = newProg;
+          ctx = newCtx;
+          applying = "";
+          continue;
+        }
+        if(editAction.ctor == Type.Down) {
+          let [newProg, newCtx] = walkDownCtx(editAction.keyOrOffset, prog, ctx);
+          editAction = editAction.subAction;
+          prog = newProg;
+          ctx = newCtx;
+          applying = "";
+          continue;
+        }
+        if(editAction.ctor == Type.Custom) {
+          if(applying === "") {
+            stack.push([editAction, prog, ctx, resultCtx, "subAction"]);
+            editAction = editAction.subAction;
+            applying = "";
+            continue;
+          } else if(applying === "subAction") {
+            result = editAction.lens.apply(result, prog, ctx);
+            done = true;
+          }
+        } else if(editAction.ctor == Type.UseResult) {
+          editAction = editAction.subAction;
+          prog = undefined;
+          ctx = resultCtx;
+          resultCtx = undefined;
+          continue;
+        } else if(editAction.ctor == Type.Concat) {
+          if(applying === "") {
+            stack.push([editAction, prog, ctx, resultCtx, "first"]);
+            editAction = editAction.first;
+            continue;
+          } else if(applying === "first") {
+            let monoid = monoidOf(result);
+            if(monoid.length(result) != editAction.count) {
+              editAction.count = monoid.length(result);
+              //console.log("/!\\ Warning, checkpoint failed. The edit action\n"+stringOf(editAction)+"\n applied to \n" +uneval(prog)+ "\n returned on the first sub edit action " + uneval(result) + "\n of length " + result.length + ", but the edit action expected " + editAction.count);
+            }
+            stack.push([editAction, prog, ctx, resultCtx, "second", result, monoid]);
+            editAction = editAction.second;
+            applying = "";
+            continue;
+          } else if(applying === "second") {
+            let o1 = stackHead[5];
+            let monoid = stackHead[6];
+            let o2 = result;
+            result = monoid.add(o1, o2);
+            done = true;
+          }
+        } else if(editAction.ctor == Type.Choose) {
+          // Just return the first one.
+          editAction = Collection.firstOrDefault(editAction.subActions, Reuse());
+          continue;
+        } else if(editAction.ctor == Type.Clone) {
+          editAction = editAction.subAction;
+          continue;
+        } else { // Extend
+          let isReuse = editAction.model.ctor == TypeNewModel.Extend;
+          let model = modelToCopy(editAction, prog);
+          let childEditActions = editAction.childEditActions;
+          if(!hasAnyProps(childEditActions)) {
+            result = model;
+            done = true;
+          } else {
+            if(typeof prog !== "object" && isReuse) {
+              console.trace("apply problem. program not extensible but got keys to extend it: ", prog);
+              console.log(stringOf(editAction));
+              console.log("context:\n",List.toArray(ctx).map(x => uneval(x.prog, "  ")).join("\n"));
+            }
+            let t = treeOpsOf(model);
+            let o = t.init();
+            forEach(model, (c, k) => {
+              t.update(o, k, c);
+            });
+            keys = Object.keys(childEditActions);
+            if(keys.length === 0 ) {
+              result = o;
+              done = true;
+            } else {
+              if(applying === "") {
+                stack.push([editAction, prog, ctx, resultCtx, 0, t, o, childEditActions, keys]);
+                editAction = childEditActions[keys[0]];
+                resultCtx = AddContext(keys[0], o, resultCtx);
+                applying = "";
+                continue;
+              } else {
+                let keyIndex = stackHead[4];
+                let keys = stackHead[8];
+                let k = keys[keyIndex];
+                let t = stackHead[5];
+                let o = stackHead[6];
+                t.update(o, k, result);
+                keyIndex++;
+                let childEditActions = stackHead[7];
+                if(keyIndex < keys.length) {
+                  stack.push([editAction, prog, ctx, resultCtx, keyIndex, t, o, childEditActions, keys]);
+                  editAction = childEditActions[keys[keyIndex]];
+                  resultCtx = AddContext(keys[keyIndex], o, resultCtx);
+                  applying = "";
+                  continue;
+                } else {
+                  result = o;
+                  done = true;
+                }
+              }
+            }
+          }
+        }
+      }
+      if(done && stack.length > 0) {
+        stackHead = stack.pop();
+        editAction = stackHead[0];
+        prog = stackHead[1];
+        ctx = stackHead[2];
+        resultCtx = stackHead[3];
+        applying = stackHead[4];
+        done = false;
+      }
+    }
+    return result;
+  }
+  editActions.apply = apply;
+  
+  // Applies the edit action to the given program/context
+  /*function apply(editAction, prog, ctx, resultCtx) {
     if(editActions.__debug) {
       console.log("apply(");
       console.log(stringOf(editAction));
@@ -1057,9 +1204,6 @@ var editActions = {};
     if(editAction.ctor == Type.Choose) {
       // Just return the first one.
       return apply(Collection.firstOrDefault(editAction.subActions, Reuse()), prog, ctx, resultCtx);
-      /*return Collection.map(editAction.subActions, subAction =>
-        apply(subAction, prog, ctx, resultCtx)
-      );*/
     }
     if(editAction.ctor == Type.Clone) {
       return apply(editAction.subAction, prog, ctx, resultCtx);
@@ -1086,7 +1230,7 @@ var editActions = {};
     });
     return o;
   }
-  editActions.apply = apply;
+  editActions.apply = apply;*/
   
   // Applies the edit action to the given program by mutating it.
   // Returns an edit action that, if applied on the result, would produce the original program.
@@ -1952,7 +2096,7 @@ var editActions = {};
     case Type.Down:
       return Down(editAction.keyOrOffset, downAt(key, editAction.subAction));
     case Type.Clone:
-      return Clone(downAt(key, editAction.subACtion));
+      return Clone(downAt(key, editAction.subAction));
     default:
       /**Proof:
           apply(downAt(f, C), r, rCtx)
@@ -2533,7 +2677,7 @@ var editActions = {};
     case Type.Choose:
       return Choose(Collection.map(editAction.subActions, x => offsetAt(offset, x)));
     case Type.Clone:
-      return Clone(offsetAt(offset, editAction.subACtion));
+      return Clone(offsetAt(offset, editAction.subAction));
     default: // editAction.ctor == Custom
       /**Proof:
           apply(offsetAt(f, C), r, rCtx)
@@ -3616,7 +3760,7 @@ var editActions = {};
       return rawIfPossible(New(newChildren, U.model), wasRaw);
     }
     if(U.ctor == Type.Clone) {
-      return Clone(cloneOf(E, U.subACtion, ECtx));
+      return Clone(cloneOf(E, U.subAction, ECtx));
     }
     throw "TODO CloneOf when U is Concat, Replace, Append, Prepend"
   }
@@ -4373,7 +4517,6 @@ var editActions = {};
   }
   editActions.serializeEdit = serializeEdit;
  function serializeWithoutStack(edit) {
-    $result = "";
     $i = 0;
     $stack = [];
     $result = "(function() { let x = StartArray();";
@@ -6569,7 +6712,7 @@ var editActions = {};
     }
     case Type.Clone: {
       let newSubAction = mapUpHere(editAction.subAction, offset, pathToHere);
-      if(newSubAction === editAction.subACtion) {
+      if(newSubAction === editAction.subAction) {
         return editAction; 
       } else {
         return Clone(newSubAction);
