@@ -1019,7 +1019,8 @@ var editActions = {};
     }
   }
   
-  
+  // Apply an edit action to a program in a context.
+  // Does not consume stack.
   function apply(editAction, prog, ctx, resultCtx) {
     let stack = [];
     let done = false;
