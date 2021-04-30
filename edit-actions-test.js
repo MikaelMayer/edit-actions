@@ -3,12 +3,18 @@ var {New,Concat,Up,Down,Custom,UseResult,Choose,Clone,
      Offset, Interval, Extend,
      apply, andThen, merge, backPropagate,
      isIdentity, stringOf, diff, first, debug, reverse} = editActions;
-var {List,Reuse,Replace,Keep,Prepend, Append,Drop,DropAll,DropAfter,Remove,RemoveExcept,RemoveAll,KeepOnly,Type,__AddContext,__ContextElem,isOffset,uneval, splitAt, downAt, offsetAt, Sequence, ReuseOffset, Insert, InsertAll, ExtendModel, ReuseAsIs, transform, mergeInto, StartArray} = editActions;
+var {List,Reuse,Replace,Keep,Prepend, Append,Drop,DropAll,DropAfter,Remove,RemoveExcept,RemoveAll,KeepOnly,Type,__AddContext,__ContextElem,isOffset,uneval, splitAt, downAt, offsetAt, Sequence, ReuseOffset, Insert, InsertAll, ExtendModel, ReuseAsIs, transform, mergeInto, StartArray, firstRewrite} = editActions;
 
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
+
+edit = Reuse({x: Up("x", Down("y", New([Choose({a: New(2), b: Choose(New(3), New(4))}, New(1))])))});
+shouldBeEqual(
+  firstRewrite(edit),
+  Reuse({x: Up("x", Down("y", New([{a: New(2), b: New(3)}])))})
+);
 
 prog = "<!-- WP:thing -->Hello <!-- WP:that -->world";
 originalEdit = Concat(6, Down(Offset(17, 6)), Down(Offset(39, 5)));

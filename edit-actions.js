@@ -584,11 +584,30 @@ var editActions = {};
   editActions.Choose = Choose;
   
   function first(editAction) {
+    if(!isEditAction(editAction)) {
+      if(Array.isArray(editAction)) {
+        let o = [];
+        for(let k in editAction) {
+          o[k] = first(editAction[k]);
+        }
+        return o;
+      } else if(typeof editAction === "object") {
+        let o = {};
+        for(let k in editAction) {
+          o[k] = first(editAction[k]);
+        }
+        return o;
+      } else {
+        return editAction;
+      }
+    }
     switch(editAction.ctor) {
       case Type.New:
         return New(mapChildren(editAction.childEditActions, (k, c) => first(c)), editAction.model);
       case Type.Concat:
         return Concat(editAction.count, first(editAction.first), first(editAction.second), editAction.replaceCount, editAction.firstReuse, editAction.secondReuse);
+      case Type.Custom:
+        return Custom(first(editAction.subAction), editAction.lens);
       case Type.Up:
         return Up(editAction.keyOrOffset, first(editAction.subAction));
       case Type.Down:
@@ -602,6 +621,55 @@ var editActions = {};
     }
   }
   editActions.first = first;
+  
+  // Modify an edit action in-place to remove all the Choose statements.
+  function firstRewrite(firstEditAction) {
+    let done = true;
+    if(typeof firstEditAction === "object" && firstEditAction.ctor == Type.Choose) {
+      firstEditAction = Collection.firstOrDefault(firstEditAction.subActions, Reuse());
+    }
+    // list of edit action, their parent, and the key at which they are attached
+    let stack = [[firstEditAction, null, null]];
+    while(stack.length > 0) {
+      let [editAction, key, parent] = stack.pop();
+      if(!isEditAction(editAction)) {
+        if(typeof editAction === "object") {
+          for(let k in editAction) {
+            stack.push([editAction[k], k, editAction]);
+          }
+          continue;
+        }
+        continue;
+      }
+      switch(editAction.ctor) {
+        case Type.New:
+          for(let k in editAction.childEditActions) {
+            stack.push([editAction.childEditActions[k], k, editAction.childEditActions]);
+          }
+          break;
+        case Type.Concat:
+          stack.push([editAction.first, "first", editAction]);
+          stack.push([editAction.second, "second", editAction]);
+          break;
+        case Type.Up:
+        case Type.Down:
+        case Type.Clone:
+        case Type.Custom:
+          stack.push([editAction.subAction, "subAction", editAction]);
+          break;
+        case Type.Choose:
+          var newEdit = Collection.firstOrDefault(editAction.subActions, Reuse());
+          parent[key] = newEdit;
+          stack.push([newEdit, key, parent]);
+          break;
+          stack.push([editAction.subAction, "subAction", editAction]);
+        default:
+          return editAction;
+      }
+    }
+    return firstEditAction;
+  }
+  editActions.firstRewrite = firstRewrite;
   
   // Change the way the edit action will be back-propagated.
   function Clone(editAction = Reuse()) {
@@ -6964,8 +7032,8 @@ var editActions = {};
         this.keyToModify = "subAction";
         return this;
       },
-      Create(childEditActions, keyToModify) {
-        let tmp = Create(childEditActions);
+      New(childEditActions, keyToModify) {
+        let tmp = New(childEditActions);
         this.update(tmp);
         this.objectToModify = tmp.childEditActions;
         this.keyToModify = keyToModify;
