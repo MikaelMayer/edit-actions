@@ -4325,7 +4325,6 @@ var editActions = {};
     let stack = [[editAction, inCount, "compute"]];
     // non-recursive version to avoid stack overflow.
     // We also cache the output length.
-    let before = uneval(editAction);
     while(stack.length > 0) {
       let [editAction, inCount, step] = stack.pop();
       //console.log("while:"+uneval(editAction)+" inCount:"+inCount+" step:" + step);
