@@ -7078,7 +7078,7 @@ var editActions = {};
         return this.result === undefined ? Reuse() : this.result;
       },
       EndArraySimplify() {
-        return this.result === undefined ? Reuse() : first(this.result);
+        return this.result === undefined ? Reuse() : firstRewrite(this.result);
       }
     };
     return a;
