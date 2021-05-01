@@ -4318,54 +4318,65 @@ var editActions = {};
   
   // Computes the length that a given edit action would produce when it is applied on something of length inCount
   function outLength(editAction, inCount) {
-    if(Array.isArray(editAction) || typeof editAction === "string") {
-      return editAction.length;
-    }
-    if(typeof editAction !== "object") {
-      return undefined;
-    }
-    if(!isEditAction(editAction)) {
-      editAction = New(editAction);
-    }
-    if(editActions.__debug) console.log("outLength", stringOf(editAction), "("+inCount+")");
-    if(editAction.ctor == Type.Choose) {
-      return Collection.firstOrDefaultCallback(editAction.subActions, Reuse(), f => outLength(f, inCount));
-    }
-    if(typeof editAction.cachedOutLength == "number") {
-      return editAction.cachedOutLength;
-    }
-    if(editAction.ctor == Type.Concat) {
-      let rightLength = outLength(editAction.second, inCount);
-      return PlusUndefined(editAction.count, rightLength);
-    }
-    if(editAction.ctor == Type.New) {
-      if(isReuse(editAction)) {
-        if(inCount === undefined) return undefined;
-        let result = lengthOfArray(editAction.childEditActions, inCount);
-        return result;
-      } else {
-        if(typeof editAction.model.value === "string") {
-          return editAction.model.value.length;
-        } else {
-          return lengthOfArray(editAction.childEditActions, 0);
+    let result = undefined;
+    let step = "compute";
+    let inCountOriginal = inCount;
+    let editActionOriginal = editAction;
+    let stack = [[editAction, inCount, "compute"]];
+    // non-recursive version to avoid stack overflow.
+    // We also cache the output length.
+    let before = uneval(editAction);
+    while(stack.length > 0) {
+      let [editAction, inCount, step] = stack.pop();
+      //console.log("while:"+uneval(editAction)+" inCount:"+inCount+" step:" + step);
+      if(Array.isArray(editAction) || typeof editAction === "string") {
+        result = editAction.length;
+      } else if(typeof editAction !== "object") {
+        result = undefined;
+      } else if(!isEditAction(editAction)) {
+        stacK.push([New(editAction), inCount, step]);
+      } else if(editAction.ctor == Type.Choose) {
+        stack.push([Collection.firstOrDefault(editAction.subActions, Reuse()), inCount, "compute"]);
+      } else if(typeof editAction.cachedOutLength == "number") {
+        result = editAction.cachedOutLength;
+      } else if(editAction.ctor == Type.Concat) {
+        if(step == "compute") {
+          stack.push([editAction, inCount, "addCount"], [editAction.second, inCount, "compute"]);
+        } else {// step == "addCount"
+          result = PlusUndefined(result, editAction.count);
         }
+      } else if(editAction.ctor == Type.New) {
+        if(isReuse(editAction)) {
+          if(inCount === undefined) {
+            result = undefined;
+          } else {
+            result = lengthOfArray(editAction.childEditActions, inCount);
+          }
+        } else {
+          if(typeof editAction.model.value === "string") {
+            result = editAction.model.value.length;
+          } else {
+            result = lengthOfArray(editAction.childEditActions, 0);
+          }
+        }
+      } else if(editAction.ctor == Type.Custom) {
+        if(editAction.lens.cachedOutput === undefined) result = undefined;
+        else {
+          let m = monoidOf(editAction.lens.cachedOutput);
+          result = m.length(editAction.lens.cachedOutput);
+        }
+      } else if(editAction.ctor == Type.Up) {
+        let newLength = isOffset(editAction.keyOrOffset) ? editAction.keyOrOffset.oldLength : undefined;
+        stack.push([editAction.subAction, newLength, "compute"]);
+      } else if(editAction.ctor == Type.Down) {
+        let newLength = isOffset(editAction.keyOrOffset) ? MinUndefined(editAction.keyOrOffset.newLength, MinusUndefined(inCount, editAction.keyOrOffset.count)) : undefined;
+        stack.push([editAction.subAction, newLength, "compute"]);
+      } else {
+        console.trace("outLength invoked on unexpected input", editAction);
+        return undefined;
       }
     }
-    if(editAction.ctor == Type.Custom) {
-      if(editAction.lens.cachedOutput === undefined) return undefined;
-      let m = monoidOf(editAction.lens.cachedOutput);
-      return m.length(editAction.lens.cachedOutput);
-    }
-    if(editAction.ctor == Type.Up) {
-      let newLength = isOffset(editAction.keyOrOffset) ? editAction.keyOrOffset.oldLength : undefined;
-      return outLength(editAction.subAction, newLength);
-    }
-    if(editAction.ctor == Type.Down) {
-      let newLength = isOffset(editAction.keyOrOffset) ? MinUndefined(editAction.keyOrOffset.newLength, MinusUndefined(inCount, editAction.keyOrOffset.count)) : undefined;
-      return outLength(editAction.subAction, newLength);
-    }
-    console.trace("outLength invoked on unexpected input", editAction);
-    return undefined;
+    return result;
   }
   
   var bs = "\\\\";
