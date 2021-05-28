@@ -2375,7 +2375,7 @@ var editActions = {};
           if(n > 0) { // We don't keep the Prepend
             return [e2, o2];
           }
-          let newPrepended = UpIfNecessary(offset, editAction.first);
+          let newPrepended = editAction.first;
           return [Prepend(editAction.count, newPrepended, e2), PlusUndefined(editAction.count, o2)];
         }
       }
@@ -2386,7 +2386,7 @@ var editActions = {};
           if(newLength !== undefined && originalInCount !== undefined && n + newLength < originalInCount) { // We don't keep the Append
             return [e2, o2];
           }
-          return [Append(o2, e2, UpIfNecessary(offset, editAction.second)), MinusUndefined(PlusUndefined(originalOutCount, o2), editAction.count)];
+          return [Append(o2, e2, editAction.second), MinusUndefined(PlusUndefined(originalOutCount, o2), editAction.count)];
         }
       }
       if(isReuse(editAction)) {
