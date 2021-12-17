@@ -4184,6 +4184,13 @@ var editActions = {};
     firstRecord(_, (k, r)::ctx) = firstRecord(r, ctx);
   */
   function backPropagate(E, U, ECtx = undefined, outCountU = undefined) {
+    var sm = new StateMachine();
+    function backPropagateAux(E, U, ECtx = undefined, outCountU = undefined) {
+      return sm.compute({E, U, ECtx, outCountU});
+    }
+    backPropagateAux(E, U, ECtx, outCountU);
+    sm.execute(({E, U, ECtx, outCountU}) => {
+    
     let wasRaw = false, Uraw = U;
     // E and U are edit actions or raw records/scalars
     if(!isEditAction(U)) {
@@ -4451,23 +4458,32 @@ var editActions = {};
     // Now we prefix action with the Reuse and ReuseOffset from the context and call it a solution.
     printDebug("subProblems:", subProblems);
     let solution = identity;
-    for(let subProblemOrSubSolution of subProblems) {
+    
+    function handleOneSubProblem(solution, i) {
+      if(i >= subProblems.length) return solution;
+      subProblemOrSubSolution = subProblems[i];
       if(Array.isArray(subProblemOrSubSolution)) {
         let [subE, subU, subECtx, subOutCountU] = subProblemOrSubSolution;
-        solution = merge(solution, backPropagate(subE, subU, subECtx, subOutCountU));
+        return backPropagateAux(subE, subU, subECtx, subOutCountU)(b => {
+          solution = merge(solution, b);
+          return handleOneSubProblem(solution, i+1);
+        });
       } else {
         if(!isIdentity(subProblemOrSubSolution)) {
           printDebug("intermediate solution:", subProblemOrSubSolution);
         }
         solution = merge(solution, subProblemOrSubSolution);
+        return handleOneSubProblem(solution, i+1);
       }
     }
+    return handleOneSubProblem (solution, 0);
+    }); // sn.execute
+    return sm.getValue();
     /** Proof:
     apply(backPropagate(subE, subU, subECtx, subOutCountU), firstRecord(r, rCtx)) is defined for every f.
     Thus, the merge of all these backPropagate is correctly defined on firstRecord(r, rCtx) by the specification of merge.
     and therefore, apply(backPropagate(E, U, ECtx), firstRecord(r, rCtx)) is defined.
     QED;*/
-    return solution;
   }
   editActions.backPropagate = backPropagate;
   
