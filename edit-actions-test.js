@@ -100,7 +100,6 @@ interpreter =  Concat(1, Down(Offset(5, 1),
 input = "XYZWU1";
 shouldBeEqual(apply(interpreter, input), "2abc");
 edit = Prepend(1, "3", Remove(1))
-
 shouldBeEqual(
   backPropagate(interpreter, edit),
   Keep(5, Prepend(1, "2", Remove(1))));

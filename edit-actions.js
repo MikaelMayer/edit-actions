@@ -2304,165 +2304,223 @@ var editActions = {};
   // the edit action offsetIn(offset, editAction)[1] will always be executed in the context of the offset.
   // Hence, if the offset specifies a newLength, the result does not need to re-specify this length.
   function offsetIn(offset, editAction, defaultIsReuse = false, recoveryMode = true, originalOutCount = undefined) {
+    var stack = undefined;
+    var computation = x => ({"ctor": "computation", "call": x});
+    var result = x => ({"ctor": "result", "value": x});
+    var state;
     function offsetInAux(offset, editAction, originalOutCount = undefined, originalInCount = undefined) {
-      printDebug("offsetIn"+(originalOutCount === undefined ? "" : " (originalOutCount = " + originalOutCount +")")+(originalInCount === undefined ? "" : " (originalInCount = " + originalInCount +")"), offset, editAction);
-      let {count: n, newLength, oldLength} = offset;
-      if(n == 0 && newLength === undefined) {
-        /* Outdated Proof:
-              apply(Replace(0, 0, Reuse(), editAction), r, rCtx)
-            = apply(Down(Offset(0, 0)), r, rCtx) ++0 apply(Down(Offset(0), editAction), r, rCtx)
-            = [] ++0 apply(editAction, r, rCtx)
-            = apply(editAction, r, rCtx)
-            QED
-        */
-        return [editAction, undefined];
-      }
-      let [inCount, outCount, left, right] = argumentsIfReplace(editAction);
-      if(right !== undefined) {
-        if(inCount <= n && inCount > 0) {
+      state = computation({offset, editAction, originalOutCount, originalInCount});
+    }
+    function doReturn(x) {
+      state = result(x);
+    }
+    function withResult(call, callback) {
+      stack = {head: callback, call: call, tail: stack};
+    }
+    offsetInAux(offset, editAction, originalOutCount);
+    var initState = state;
+    while(state.ctor != "result" || stack !== undefined) {
+      printDebug("State:", state, "\nstack:", stack);
+      if(state.ctor == "computation") {
+        var {offset, editAction, originalOutCount, originalInCount} = state.call;
+        var call = state.call;
+        printDebug("offsetIn"+(originalOutCount === undefined ? "" : " (originalOutCount = " + originalOutCount +")")+(originalInCount === undefined ? "" : " (originalInCount = " + originalInCount +")"), offset, editAction);
+        let {count: n, newLength, oldLength} = offset;
+        if(n == 0 && newLength === undefined) {
           /* Outdated Proof:
-              apply(editAction, r, rCtx)
-            = apply(Replace(i, o, L, R), r, rCtx)
-            = apply(Down(Offset(0, i), L), r, rCtx) ++o apply(Down(Offset(i), R), r, rCtx)
-            = apply(Down(Offset(0, i), L), r, rCtx) ++o apply(R, r[i...], (Offset(i), r)::rCtx)
-            = apply(Down(Offset(0, i), L), r, rCtx) ++o apply(Replace(n-i, o2, r1, r2), r[i...], (Offset(i), r)::rCtx)
-            = apply(Down(Offset(0, i), L), r, rCtx) ++o (apply(Down(Offset(0, n-i), r1), r[i...], (Offset(i), r)::rCtx) ++o2 apply(Down(Offset(n-i), r2), r[i...], (Offset(i), r)::rCtx))
-            = (apply(Down(Offset(0, i), L), r, rCtx) ++o apply(Down(Offset(0, n-i), r1), r[i...], (Offset(i), r)::rCtx)) ++(o+o2) apply(Down(Offset(n-i), r2), r[i...], (Offset(i), r)::rCtx)
-            = (apply(Down(Offset(0, i), L), r, rCtx) ++o apply(r1, r[i...i+(n-i)], (Offset(0, n-i), r[i...])::(Offset(i), r)::rCtx)) ++(o+o2) apply(Down(Offset(n-i), r2), r[i...], (Offset(i), r)::rCtx)
-            = (apply(Down(Offset(0, i), L), r, rCtx) ++o apply(Down(Offset(i, n-i), r1), r, rCtx))) ++(o+o2) apply(Down(Offset(n), r2), r, rCtx)
-            = (apply(Down(Offset(0, i), L), r[0..n], (Offset(0, n), r)::rCtx) ++o apply(Down(Offset(i), L), r1), r[0..n], (Offset(0, n), r)::rCtx)) ++(o+o2) apply(Down(Offset(n), r2), r, rCtx)
-            = (apply(Replace(i, o, L, r1), r[0..n], (Offset(0, n), r)::rCtx) ++(o+o2) apply(Down(Offset(n), r2), r, rCtx)
-            = (apply(Down(Offset(0, n), Replace(i, o, L, r1)), r, rCtx) ++(o+o2) apply(Down(Offset(n), r2), r, rCtx)
-            = apply(Replace(n, o+o2, Replace(i, o, L, r1), r2)
-            QED;
-        */
-          return offsetInAux(Offset(n-inCount, newLength), right, MinusUndefined(originalOutCount, outCount), MinusUndefined(originalInCount, inCount));
-        } else if(newLength !== undefined && n + newLength <= inCount) {
-          return offsetInAux(offset, left, outCount, inCount);
-        } else { // Hybrid. n < inCount and (newLength === undefined || n + newLength > inCount)
-          let [newLeft, newLeftCount] = offsetInAux(Offset(n, inCount-n), left, outCount, inCount);
-          if(newLeft === undefined) return []; // recovery mode works at the leaves.
-          let [newRight, newRightCount] = offsetInAux(Offset(0, MinusUndefined(newLength, inCount-n)), right, MinusUndefined(originalOutCount, outCount), MinusUndefined(originalInCount, inCount));
-          if(newRight === undefined) return []; // recovery mode works at the leaves.
-          printDebug("returning Replace(", inCount-n, newLeftCount, newLeft, newRight);
-          return [Replace(inCount - n, newLeftCount, newLeft, newRight), PlusUndefined(newLeftCount, newRightCount)];
-          /* Outdated Proof:
+                apply(Replace(0, 0, Reuse(), editAction), r, rCtx)
+              = apply(Down(Offset(0, 0)), r, rCtx) ++0 apply(Down(Offset(0), editAction), r, rCtx)
+              = [] ++0 apply(editAction, r, rCtx)
+              = apply(editAction, r, rCtx)
+              QED
+          */
+          doReturn([editAction, undefined]);
+          continue;
+        }
+        
+        function doDefault(offset, editAction, originalOutCount, originalInCount) {
+          if(defaultIsReuse) doReturn ([Reuse(), originalOutCount]);
+          else if(recoveryMode) offsetInAux(offset, makeOffsetInCompatibleAt(offset, editAction, originalOutCount, originalInCount), originalOutCount, originalInCount);
+          else doReturn(Up(offset, editAction));
+        }
+        
+        let [inCount, outCount, left, right] = argumentsIfReplace(editAction);
+        if(right !== undefined) {
+          if(inCount <= n && inCount > 0) {
+            /* Outdated Proof:
                 apply(editAction, r, rCtx)
               = apply(Replace(i, o, L, R), r, rCtx)
               = apply(Down(Offset(0, i), L), r, rCtx) ++o apply(Down(Offset(i), R), r, rCtx)
-              = apply(L, r[0..i], (Offset(0, i), r)::rCtx) ++o apply(Down(Offset(i), R), r, rCtx)
-              = apply(Replace(n, o2, l1, l2), r[0..i], (Offset(0, i), r)::rCtx) ++o apply(Down(Offset(i), R), r, rCtx)
-              = (apply(Down(Offset(0, n), l1), r[0..i], (Offset(0, i), r)::rCtx) ++o2 
-                 apply(Down(Offset(n), l2), r[0..i], (Offset(0, i), r)::rCtx)) ++o
-                apply(Down(Offset(i), R), r, rCtx)
-              = apply(l1, r[0..n], (Offset(0, n), r)::rCtx) ++o2 
-                 (apply(l2, r[n..i], (Offset(n, i-n), r)::rCtx) ++(o-o2)
-                  apply(R, r[i...], (Offset(i), r)::rCtx))
-                  
-              = apply(l1, r[0..n], (Offset(0, n), r)::rCtx) ++o2 
-                 (apply(Down(Offset(0, i-n), l2), r[n...], (Offset(n), r)::rCtx) ++(o-o2)
-                  apply(Down(Offset(i-n), R), ..., (Offset(n), r)::rCtx))
-              = apply(l1, r[0..n], (Offset(0, n), r)::rCtx) ++o2 
-                 (apply(Replace(i-n, o-o2, l2, R), (Offset(n), r)::rCtx))
-              = apply(Replace(n, o2, l1, Replace(i-n, o-o2, l2, R)), r, rCtx)
+              = apply(Down(Offset(0, i), L), r, rCtx) ++o apply(R, r[i...], (Offset(i), r)::rCtx)
+              = apply(Down(Offset(0, i), L), r, rCtx) ++o apply(Replace(n-i, o2, r1, r2), r[i...], (Offset(i), r)::rCtx)
+              = apply(Down(Offset(0, i), L), r, rCtx) ++o (apply(Down(Offset(0, n-i), r1), r[i...], (Offset(i), r)::rCtx) ++o2 apply(Down(Offset(n-i), r2), r[i...], (Offset(i), r)::rCtx))
+              = (apply(Down(Offset(0, i), L), r, rCtx) ++o apply(Down(Offset(0, n-i), r1), r[i...], (Offset(i), r)::rCtx)) ++(o+o2) apply(Down(Offset(n-i), r2), r[i...], (Offset(i), r)::rCtx)
+              = (apply(Down(Offset(0, i), L), r, rCtx) ++o apply(r1, r[i...i+(n-i)], (Offset(0, n-i), r[i...])::(Offset(i), r)::rCtx)) ++(o+o2) apply(Down(Offset(n-i), r2), r[i...], (Offset(i), r)::rCtx)
+              = (apply(Down(Offset(0, i), L), r, rCtx) ++o apply(Down(Offset(i, n-i), r1), r, rCtx))) ++(o+o2) apply(Down(Offset(n), r2), r, rCtx)
+              = (apply(Down(Offset(0, i), L), r[0..n], (Offset(0, n), r)::rCtx) ++o apply(Down(Offset(i), L), r1), r[0..n], (Offset(0, n), r)::rCtx)) ++(o+o2) apply(Down(Offset(n), r2), r, rCtx)
+              = (apply(Replace(i, o, L, r1), r[0..n], (Offset(0, n), r)::rCtx) ++(o+o2) apply(Down(Offset(n), r2), r, rCtx)
+              = (apply(Down(Offset(0, n), Replace(i, o, L, r1)), r, rCtx) ++(o+o2) apply(Down(Offset(n), r2), r, rCtx)
+              = apply(Replace(n, o+o2, Replace(i, o, L, r1), r2)
               QED;
           */
-        }
-      }
-      if(isPrepend(editAction)) {
-        let [e2, o2] = offsetInAux(offset, editAction.second, MinusUndefined(originalOutCount, editAction.count), originalInCount);
-        if(e2 !== undefined) {
-          if(n > 0) { // We don't keep the Prepend
-            return [e2, o2];
+            offsetInAux(Offset(n-inCount, newLength), right, MinusUndefined(originalOutCount, outCount), MinusUndefined(originalInCount, inCount));
+            continue;
+          } else if(newLength !== undefined && n + newLength <= inCount) {
+            offsetInAux(offset, left, outCount, inCount);
+            continue;
+          } else { // Hybrid. n < inCount and (newLength === undefined || n + newLength > inCount)
+            offsetInAux(Offset(n, inCount-n), left, outCount, inCount);
+            withResult(call, ([newLeft, newLeftCount], {offset, editAction, originalOutCount, originalInCount}) => {
+              if(newLeft === undefined) { doReturn([]); } // recovery mode works at the leaves.
+              else {
+              offsetInAux(Offset(0, MinusUndefined(newLength, inCount-n)), right, MinusUndefined(originalOutCount, outCount), MinusUndefined(originalInCount, inCount));
+              withResult({offset, editAction, originalOutCount, originalInCount}, ([newRight, newRightCount], {offset, editAction, originalOutCount, originalInCount}) => {
+                if(newRight === undefined) { doReturn([]); } // recovery mode works at the leaves.
+                else {
+                printDebug("returning Replace(", inCount-n, newLeftCount, newLeft, newRight);
+                doReturn( [Replace(inCount - n, newLeftCount, newLeft, newRight), PlusUndefined(newLeftCount, newRightCount)]);
+            /* Outdated Proof:
+                  apply(editAction, r, rCtx)
+                = apply(Replace(i, o, L, R), r, rCtx)
+                = apply(Down(Offset(0, i), L), r, rCtx) ++o apply(Down(Offset(i), R), r, rCtx)
+                = apply(L, r[0..i], (Offset(0, i), r)::rCtx) ++o apply(Down(Offset(i), R), r, rCtx)
+                = apply(Replace(n, o2, l1, l2), r[0..i], (Offset(0, i), r)::rCtx) ++o apply(Down(Offset(i), R), r, rCtx)
+                = (apply(Down(Offset(0, n), l1), r[0..i], (Offset(0, i), r)::rCtx) ++o2 
+                   apply(Down(Offset(n), l2), r[0..i], (Offset(0, i), r)::rCtx)) ++o
+                  apply(Down(Offset(i), R), r, rCtx)
+                = apply(l1, r[0..n], (Offset(0, n), r)::rCtx) ++o2 
+                   (apply(l2, r[n..i], (Offset(n, i-n), r)::rCtx) ++(o-o2)
+                    apply(R, r[i...], (Offset(i), r)::rCtx))
+                    
+                = apply(l1, r[0..n], (Offset(0, n), r)::rCtx) ++o2 
+                   (apply(Down(Offset(0, i-n), l2), r[n...], (Offset(n), r)::rCtx) ++(o-o2)
+                    apply(Down(Offset(i-n), R), ..., (Offset(n), r)::rCtx))
+                = apply(l1, r[0..n], (Offset(0, n), r)::rCtx) ++o2 
+                   (apply(Replace(i-n, o-o2, l2, R), (Offset(n), r)::rCtx))
+                = apply(Replace(n, o2, l1, Replace(i-n, o-o2, l2, R)), r, rCtx)
+                QED;
+            */
+                }
+              });
+              }
+            });
           }
-          let newPrepended = editAction.first;
-          return [Prepend(editAction.count, newPrepended, e2), PlusUndefined(editAction.count, o2)];
+          continue;
         }
-      }
-      if(isAppend(editAction)) {
-        let [e2, o2] = offsetInAux(offset, editAction.first, editAction.count, originalInCount);
-        if(e2 !== undefined) {
-          printDebug("subAppend result", e2, o2);
-          if(newLength !== undefined && originalInCount !== undefined && n + newLength < originalInCount) { // We don't keep the Append
-            return [e2, o2];
+        if(isPrepend(editAction)) {
+          offsetInAux(offset, editAction.second, MinusUndefined(originalOutCount, editAction.count), originalInCount);
+          withResult(call, ([e2, o2], {offset, editAction, originalOutCount, originalInCount}) => {
+          if(e2 !== undefined) {
+            if(n > 0) { // We don't keep the Prepend
+              doReturn([e2, o2]) ;
+            } else {
+              let newPrepended = editAction.first;
+              doReturn( [Prepend(editAction.count, newPrepended, e2), PlusUndefined(editAction.count, o2)] );
+            }
+          } else {
+            doDefault(offset, editAction, originalOutCount, originalInCount);
           }
-          return [Append(o2, e2, editAction.second), MinusUndefined(PlusUndefined(originalOutCount, o2), editAction.count)];
+          });
+          continue;
         }
-      }
-      if(isReuse(editAction)) {
-        // Let's generate a Replace to mimic the Reuse.
-        /* Outdated Proof: Assume editAction = Reuse({f: Ef, g: Eg}) where f < n and g >= n
+        if(isAppend(editAction)) {
+          offsetInAux(offset, editAction.first, editAction.count, originalInCount);
+          withResult(call, ([e2, o2], {offset, editAction, originalOutCount, originalInCount}) => {
+          if(e2 !== undefined) {
+            printDebug("subAppend result", e2, o2);
+            if(newLength !== undefined && originalInCount !== undefined && n + newLength < originalInCount) { // We don't keep the Append
+              doReturn( [e2, o2]);
+            } else {
+              doReturn([Append(o2, e2, editAction.second), MinusUndefined(PlusUndefined(originalOutCount, o2), editAction.count)]);
+            }
+          } else {
+            doDefault(offset, editAction, originalOutCount, originalInCount);
+          }
+          });
+        }
+        if(isReuse(editAction)) {
+          // Let's generate a Replace to mimic the Reuse.
+          /* Outdated Proof: Assume editAction = Reuse({f: Ef, g: Eg}) where f < n and g >= n
+               apply(editAction, r, rCtx)
+             = apply(Reuse({f: Ef, g: Eg}), r, rCtx)
+             = r[f => apply(Ef, r[f], (f, r)::rCtx),
+                 g => apply(Eg, r[g], (g, r)::rCtx)]
+             = r[0..n][f => apply(Ef, r[f], (f, r)::rCtx)] ++n
+               r[n..][(g-n) => apply(Eg, r[g], (g, r)::rCtx)]
+             = r[0..n][f => apply(mapUpHere(Ef, Offset(0, n), Up(f)), r[f], (f, r[0..n])::(Offset(0, n), r)::rCtx)] ++n
+               r[n..][(g-n) => apply(mapUpHere(Eg, Offset(n), Up(g)), r[g], (g-n, r[n..])::(Offset(n), r)::rCtx)]
+             = r[0..n][f => apply(mapUpHere(Ef, Offset(0, n), Up(f)), r[f], (f, r[0..n])::(Offset(0, n), r)::rCtx)] ++n
+               r[n..][(g-n) => apply(mapUpHere(Eg, Offset(n), Up(g)), r[g], (g-n, r[n..])::(Offset(n), r)::rCtx)]
+             = apply(Reuse({f: mapUpHere(Ef, Offset(0, n), Up(f))}), r[0..n], (Offset(0, n), r)::rCtx) ++n
+               apply(Reuse({(g-n): mapUpHere(Eg, Offset(n), Up(g))}), r[n..], (Offset(n), r)::rCtx)
+             = apply(Down(Offset(0, n), Reuse({f: mapUpHere(Ef, Offset(0, n), Up(f))})), r, rCtx) ++n
+               apply(Down(Offset(n), Reuse({(g-n): mapUpHere(Eg, Offset(n), Up(g))})), r, rCtx)
+             = apply(Replace(n, n, Reuse({f: mapUpHere(Ef, Offset(0, n), Up(f))}), Reuse({(g-n): mapUpHere(Eg, Offset(n), Up(g))})), r, rCtx)
+             QED;
+          */
+          let remainingo = {};
+          forEachChild(editAction, (child, k) => {
+            if(k >= n && (newLength === undefined || k < n + newLength)) {
+              remainingo[k-n] = Down(k-n, mapUpHere(Up(k, child), offset, Up(k)));
+            }
+          });
+          doReturn( [New(remainingo, editAction.model), lengthOfArray(remainingo, newLength)]);
+          continue;
+        }
+        if(isDown(editAction) && isOffset(editAction.keyOrOffset)) {
+          // offset restriction.
+          let {count: c, newLength: l, oldLength: o} = editAction.keyOrOffset;
+          if(l !== undefined && c + l <= n || newLength !== undefined && n + newLength <= c) {
+            // Disjoint input intervals.
+            doReturn( [RemoveAll(PlusUndefined(c, l) === n ? editAction.subAction: Reuse()), 0]);
+            continue;
+          } else if(keyOrOffsetAreEqual(editAction.keyOrOffset, offset)) {
+            doReturn( [editAction.subAction, originalOutCount]);
+            continue;
+          } else { // Something in the intersection.
+            // 0    [n         n+newLength[
+            // 0         [c                   c+l[
+            //           [countFinal      [countFinal+newLengthFinal[
+            // Here, need to prefix with Down(Offset(c-n)), and sub needs offsetIn(0, newLengthFinal)
+            
+            // 0        [n                          n+newLength[
+            // 0   [c                      c+l[
+            //          [countFinal           [countFinal+newLengthFinal
+            // Here, no need to prefix, but sub needs to have offsetIn(n-c, newLengthFinal) 
+            //   and it should be prefixed with an Offset()
+            let {count: countFinal, newLength: newLengthFinal} = intersectOffsets(offset, editAction.keyOrOffset);
+            let relativeOffset = Offset(n >= c ? n - c: 0, newLengthFinal);
+            offsetInAux(relativeOffset, editAction.subAction, originalOutCount, MinUndefined(MinusUndefined(originalInCount, c), l));
+            withResult(call, ([newSub, newSubCount], {offset, editAction, originalOutCount, originalInCount}) => {
+              doReturn([SameDownAs(editAction)(Offset(n >= c ? 0 : c - n, LessThanUndefined(PlusUndefined(c, l), PlusUndefined(n, newLength)) ? newLengthFinal : undefined), newSub), newSubCount]);
+            });
+            continue;
+          /* Outdated proof: Assume editAction = Down(Offset(c, l, o), E) where c >= n
              apply(editAction, r, rCtx)
-           = apply(Reuse({f: Ef, g: Eg}), r, rCtx)
-           = r[f => apply(Ef, r[f], (f, r)::rCtx),
-               g => apply(Eg, r[g], (g, r)::rCtx)]
-           = r[0..n][f => apply(Ef, r[f], (f, r)::rCtx)] ++n
-             r[n..][(g-n) => apply(Eg, r[g], (g, r)::rCtx)]
-           = r[0..n][f => apply(mapUpHere(Ef, Offset(0, n), Up(f)), r[f], (f, r[0..n])::(Offset(0, n), r)::rCtx)] ++n
-             r[n..][(g-n) => apply(mapUpHere(Eg, Offset(n), Up(g)), r[g], (g-n, r[n..])::(Offset(n), r)::rCtx)]
-           = r[0..n][f => apply(mapUpHere(Ef, Offset(0, n), Up(f)), r[f], (f, r[0..n])::(Offset(0, n), r)::rCtx)] ++n
-             r[n..][(g-n) => apply(mapUpHere(Eg, Offset(n), Up(g)), r[g], (g-n, r[n..])::(Offset(n), r)::rCtx)]
-           = apply(Reuse({f: mapUpHere(Ef, Offset(0, n), Up(f))}), r[0..n], (Offset(0, n), r)::rCtx) ++n
-             apply(Reuse({(g-n): mapUpHere(Eg, Offset(n), Up(g))}), r[n..], (Offset(n), r)::rCtx)
-           = apply(Down(Offset(0, n), Reuse({f: mapUpHere(Ef, Offset(0, n), Up(f))})), r, rCtx) ++n
-             apply(Down(Offset(n), Reuse({(g-n): mapUpHere(Eg, Offset(n), Up(g))})), r, rCtx)
-           = apply(Replace(n, n, Reuse({f: mapUpHere(Ef, Offset(0, n), Up(f))}), Reuse({(g-n): mapUpHere(Eg, Offset(n), Up(g))})), r, rCtx)
+           = apply(Down(Offset(c, l, o), E), r, rCtx);
+           = apply(Down(Offset(0, n), Down(Offset(0, 0, n))), r, rCtx) ++0
+             apply(Down(Offset(n), Down(Offset(c-n, l, o-n), E)), r, rCtx);
+           = apply(Replace(n, 0, Down(Offset(0, 0, n)), Down(Offset(c-n, l, o-n), E)), r, rCtx)
            QED;
-        */
-        let remainingo = {};
-        forEachChild(editAction, (child, k) => {
-          if(k >= n && (newLength === undefined || k < n + newLength)) {
-            remainingo[k-n] = Down(k-n, mapUpHere(Up(k, child), offset, Up(k)));
+          */
           }
-        });
-        return [New(remainingo, editAction.model), lengthOfArray(remainingo, newLength)];
-      }
-      if(isDown(editAction) && isOffset(editAction.keyOrOffset)) {
-        // offset restriction.
-        let {count: c, newLength: l, oldLength: o} = editAction.keyOrOffset;
-        if(l !== undefined && c + l <= n || newLength !== undefined && n + newLength <= c) {
-          // Disjoint input intervals.
-          return [RemoveAll(PlusUndefined(c, l) === n ? editAction.subAction: Reuse()), 0];
-        } else if(keyOrOffsetAreEqual(editAction.keyOrOffset, offset)) {
-          return [editAction.subAction, originalOutCount];
-        } else { // Something in the intersection.
-          // 0    [n         n+newLength[
-          // 0         [c                   c+l[
-          //           [countFinal      [countFinal+newLengthFinal[
-          // Here, need to prefix with Down(Offset(c-n)), and sub needs offsetIn(0, newLengthFinal)
-          
-          // 0        [n                          n+newLength[
-          // 0   [c                      c+l[
-          //          [countFinal           [countFinal+newLengthFinal
-          // Here, no need to prefix, but sub needs to have offsetIn(n-c, newLengthFinal) 
-          //   and it should be prefixed with an Offset()
-          let {count: countFinal, newLength: newLengthFinal} = intersectOffsets(offset, editAction.keyOrOffset);
-          let relativeOffset = Offset(n >= c ? n - c: 0, newLengthFinal);
-          let [newSub, newSubCount] = offsetInAux(relativeOffset, editAction.subAction, originalOutCount, MinUndefined(MinusUndefined(originalInCount, c), l));
-          return [SameDownAs(editAction)(Offset(n >= c ? 0 : c - n, LessThanUndefined(PlusUndefined(c, l), PlusUndefined(n, newLength)) ? newLengthFinal : undefined), newSub), newSubCount];
-          
-        /* Outdated proof: Assume editAction = Down(Offset(c, l, o), E) where c >= n
-           apply(editAction, r, rCtx)
-         = apply(Down(Offset(c, l, o), E), r, rCtx);
-         = apply(Down(Offset(0, n), Down(Offset(0, 0, n))), r, rCtx) ++0
-           apply(Down(Offset(n), Down(Offset(c-n, l, o-n), E)), r, rCtx);
-         = apply(Replace(n, 0, Down(Offset(0, 0, n)), Down(Offset(c-n, l, o-n), E)), r, rCtx)
-         QED;
-        */
         }
+        // TODO: Deal with Choose. Change offsetIn to a generator?
+        /*if(editAction.ctor == Type.Choose) {
+          // Return a Choose.
+          return Choose(Collection.map(editAction.subActions, splitIn));
+        }*/
+        doDefault(offset, editAction, originalOutCount, originalInCount);
+      
+      } else {
+        var head = stack.head;
+        var call = stack.call;
+        stack = stack.tail;
+        head(state.value, call);
       }
-      // TODO: Deal with Choose. Change offsetIn to a generator?
-      /*if(editAction.ctor == Type.Choose) {
-        // Return a Choose.
-        return Choose(Collection.map(editAction.subActions, splitIn));
-      }*/
-      if(defaultIsReuse) return [Reuse(), originalOutCount];
-      if(recoveryMode) return offsetInAux(offset, makeOffsetInCompatibleAt(offset, editAction, originalOutCount, originalInCount), originalOutCount, originalInCount);
-      return Up(offset, editAction);
     }
-    let result = offsetInAux(offset, editAction, originalOutCount);
-    printDebug("## offsetIn returns"+(originalOutCount === undefined ? "" : " (outCount = " + originalOutCount), offset, editAction, "=>", result);
-    return result;
+    printDebug("## offsetIn returns"+(initState.originalOutCount === undefined ? "" : " (outCount = " + initState.originalOutCount), initState.offset, initState.editAction, "=>", state.value);
+    return state.value;
   }
   editActions.__offsetIn = offsetIn;
   
