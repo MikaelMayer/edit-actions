@@ -2737,6 +2737,13 @@ var editActions = {};
   // apply(offsetAt(offset, EX), r, rCtx)
   // = applyOffset(offset, apply(EX, r, rCtx))
   function offsetAt(offset, editAction, isRemove) {
+    var sm = new StateMachine();
+    function offsetAtAux(offset, editAction, isRemove) {
+      return sm.compute({offset, editAction, isRemove});
+    }
+    offsetAtAux(offset, editAction, isRemove);
+    sm.execute(({offset, editAction, isRemove}) => {
+
     printDebug("offsetAt(", offset, "," , editAction, ",", isRemove, ")");
     if(isOffsetIdentity(offset)) {
       /** Proof:
@@ -2835,17 +2842,19 @@ var editActions = {};
           = apply(Concat(n, left, right), rCtx)
           = apply(editAction, r, rCtx);
         */
-        let newRight = offsetAt(Offset(0, newLength), editAction.second, isRemove);
+        return offsetAtAux(Offset(0, newLength), editAction.second, isRemove)(
+        newRight => {
         if(count === 0) {
           // Include the first only if it had zero length.
           return Concat(editAction.count, editAction.first, newRight, editAction.replaceCount, editAction.firstReuse, editAction.secondReuse);
         } else {
           return newRight;
         }
+        });
       } else if(editAction.count < count) { // We remove the left part.
-        return offsetAt(Offset(count - editAction.count, newLength), editAction.second, isRemove);
+        return offsetAtAux(Offset(count - editAction.count, newLength), editAction.second, isRemove);
       } else if(newLength !== undefined && count + newLength <= editAction.count) { // We remove the right part.
-        return offsetAt(offset, editAction.first, isRemove);
+        return offsetAtAux(offset, editAction.first, isRemove);
       } else { // Hybrid. c < count && (n === undefined || c+n > count)
         let [keepCount, keepSub] = argumentsIfKeep(editAction);
         if(keepSub !== undefined && newLength === undefined && count < keepCount) {
@@ -2869,10 +2878,15 @@ var editActions = {};
           = applyOffset(Offset(c, n), apply(first, r, rCtx) ++count apply(Concat(second, r, rCtx))
           = applyOffset(Offset(c, n), apply(Concat(count, first, second), r, rCtx))
         */
-        return Concat(editAction.count - count,
-          offsetAt(Offset(count, editAction.count - count), editAction.first, isRemove),
-          offsetAt(Offset(0, PlusUndefined(MinusUndefined(newLength, editAction.count), count)), editAction.second, isRemove),
-          editAction.replaceCount, editAction.firstReuse, editAction.secondReuse);
+        return offsetAtAux(Offset(count, editAction.count - count), editAction.first, isRemove)(
+        newFirst =>
+              offsetAtAux(Offset(0, PlusUndefined(MinusUndefined(newLength, editAction.count), count)), editAction.second, isRemove)(
+        newSecond =>
+          Concat(editAction.count - count,
+                 newFirst,
+                 newSecond,
+                 editAction.replaceCount, editAction.firstReuse, editAction.secondReuse)
+        ));
       }
     case Type.Up:
       /** Proof
@@ -2883,13 +2897,21 @@ var editActions = {};
          = applyOffset(offset, apply(Up(ko, E), r[ko], (ko, r')::rCtx))
       
       */
-      return Up(editAction.keyOrOffset, offsetAt(offset, editAction.subAction, isRemove));
+      return offsetAtAux(offset, editAction.subAction, isRemove)(
+        newSubAction =>
+        Up(editAction.keyOrOffset, newSubAction)
+      );
     case Type.Down:
-      return SameDownAs(editAction.isRemove || isRemove && isOffset(editAction.keyOrOffset))(editAction.keyOrOffset, offsetAt(offset, editAction.subAction, isRemove));
+      return offsetAtAux(offset, editAction.subAction, isRemove)(
+        newSubAction =>
+          SameDownAs(editAction.isRemove || isRemove && isOffset(editAction.keyOrOffset))(editAction.keyOrOffset, newSubAction)
+      );
     case Type.Choose:
+      // Exceptionally for choose, we consume a stack element.
       return Choose(Collection.map(editAction.subActions, x => offsetAt(offset, x)));
     case Type.Clone:
-      return Clone(offsetAt(offset, editAction.subAction));
+      return offsetAtAux(offset, editAction.subAction)(
+        result => Clone(result));
     default: // editAction.ctor == Custom
       /**Proof:
           apply(offsetAt(f, C), r, rCtx)
@@ -2925,7 +2947,8 @@ var editActions = {};
         QED.
       */
     }
-    throw "Unreachable code"
+    });
+    return sm.getValue();
   }
   editActions.offsetAt = offsetAt;
   
