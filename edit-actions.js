@@ -7075,6 +7075,7 @@ var editActions = {};
   transform.isUp = isUp;
   transform.valueIfConst = valueIfConst;
   transform.isOffset = isOffset;
+  transform.downDownOffset = downDownOffset;
   transform.isIdentity = isIdentity;
   // Assumes U is a New
   function forEachReusingChild(U, callback) {
@@ -7092,9 +7093,9 @@ var editActions = {};
   function firstChildIfConcat(e) { return e.first; }
   function secondChildIfConcat(e) { return e.second; }
   function countIfConcat(e) {return e.count}
-  transform.firstChildIfConcat;
-  transform.secondChildIfConcat;
-  transform.countIfConcat;
+  transform.firstChildIfConcat = firstChildIfConcat;
+  transform.secondChildIfConcat = secondChildIfConcat;
+  transform.countIfConcat = countIfConcat;
   transform.forEachReusingChild = forEachReusingChild;
   function childIfDownOrUp(editAction, key) {
     return editAction.subAction;
