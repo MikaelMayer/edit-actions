@@ -536,7 +536,7 @@ var editActions = {};
      let ap = lens.apply;
      lens.apply = function(input, r, rCtx) {
        lens.cachedInput = input;
-       let output = ap(input, r, rCtx);
+       let output = ap.bind(lens)(input, r, rCtx);
        lens.cachedOutput = output;
        return output;
      }
@@ -812,6 +812,9 @@ var editActions = {};
     if(arguments.length == 2) {
       second = first;
       first = Reuse();
+    }
+    if(!isEditAction(second)) { // Otherwise it cause problems when composing.
+      second = New(second);
     }
     return Concat(count, first, second, undefined, true, false);
   }
@@ -1323,8 +1326,9 @@ var editActions = {};
         } else {
           printDebug("is not extend")
           printDebug("recovered so far:", recovered);
+          let t = treeOpsOf(prog);
+          t.update(prog, k, applyMutateRecover(child, prog, Extend(recovered), ctx, AddContext(k, prog, resultCtx)));
           recovered[k] = Down(k, New(prog[k]));
-          prog[k] = applyMutateRecover(child, prog, Extend(recovered), ctx, AddContext(k, prog, resultCtx));
         }
       });
       return Extend(recovered);
@@ -3493,6 +3497,21 @@ var editActions = {};
          E2IsUp) {
         break merge_cases;   
       }
+      // No more New, Concat, Down or Up
+      // Only Reuse, Replace, and RemoveExcept now, and Custom
+      
+      let E1IsCustom = E1.ctor == Type.Custom;
+      let E2IsCustom = E2.ctor == Type.Custom;
+      // We only merge it once.
+      if(E1IsCustom && typeof E1.lens.merge == "function") {
+        result.push(E1.lens.merge(E1, E2));
+      } else if(E2IsCustom && typeof E2.lens.merge == "function") {
+        result.push(E2.lens.merge(E2, E1));
+      }
+      if(E1IsCustom ||
+         E2IsCustom) {
+        break merge_cases;   
+      }
       
       // No more New, Concat, Down or Up
       // Only Reuse, Replace, and RemoveExcept now.
@@ -4118,6 +4137,9 @@ var editActions = {};
         finalNexts.push(...nexts);
       }
       return [rawIfPossible(New(o, U.model), UWasRaw), finalNexts, ECtx, outCountU];
+    }
+    if(U.ctor == Type.Custom) {
+      return [U, [], ECtx, outCountU];
     }
     if(U.ctor == Type.Concat) {
       // Even replaces, we treat them like Concat when we try to resolve partitionEdit. At this point, we are already creating something new from old pieces.
@@ -4777,7 +4799,7 @@ var editActions = {};
     return $beforeEdit + $result;
   }
   editActions.serializeEdit = serializeEdit;
- function serializeWithoutStack(edit) {
+  function serializeWithoutStack(edit) {
     $i = 0;
     $stack = [];
     $result = "(function() { let x = StartArray();";
@@ -4794,10 +4816,10 @@ var editActions = {};
           if(edit.keyOrOffset.newLength === undefined) {
             $result += " x.Remove("+edit.keyOrOffset.count+");";
           } else {
-            $result += " x.RemoveExcept("+keyOrOffsetToString(edit.ek)+");";
+            $result += " x.RemoveExcept("+keyOrOffsetToString(edit.keyOrOffset)+");";
           }
         } else {
-          $result += " x.Down("+keyOrOffsetToString(edit.ek)+");";
+          $result += " x.Down("+keyOrOffsetToString(edit.keyOrOffset)+");";
         }
         
         edit = edit.subAction;
@@ -6254,7 +6276,9 @@ var editActions = {};
     RecordLike: {
       init() { return {}; },
       access(x, k) { return x[k]; },
-      update(x, k, v) { x[k] = v; },
+      update(x, k, v) { 
+        x[k] = v;
+      },
       forEach(x, callback) {
         for(let k in x) {
           callback(x[k], numIfPossible(k), x);
@@ -6270,6 +6294,7 @@ var editActions = {};
       }
     }
   }
+  editActions.treeOps = treeOps;
   const identity = Reuse();
   editActions.identity = identity;
   function treeOpsOf(x) {
@@ -6573,6 +6598,7 @@ var editActions = {};
     if(isNumeric(num)) return Number(num);
     return num;
   }
+  editActions.numIfPossible = numIfPossible;
   
   function stringOf(self) {
     if(Array.isArray(self)) {
@@ -7073,6 +7099,7 @@ var editActions = {};
   transform.isExtend = isExtend;
   transform.isDown = isDown;
   transform.isUp = isUp;
+  transform.isReplace = isReplace;
   transform.valueIfConst = valueIfConst;
   transform.isOffset = isOffset;
   transform.downDownOffset = downDownOffset;

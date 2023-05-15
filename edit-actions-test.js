@@ -10,6 +10,36 @@ var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
 
+function CustomIncrement(d) {
+  let LensName = "CustomIncrement";
+  return Custom({value: Reuse(), increment: d}, {
+      name: LensName,
+      apply(x) {
+        return x.value + x.increment;
+      },
+      merge(custom1, custom2) {
+        if(custom1.ctor == Type.Custom && custom1.lens.name == LensName
+           && custom2.ctor == Type.Custom && custom2.lens.name == LensName) {
+          return CustomIncrement(custom1.subAction.increment + custom2.subAction.increment);
+        }
+        return Choose(custom1, custom2);
+      }
+    }
+  );
+}
+
+var customMerged = merge(CustomIncrement(1), CustomIncrement(2));
+shouldBeEqual(apply(customMerged, 0), 3);
+customMerged = merge(CustomIncrement(4), Reuse());
+shouldBeEqual(apply(customMerged, 0), 4);
+customMerged = merge(Reuse(), CustomIncrement(4));
+shouldBeEqual(apply(customMerged, 0), 4);
+customMerged = merge(New(3), CustomIncrement(4));
+shouldBeEqual(apply(customMerged, 0), 3);
+customMerged = merge(CustomIncrement(4), New(3));
+shouldBeEqual(apply(customMerged, 0), 3);
+
+
 edit = Reuse({x: Up("x", Down("y", New([Choose({a: New(2), b: Choose(New(3), New(4))}, New(1))])))});
 shouldBeEqual(
   firstRewrite(edit),
