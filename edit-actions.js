@@ -390,6 +390,7 @@ var editActions = {};
     }
     return editActionOrIsRemove ? RemoveExcept : Down;
   }
+  editActions.SameDownAs = SameDownAs;
   
   function optimizeConcatNew(first, second, firstWasRaw, secondWasRaw) {
     if(!isEditAction(first)) {
@@ -6530,6 +6531,7 @@ var editActions = {};
     return [applyKeyOrOffset(downKeyOrOffset, prog),
             AddContext(downKeyOrOffset, prog, ctx)];
   }
+  editActions.walkDownCtx = walkDownCtx;
   
   // Given a pair (prog, ctx), walks the context up by the provided key or offset and returns a [new prog, new ctx]
   function walkUpCtx(upKeyOrOffset, prog, ctx) {
@@ -7117,6 +7119,8 @@ var editActions = {};
     });
   }
   transform.isConcat = isConcat;
+  transform.isPrepend = isPrepend;
+  transform.isAppend = isAppend;
   function firstChildIfConcat(e) { return e.first; }
   function secondChildIfConcat(e) { return e.second; }
   function countIfConcat(e) {return e.count}
@@ -7148,41 +7152,48 @@ var editActions = {};
   transform.extractKeep = argumentsIfKeep;
   transform.extractReplace = argumentsIfReplace;
   // High-level
-  function preMap(editAction, f, inContext) {
-    editAction = f(editAction, inContext);
-    if(!isEditAction(editAction)) return editAction;
-    if(editAction.ctor == Type.New) {
+  function preMap(editAction, beforeMapping, inContext, afterMapping) {
+    editAction = beforeMapping(editAction, inContext);
+    let result = editAction;
+    if(!isEditAction(editAction)) result = editAction;
+    else if(editAction.ctor == Type.New) {
       if(isReuse(editAction)) {
-        return New(mapChildren(editAction.childEditActions,
-        (child, k) => preMap(Up(k, child), f, Up(k, inContext))), editAction.model);
+        result = New(mapChildren(editAction.childEditActions,
+        (child, k) => preMap(Up(k, child), beforeMapping, Up(k, inContext), afterMapping)), editAction.model);
       } else {
-        return New(mapChildren(editAction.childEditActions,
-        (child, k) => preMap(child, f, inContext)), editAction.model);
+        result = New(mapChildren(editAction.childEditActions,
+        (child, k) => preMap(child, beforeMapping, inContext, afterMapping)), editAction.model);
       }
     }
-    if(editAction.ctor == Type.Down) {
-      return SameDownAs(editAction)(
-        editAction.keyOrOffset, preMap(editAction.subAction, f, Up(editAction.keyOrOffset, inContext)));
+    else if(editAction.ctor == Type.Down) {
+      result = SameDownAs(editAction)(
+        editAction.keyOrOffset, preMap(editAction.subAction, beforeMapping, Up(editAction.keyOrOffset, inContext), afterMapping));
     }
-    if(editAction.ctor == Type.Up) {
-      return Up(editAction.keyOrOffset, preMap(editAction.subAction, f, Down(editAction.keyOrOffset, inContext)));
+    else if(editAction.ctor == Type.Up) {
+      result = Up(editAction.keyOrOffset, preMap(editAction.subAction, beforeMapping, Down(editAction.keyOrOffset, inContext), afterMapping));
     }    
-    if(editAction.ctor == Type.Concat) {
-      let newFirst = preMap(editAction.first, f, inContext);
-      let newSecond = preMap(editAction.second, f, inContext);
+    else if(editAction.ctor == Type.Concat) {
+      let newFirst = preMap(editAction.first, beforeMapping, inContext, afterMapping);
+      let newSecond = preMap(editAction.second, beforeMapping, inContext, afterMapping);
       let newFirstLength = outLength(newFirst);
-      if(newFirstLength === undefined) newFirstLength = editAction.count;
-      return Concat(newFirstLength, newFirst, newSecond, editAction.replaceCount, editAction.firstReuse, editAction.secondReuse);
+      if(newFirstLength === undefined || "previousFirst" in editAction) newFirstLength = editAction.count;
+      result = Concat(newFirstLength, newFirst, newSecond, editAction.replaceCount, editAction.firstReuse, editAction.secondReuse);
+      if("previousFirst" in editAction) {
+        result.previousFirst = editAction.previousFirst;
+      }
     }
-    if(editAction.ctor == Type.Custom) {
-      let newSub = preMap(editAction.subAction, f, inContext);
-      return Custom(newSub, editAction.lens);
+    else if(editAction.ctor == Type.Custom) {
+      let newSub = preMap(editAction.subAction, beforeMapping, inContext, afterMapping);
+      result = Custom(newSub, editAction.lens);
     }
-    if(editAction.ctor == Type.Choose) {
-      let newSubs = Collection.map(editAction.subActions, subAction => preMap(subAction, f, inContext));
-      return Choose(newSubs);
+    else if(editAction.ctor == Type.Choose) {
+      let newSubs = Collection.map(editAction.subActions, subAction => preMap(subAction, beforeMapping, inContext, afterMapping));
+      result = Choose(newSubs);
     }
-    return editAction;
+    if (afterMapping != undefined) {
+      result = afterMapping(result, inContext);
+    }
+    return result;
   }
   transform.preMap = preMap;
   editActions.transform = transform;
