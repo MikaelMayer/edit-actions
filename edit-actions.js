@@ -289,8 +289,8 @@ var editActions = {};
             } else {
               return Up(newOffset, subAction.subAction);
             }
-          } 
-        } else if(subAction.ctor == Type.Down && !subAction.isRemove) {
+          }
+        } else if(subAction.ctor == Type.Down) {
           let isk = isOffset(subAction.keyOrOffset);
           if(!ik && !isk) {
             if(keyOrOffset == subAction.keyOrOffset) {
@@ -301,7 +301,11 @@ var editActions = {};
             if(isOffsetIdentity(newOffset)) return subAction.subAction;
             let newDownOffset = upToDownOffset(newOffset);
             if(newDownOffset !== undefined) {
-              return Down(newDownOffset, subAction.subAction);
+              if(subAction.isRemove) {
+                return Remove(newDownOffset, subAction.subAction);
+              } else {
+                return Down(newDownOffset, subAction.subAction);
+              }
             }
             return Up(newOffset, subAction.subAction);
           }
@@ -1328,8 +1332,8 @@ var editActions = {};
           printDebug("is not extend")
           printDebug("recovered so far:", recovered);
           let t = treeOpsOf(prog);
-          t.update(prog, k, applyMutateRecover(child, prog, Extend(recovered), ctx, AddContext(k, prog, resultCtx)));
           recovered[k] = Down(k, New(prog[k]));
+          t.update(prog, k, applyMutateRecover(child, prog, Extend(recovered), ctx, AddContext(k, prog, resultCtx)));
         }
       });
       return Extend(recovered);

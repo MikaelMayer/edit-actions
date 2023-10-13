@@ -3,12 +3,18 @@ var {New,Concat,Up,Down,Custom,UseResult,Choose,Clone,
      Offset, Interval, Extend,
      apply, andThen, merge, backPropagate,
      isIdentity, stringOf, diff, first, debug, reverse} = editActions;
-var {List,Reuse,Replace,Keep,Prepend, Append,Drop,DropAll,DropAfter,Remove,RemoveExcept,RemoveAll,KeepOnly,Type,__AddContext,__ContextElem,isOffset,uneval, splitAt, downAt, offsetAt, Sequence, ReuseOffset, Insert, InsertAll, ExtendModel, ReuseAsIs, transform, mergeInto, StartArray, firstRewrite} = editActions;
+var {List,Reuse,Replace,Keep,Prepend, Append,Drop,DropAll,DropAfter,Remove,RemoveExcept,RemoveAll,KeepOnly,Type,__AddContext,__ContextElem,isOffset,uneval, splitAt, downAt, offsetAt, Sequence, ReuseOffset, Insert, InsertAll, ExtendModel, ReuseAsIs, transform, mergeInto, StartArray, firstRewrite, strDiff} = editActions;
+var Create = New;
 
 var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
+
+var c = Remove(1);
+var a = Replace(1, 2, Append(1, New("X")));
+var c2 = andThen(c, a);
+shouldBeEqual(c2, Replace(1, 1, Create("X")));
 
 function CustomIncrement(d) {
   let LensName = "CustomIncrement";
@@ -184,6 +190,14 @@ shouldBeEqual(
   v, {a: "a", d: {a: "prev", d: "x", c: "c"}}
 );
 
+var v = {a: { c: 1 }, b: {d: 2}}
+editActions.applyMutate(
+  Reuse({a: Reuse({c: Up("c", "a", Down("b", "d"))}), b: Reuse({d: Up("d", "b", Down("a"))})}), v);
+/*shouldBeEqual(
+  v, {a: { c: 2 }, b: {d: { c: 1 }}}
+);*/
+
+
 shouldBeEqual(
 andThen(
 Reuse({stack: New(1)}),
@@ -220,13 +234,6 @@ shouldBeEqual(
     state: New({}),
     local_vars: New({
       name: Up("local_vars", Down.pure("state", 5))})}));
-
-var v = {a: { c: 1 }, b: {d: 2}}
-editActions.applyMutate(
-  Reuse({a: Reuse({c: Up("c", "a", Down("b", "d"))}), b: Reuse({d: Up("d", "b", Down("a"))})}), v);
-shouldBeEqual(
-  v, {a: { c: 2 }, b: {d: { c: 1 }}}
-);
 
 /*
 shouldBeEqual(
@@ -523,7 +530,7 @@ shouldBeEqual(stringOf(New([1, 2, 3], partialArray)), "New([1, 2, 3], [WRAP, NEW
 shouldBeEqual(apply(Reuse({a: Reuse({b: New(1)}), d: 2}), {a: {b: 2}}), {a: {b: 1}, d: 2});
 
 shouldBeEqual(
-  stringOf(Append(3, "abc")), "Append(3, \"abc\")" 
+  stringOf(Append(3, "abc")), "Append(3, New(\"abc\"))" 
 );
 shouldBeEqual(
   stringOf(Append(3, Prepend(1, "d"), New("abc"))), "Append(3, \n  Prepend(1, \"d\"),\n  New(\"abc\"))" 
