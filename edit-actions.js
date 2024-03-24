@@ -4427,15 +4427,7 @@ var editActions = {};
       }
     // E is New(Extend), Concat(Pure,Prepend,Append,Replace)
     // U is Up, Down, New(Const), Concat(Pure,Prepend,Append), Custom
-    } else if(isConcat(E) && isAppend(U)) { // Append(N, X, A), X is applied independently, whereas A is applied on the right of the entire result.
-      if(!isIdentity(U.first)) {
-        subProblems.push([E, $U.first, U.count]);
-        var eOutLength = outLength(E.first, U.count); // TODO: Could we get that from somewhere else?
-      } else {
-        var eOutLength = U.count - E.count;
-      }
-      array_push(subProblems, [E.second, Append(eOutLength, Reuse(), U.second), ECtx, outCountU]);
-    } else if(isConcat(E) && (isPrepend(U) || isReplace(U) || isReuse(U))) {
+    } else if(isConcat(E) && (isAppend(U) || isPrepend(U) || isReplace(U) || isReuse(U))) {
       // We try to splitIn U, so that we can have edits to the left and edits to the right.
       // U === Replace(E.count, outCount, left, right)
       let [outCount, left, right] = splitIn(E.count, U, outCountU);
