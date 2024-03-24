@@ -2,7 +2,7 @@ var editActions = require("./edit-actions.js");
 var {New,Concat,Up,Down,Custom,UseResult,Choose,Clone,
      Offset, Interval, Extend,
      apply, andThen, merge, backPropagate,
-     isIdentity, stringOf, diff, first, debug, reverse} = editActions;
+     isIdentity, stringOf, diff, first, eaStrDiff, debug, reverse} = editActions;
 var {List,Reuse,Replace,Keep,Prepend, Append,Drop,DropAll,DropAfter,Remove,RemoveExcept,RemoveAll,KeepOnly,Type,__AddContext,__ContextElem,isOffset,uneval, splitAt, downAt, offsetAt, Sequence, ReuseOffset, Insert, InsertAll, ExtendModel, ReuseAsIs, transform, mergeInto, StartArray, firstRewrite, strDiff} = editActions;
 var Create = New;
 
@@ -10,6 +10,23 @@ var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
+
+var s1 = "<p>Hello</p>";
+var s2 = "<p>Hello<br></p>";
+var s3 = "<p>Hello<br>world</p>";
+// the "<br>" should be appended to "o", not prepended to "</p>"
+shouldBeEqual(
+  strDiff(s1, s2),
+  Keep(7, Replace(1, 5,
+    Append(1, New("<br>")))));
+shouldBeEqual(
+  strDiff(s2, s3),
+  Keep(11, Replace(1, 6, Append(1, "world")))
+);
+var s1 = "<p>Hello world</p>";
+var s2 = "<p>Hello <b>world</b></p>";
+shouldBeEqual(
+  strDiff(s1, s2), Keep(9, Prepend(3, "<b>", Keep(4, Replace(1, 5, Append(1, "</b>"))))));
 
 var c = Remove(1);
 var a = Replace(1, 2, Append(1, New("X")));
@@ -75,7 +92,7 @@ shouldBeEqual(eval(editActions.serializeWithoutStack(editTest)), editTest);
 
 shouldBeEqual(first(editActions.strDiff("a<", "ab<")), Replace(1, 2, Append(1, "b")));
 shouldBeEqual(first(diff("a<", "a <")), Replace(1, 2, Append(1, " ")));
-shouldBeEqual(first(diff("a<", "a\"<")), Keep(1, Prepend(1, "\"")));
+shouldBeEqual(first(diff("a<", "a\"<")), Replace(1, 2, Append(1, New("\""))));
 
 shouldBeEqual(Down(Offset(24, 7, 13)), Up(Offset(-24, 13, 7)));
 

@@ -4427,7 +4427,15 @@ var editActions = {};
       }
     // E is New(Extend), Concat(Pure,Prepend,Append,Replace)
     // U is Up, Down, New(Const), Concat(Pure,Prepend,Append), Custom
-    } else if(isConcat(E) && (isPrepend(U) || isAppend(U) || isReplace(U) || isReuse(U))) {
+    } else if(isConcat(E) && isAppend(U)) { // Append(N, X, A), X is applied independently, whereas A is applied on the right of the entire result.
+      if(!isIdentity(U.first)) {
+        subProblems.push([E, $U.first, U.count]);
+        var eOutLength = outLength(E.first, U.count); // TODO: Could we get that from somewhere else?
+      } else {
+        var eOutLength = U.count - E.count;
+      }
+      array_push(subProblems, [E.second, Append(eOutLength, Reuse(), U.second), ECtx, outCountU]);
+    } else if(isConcat(E) && (isPrepend(U) || isReplace(U) || isReuse(U))) {
       // We try to splitIn U, so that we can have edits to the left and edits to the right.
       // U === Replace(E.count, outCount, left, right)
       let [outCount, left, right] = splitIn(E.count, U, outCountU);
@@ -6178,12 +6186,12 @@ var editActions = {};
   
   // TODO: Exclamation points should be closer to letters than html symbols like < or >
   let affinityArray = // First dimension: Left char. Second dimension: Right char
-    [ [19,9,  6, 11,1,14]  // digit vs digit, dot, words, spaces, html chars, others
-    , [ 5,0,  3, 12,1,16]  // dot vs digit, dot, words, spaces, html chars, others
-    , [ 2,18,24, 21,1,22]  // words vs digit, dot, words, spaces, html chars, others
-    , [ 8,2, 17,  7,1,20]  // spaces vs digit, dot, words, spaces, html chars, others
-    , [ 1,1,1,1,2,1]  // html vs digit, dot, words, spaces, html chars, others
-    , [15,4, 23, 10,1,13]];// others vs digit, dot, words, spaces, html chars, others
+    [ [19,9,  6, 11,2,14]  // digit vs digit, dot, words, spaces, html chars, others
+    , [ 5,0,  3, 12,2,16]  // dot vs digit, dot, words, spaces, html chars, others
+    , [ 2,18,24, 21,2,22]  // words vs digit, dot, words, spaces, html chars, others
+    , [ 8,2, 17,  7,2,20]  // spaces vs digit, dot, words, spaces, html chars, others
+    , [ 2,2,2,2,1,1]  // html vs digit, dot, words, spaces, html chars, others
+    , [15,4, 23, 10,2,13]];// others vs digit, dot, words, spaces, html chars, others
 
   function classOf(c) {
     if(c >= '0' && c <= '9') return 0;
@@ -6203,6 +6211,13 @@ var editActions = {};
     let s1Last = s1[s1.length - 1];
     if(s2.length === 0) return 25;
     let s2First = s2[0];
+    if(s2.length > 1 && s2.substring(0, 2) === "</") {
+      if(s1Last === ">") {
+        return 1; // affinity("a", "</") > affinity(">", "</")
+      } else {
+        return 1.5;
+      }
+    }
     return affinityChar(s1Last, s2First);
   }  
 
@@ -6216,6 +6231,9 @@ var editActions = {};
     // Conversion of List [DIFF_INSERT | DIFF_DELETE | DIFF_EQUAL, String] to ndStrDiff.
     var index = linear_diff.length - 1;
     var acc = Reuse();
+    // [DIFF_EQUAL, "...<"], [DIFF_INSERT, "...br><"], [DIFF_EQUAL, "/p..."]
+    // should be transformed to
+    // [DIFF_EQUAL, "..."], [DIFF_INSERT, "<...br>"], [DIFF_EQUAL, "</p..."]
     while(index >= 0) {
       let s = linear_diff[index];
       switch(s[0]) {
@@ -6226,7 +6244,15 @@ var editActions = {};
               acc = Prepend(s[1].length, s[1], Remove(f[1].length, acc));
               index -= 2;
               break;
-            } else if(withAppend && f[0] == DIFF_EQUAL) { // It's equal. Let's see if the affinity is towars left or towards the right.
+            } else if(withAppend && f[0] == DIFF_EQUAL) { // It's equal. Let's see if the affinity is towards left or towards the right.
+              // Bracket adjustment
+              if(f[1].endsWith("<") && s[1].endsWith("><")) {
+                acc = Keep(1, acc);
+                f[1] = f[1].substring(0, f[1].length - 1);
+                s[1] = "<" + s[1].substring(0, s[1].length - 1);
+                continue;
+              }
+
               let affinityBefore = affinity(f[1], s[1]);
               let affinityAfter = index < linear_diff.length - 1 ? affinity(s[1], linear_diff[index + 1][1]) : 0;
               if(affinityBefore > affinityAfter) {
