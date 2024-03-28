@@ -2,7 +2,7 @@ var editActions = require("./edit-actions.js");
 var {New,Concat,Up,Down,Custom,UseResult,Choose,Clone,
      Offset, Interval, Extend,
      apply, andThen, merge, backPropagate,
-     isIdentity, stringOf, diff, first, eaStrDiff, debug, reverse} = editActions;
+     isIdentity, stringOf, diff, first, eaStrDiff, debug, reverse, PreferPrepend} = editActions;
 var {List,Reuse,Replace,Keep,Prepend, Append,Drop,DropAll,DropAfter,Remove,RemoveExcept,RemoveAll,KeepOnly,Type,__AddContext,__ContextElem,isOffset,uneval, splitAt, downAt, offsetAt, Sequence, ReuseOffset, Insert, InsertAll, ExtendModel, ReuseAsIs, transform, mergeInto, StartArray, firstRewrite, strDiff} = editActions;
 var Create = New;
 
@@ -32,6 +32,15 @@ var c = Remove(1);
 var a = Replace(1, 2, Append(1, New("X")));
 var c2 = andThen(c, a);
 shouldBeEqual(c2, Replace(1, 1, Create("X")));
+
+// Test of heuristics
+shouldBeEqual(PreferPrepend("<br></p>", 4, "What"), false);
+shouldBeEqual(PreferPrepend("helloworld", 5, " "), false);
+shouldBeEqual(PreferPrepend("hello world", 6, " "), true);
+shouldBeEqual(PreferPrepend("hello world", 5, " "), false);
+shouldBeEqual(PreferPrepend("world</p>", 5, "<br>"), false);
+shouldBeEqual(PreferPrepend("world<br></p>", 9, "new text"), false);
+shouldBeEqual(PreferPrepend("world<br>new text</p>", 9, "one more "), true);
 
 function CustomIncrement(d) {
   let LensName = "CustomIncrement";

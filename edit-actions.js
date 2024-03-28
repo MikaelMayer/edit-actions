@@ -6188,7 +6188,7 @@ var editActions = {};
   function classOf(c) {
     if(c >= '0' && c <= '9') return 0;
     if(c == '.') return 1;
-    if(c >= 'a' && c <= 'z' || c >= 'Z' && c <= 'Z' || c == "_" || c == "_") return 2;
+    if(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == "_" || c == "_") return 2;
     if((/\s/.exec(c))) return 3;
     if(c === "<" || c === ">" || c === "\"") return 4;
     return 5;
@@ -6211,7 +6211,11 @@ var editActions = {};
       }
     }
     return affinityChar(s1Last, s2First);
-  }  
+  }
+  function PreferPrepend(string, indexInsertion, insertionContent) {
+    return affinity(string.substring(0, indexInsertion), insertionContent) <= affinity(insertionContent, string.substring(indexInsertion));
+  }
+  editActions.PreferPrepend = PreferPrepend;
 
   strDiff.INSERT = DIFF_INSERT;
   strDiff.DELETE = DIFF_DELETE;
