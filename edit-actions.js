@@ -6358,10 +6358,8 @@ var editActions = {};
   strDiff.INSERT = DIFF_INSERT;
   strDiff.DELETE = DIFF_DELETE;
   strDiff.EQUAL = DIFF_EQUAL;
-  
-  /** Let's assume: apply(eaStrDiff(text1, text2), text1, ctx) = text2 */
-  function eaStrDiff(text1, text2, withAppend = true) {
-    let linear_diff = strDiff(text1, text2);
+
+  function strDiffToEdit(text1, text2, linear_diff, withAppend = true) {
     // Conversion of List [DIFF_INSERT | DIFF_DELETE | DIFF_EQUAL, String] to ndStrDiff.
     var index = linear_diff.length - 1;
     var acc = Reuse();
@@ -6411,6 +6409,13 @@ var editActions = {};
       }
     }
     return acc;
+  }
+  editActions.internalStrDiffToEdit = strDiffToEdit;
+  
+  /** Let's assume: apply(eaStrDiff(text1, text2), text1, ctx) = text2 */
+  function eaStrDiff(text1, text2, withAppend = true) {
+    let linear_diff = strDiff(text1, text2);
+    return strDiffToEdit(text1, text2, linear_diff, withAppend);
   }
   editActions.strDiff = eaStrDiff;
   
