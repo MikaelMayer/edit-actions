@@ -68,6 +68,31 @@ try {
 } catch(e) {
   shouldBeEqual(e, "Incompatible diffs: [ [ 1, \"a\"]] at 0, and [ ] at the end");
 }
+try {
+  internalStrDiffMerge([[EQUAL, "abc"]], [[EQUAL, "ax"], [DELETE, "c"]]);
+  shouldBeEqual(false, true);
+} catch(e) {
+  shouldBeEqual(e, "Incompatible diffs: [ [ 0, \"abc\"]] at 0, and [ [ 0, \"ax\"], [ -1, \"c\"]] at 0");
+}
+try {
+  internalStrDiffMerge([[EQUAL, "abc"]], [[DELETE, "x"], [EQUAL, "bc"]]);
+  shouldBeEqual(false, true);
+} catch(e) {
+  shouldBeEqual(e, "Incompatible diffs: [ [ 0, \"abc\"]] at 0, and [ [ -1, \"x\"], [ 0, \"bc\"]] at 0");
+}
+try {
+  internalStrDiffMerge([[INSERT, "abc"]], [[EQUAL, "abx"]]);
+  shouldBeEqual(false, true);
+} catch(e) {
+  shouldBeEqual(e, "Incompatible diffs: [ [ 1, \"abc\"]] at 0, and [ [ 0, \"abx\"]] at 0");
+}
+
+try {
+  internalStrDiffMerge([[INSERT, "abc"]], [[DELETE, "axc"]]);
+  shouldBeEqual(false, true);
+} catch(e) {
+  shouldBeEqual(e, "Incompatible diffs: [ [ 1, \"abc\"]] at 0, and [ [ -1, \"axc\"]] at 0");
+}
 
 
 var userEdit = Keep(70914, Replace(1, 5, Append(1, Create("info")), Replace(2, 0, RemoveAll(), Remove(1))));

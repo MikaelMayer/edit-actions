@@ -6215,6 +6215,10 @@ var editActions = {};
         if(d2[0] == DIFF_EQUAL) {
           // We take the minimum length that remains equal, pop that element and recursively continue.
           let commonLength = Math.min(d1[1].length, d2[1].length);
+          let commonPrefix = d1[1].substring(0, commonLength);
+          if(d2[1].substring(0, commonLength) != commonPrefix) {
+            throw "Incompatible diffs: " + uneval(diff1) + " at " + i + ", and " + uneval(diff2) + " at " + j;
+          }
           if(commonLength == d1[1].length) {
             diffResult.push(d1);
             i++;
@@ -6232,6 +6236,10 @@ var editActions = {};
           // d1 is EQUAL
           // d2 is a DELETE
           let commonLength = Math.min(d1[1].length, d2[1].length);
+          let commonPrefix = d1[1].substring(0, commonLength);
+          if(d2[1].substring(0, commonLength) != commonPrefix) {
+            throw "Incompatible diffs: " + uneval(diff1) + " at " + i + ", and " + uneval(diff2) + " at " + j;
+          }
           if(commonLength == d1[1].length) { // We removed more than what is equal.
             diffResult.push([DIFF_DELETE, d1[1]]);
             i++;
@@ -6250,6 +6258,10 @@ var editActions = {};
         // d1 is a DIFF_INSERT
         if(d2[0] == DIFF_EQUAL) {
           let commonLength = Math.min(d1[1].length, d2[1].length);
+          let commonPrefix = d1[1].substring(0, commonLength);
+          if(d2[1].substring(0, commonLength) != commonPrefix) {
+            throw "Incompatible diffs: " + uneval(diff1) + " at " + i + ", and " + uneval(diff2) + " at " + j;
+          }
           if(commonLength == d2[1].length) { // We inserted more than what is equal.
             diffResult.push([DIFF_INSERT, d2[1]]);
             j++;
@@ -6266,6 +6278,11 @@ var editActions = {};
         } else {
           // d1 is DIFF_INSERT
           // d2 is a DIFF_DELETE
+          let commonLength = Math.min(d1[1].length, d2[1].length);
+          let commonPrefix = d1[1].substring(0, commonLength);
+          if(d2[1].substring(0, commonLength) != commonPrefix) {
+            throw "Incompatible diffs: " + uneval(diff1) + " at " + i + ", and " + uneval(diff2) + " at " + j;
+          }
           if(d1[1].length == d2[1].length) {
             // They cancel out
             i++;
