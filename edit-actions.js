@@ -6286,6 +6286,33 @@ var editActions = {};
     return diffResult;
   }
   editActions.internalStrDiffMerge = diffMerge;
+
+  function diffApply(diff, originalText) {
+    var result = "";
+    var i = 0;
+    var index = 0;
+    while(i < diff.length) {
+      let d = diff[i];
+      if(d[0] == DIFF_EQUAL) {
+        if(d[1] != originalText.substring(index, index + d[1].length)) {
+          throw "Incompatible DIFF_EQUAL. Expected " + d[1] + " but got " + originalText.substring(index, index + d[1].length);
+        }
+        result += d[1];
+        index += d[1].length;
+      } else if(d[0] == DIFF_DELETE) {
+        if(d[1] != originalText.substring(index, index + d[1].length)) {
+          throw "Incompatible DIFF_DELETE. Expected " + d[1] + " but got " + originalText.substring(index, index + d[1].length);
+        }
+        index += d[1].length;
+      } else {
+        // d[0] == DIFF_INSERT
+        result += d[1];
+      }
+      i++;
+    }
+    return result;
+  }
+  editActions.internalStrDiffApply = diffApply;
   
   // TODO: Exclamation points should be closer to letters than html symbols like < or >
   let affinityArray = // First dimension: Left char. Second dimension: Right char

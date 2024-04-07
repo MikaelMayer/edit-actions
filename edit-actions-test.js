@@ -1,7 +1,7 @@
 var editActions = require("./edit-actions.js");
 var {New,Concat,Up,Down,Custom,UseResult,Choose,Clone,
      Offset, Interval, Extend,
-     apply, andThen, merge, backPropagate, internalStrDiff, internalStrDiffMerge,
+     apply, andThen, merge, backPropagate, internalStrDiff, internalStrDiffMerge, internalStrDiffApply,
      isIdentity, stringOf, diff, first, eaStrDiff, debug, reverse, PreferPrepend, transform} = editActions;
 var {List,Reuse,Replace,Keep,Prepend, Append,Drop,DropAll,DropAfter,Remove,RemoveExcept,RemoveAll,KeepOnly,Type,__AddContext,__ContextElem,isOffset,uneval, splitAt, downAt, offsetAt, Sequence, ReuseOffset, Insert, InsertAll, ExtendModel, ReuseAsIs, transform, mergeInto, StartArray, firstRewrite, strDiff} = editActions;
 var Create = New;
@@ -15,18 +15,24 @@ var {INSERT, DELETE, EQUAL} = internalStrDiff;
 
 var diffRaw1 = internalStrDiff("xx<p>Call To Action</p>", "xx<p></p>");
 shouldBeEqual(diffRaw1, [[EQUAL, "xx<p>"], [DELETE, "Call To Action"], [EQUAL, "</p>"]]);
+shouldBeEqual(internalStrDiffApply(diffRaw1, "xx<p>Call To Action</p>"), "xx<p></p>");
 var diffRaw2 = internalStrDiff("xx<p></p>", "y<p></p>");
 shouldBeEqual(diffRaw2, [[DELETE, "xx"], [INSERT, "y"], [EQUAL, "<p></p>"]]);
+shouldBeEqual(internalStrDiffApply(diffRaw2, "xx<p></p>"), "y<p></p>");
 var diffRaw3 = internalStrDiff("y<p></p>", "y<p>G</p>");
 shouldBeEqual(diffRaw3, [[EQUAL, "y<p>"], [INSERT, "G"], [EQUAL, "</p>"]]);
+shouldBeEqual(internalStrDiffApply(diffRaw3, "y<p></p>"), "y<p>G</p>");
 var diffRaw12 = internalStrDiffMerge(diffRaw1, diffRaw2);
 shouldBeEqual(diffRaw12, [[DELETE, "xx"], [INSERT, "y"], [EQUAL, "<p>"], [DELETE, "Call To Action"], [EQUAL, "</p>"]]);
+shouldBeEqual(internalStrDiffApply(diffRaw12, "xx<p>Call To Action</p>"), "y<p></p>");
 var diffRaw23 = internalStrDiffMerge(diffRaw2, diffRaw3);
 shouldBeEqual(diffRaw23, [[DELETE, "xx"], [INSERT, "y"], [EQUAL, "<p>"], [INSERT, "G"], [EQUAL, "</p>"]]);
+shouldBeEqual(internalStrDiffApply(diffRaw23, "xx<p></p>"), "y<p>G</p>");
 var diffRaw1_23 = internalStrDiffMerge(diffRaw1, diffRaw23); 
 var diffRaw12_3 = internalStrDiffMerge(diffRaw12, diffRaw3);
 shouldBeEqual(diffRaw1_23, [[DELETE, "xx"], [INSERT, "y"], [EQUAL, "<p>"], [INSERT, "G"], [DELETE, "Call To Action"], [EQUAL, "</p>"]]);
 shouldBeEqual(diffRaw12_3, diffRaw1_23);
+shouldBeEqual(internalStrDiffApply(diffRaw1_23, "xx<p>Call To Action</p>"), "y<p>G</p>");
 
 // More tests for 100% coverage
 shouldBeEqual(internalStrDiffMerge([[EQUAL, "a"], [DELETE, "c"]], [[INSERT, "b"], [EQUAL, "a"]]),
