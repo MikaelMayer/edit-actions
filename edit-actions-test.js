@@ -1,8 +1,8 @@
 var editActions = require("./edit-actions.js");
 var {New,Concat,Up,Down,Custom,UseResult,Choose,Clone,
      Offset, Interval, Extend,
-     apply, andThen, merge, backPropagate,
-     isIdentity, stringOf, diff, first, eaStrDiff, debug, reverse, PreferPrepend} = editActions;
+     apply, andThen, merge, backPropagate, internalStrDiff, internalStrDiffMerge,
+     isIdentity, stringOf, diff, first, eaStrDiff, debug, reverse, PreferPrepend, transform} = editActions;
 var {List,Reuse,Replace,Keep,Prepend, Append,Drop,DropAll,DropAfter,Remove,RemoveExcept,RemoveAll,KeepOnly,Type,__AddContext,__ContextElem,isOffset,uneval, splitAt, downAt, offsetAt, Sequence, ReuseOffset, Insert, InsertAll, ExtendModel, ReuseAsIs, transform, mergeInto, StartArray, firstRewrite, strDiff} = editActions;
 var Create = New;
 
@@ -10,6 +10,55 @@ var tests = 0, testToStopAt = undefined;
 var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
+
+var {INSERT, DELETE, EQUAL} = internalStrDiff;
+
+var diffRaw1 = internalStrDiff("xx<p>Call To Action</p>", "xx<p></p>");
+shouldBeEqual(diffRaw1, [[EQUAL, "xx<p>"], [DELETE, "Call To Action"], [EQUAL, "</p>"]]);
+var diffRaw2 = internalStrDiff("xx<p></p>", "y<p></p>");
+shouldBeEqual(diffRaw2, [[DELETE, "xx"], [INSERT, "y"], [EQUAL, "<p></p>"]]);
+var diffRaw3 = internalStrDiff("y<p></p>", "y<p>G</p>");
+shouldBeEqual(diffRaw3, [[EQUAL, "y<p>"], [INSERT, "G"], [EQUAL, "</p>"]]);
+var diffRaw12 = internalStrDiffMerge(diffRaw1, diffRaw2);
+shouldBeEqual(diffRaw12, [[DELETE, "xx"], [INSERT, "y"], [EQUAL, "<p>"], [DELETE, "Call To Action"], [EQUAL, "</p>"]]);
+var diffRaw23 = internalStrDiffMerge(diffRaw2, diffRaw3);
+shouldBeEqual(diffRaw23, [[DELETE, "xx"], [INSERT, "y"], [EQUAL, "<p>"], [INSERT, "G"], [EQUAL, "</p>"]]);
+var diffRaw1_23 = internalStrDiffMerge(diffRaw1, diffRaw23); 
+var diffRaw12_3 = internalStrDiffMerge(diffRaw12, diffRaw3);
+shouldBeEqual(diffRaw1_23, [[DELETE, "xx"], [INSERT, "y"], [EQUAL, "<p>"], [INSERT, "G"], [DELETE, "Call To Action"], [EQUAL, "</p>"]]);
+shouldBeEqual(diffRaw12_3, diffRaw1_23);
+
+// More tests for 100% coverage
+shouldBeEqual(internalStrDiffMerge([[EQUAL, "a"], [DELETE, "c"]], [[INSERT, "b"], [EQUAL, "a"]]),
+  [[INSERT, "b"], [EQUAL, "a"], [DELETE, "c"]]);
+shouldBeEqual(internalStrDiffMerge([[DELETE, "c"], [EQUAL, "a"]], [[EQUAL, "a"], [INSERT, "b"]]),
+  [[DELETE, "c"], [EQUAL, "a"], [INSERT, "b"]]);
+shouldBeEqual(internalStrDiffMerge([[EQUAL, "abc"], [INSERT, "def"]], [[DELETE, "abcd"], [EQUAL, "ef"]]),
+  [[DELETE, "abc"], [INSERT, "ef"]]);
+shouldBeEqual(internalStrDiffMerge([[EQUAL, "abc"], [INSERT, "def"]], [[DELETE, "abc"], [EQUAL, "def"]]),
+  [[DELETE, "abc"], [INSERT, "def"]]);
+shouldBeEqual(internalStrDiffMerge([[INSERT, "abc"], [EQUAL, "def"]], [[EQUAL, "abcd"], [DELETE, "ef"]]),
+  [[INSERT, "abc"], [EQUAL, "d"], [DELETE, "ef"]]);
+shouldBeEqual(internalStrDiffMerge([[INSERT, "abcd"], [EQUAL, "ef"]], [[EQUAL, "abc"], [DELETE, "def"]]),
+[[INSERT, "abc"], [DELETE, "ef"]]);
+shouldBeEqual(internalStrDiffMerge([[EQUAL, "abc"], [INSERT, "d"], [INSERT, "efg"]], [[EQUAL, "abc"], [DELETE, "d"], [EQUAL, "efg"]]),
+  [[EQUAL, "abc"], [INSERT, "efg"]]);
+try {
+  internalStrDiffMerge([], [[DELETE, "a"]]);
+  shouldBeEqual(false, true);
+} catch(e) {
+  shouldBeEqual(e, "Incompatible diffs: [ ] at the end, and [ [ -1, \"a\"]] at 0");
+}
+try {
+  internalStrDiffMerge([[INSERT, "a"]], []);
+  shouldBeEqual(false, true);
+} catch(e) {
+  shouldBeEqual(e, "Incompatible diffs: [ [ 1, \"a\"]] at 0, and [ ] at the end");
+}
+
+
+var userEdit = Keep(70914, Replace(1, 5, Append(1, Create("info")), Replace(2, 0, RemoveAll(), Remove(1))));
+shouldBeEqual(apply(strDiff("<p>one para</p>", "<p>one <br>para</p>"), "<p>one para</p>"), "<p>one <br>para</p>");
 
 var s1 = "<p>Hello</p>";
 var s2 = "<p>Hello<br></p>";

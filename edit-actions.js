@@ -6175,6 +6175,117 @@ var editActions = {};
     // recursively invoked
     return diff_main(text1, text2, cursor_pos, true);
   }
+  editActions.internalStrDiff = strDiff;
+  // Assuming two consecutive diffs, merges them into a single diff
+  function diffMerge(originalDiff1, originalDiff2) {
+    var i = 0;
+    var j = 0;
+    diff1 = [...originalDiff1];
+    diff2 = [...originalDiff2]; // Ensure we don't modify the original arrays.
+    var diffResult = [];
+    while(i < diff1.length || j < diff2.length) {
+      console.log("i=" + i + ", j=" + j + ", diff1=" + uneval(diff1) + ", diff2=" + uneval(diff2) + ", diffResult=" + uneval(diffResult));
+      if (i >= diff1.length) {
+        // We should have only additions
+        if(diff2[j][0] != DIFF_INSERT) {
+          throw "Incompatible diffs: " + uneval(diff1) + " at the end, and " + uneval(diff2) + " at " + j;
+        }
+        diffResult.push(diff2[j]);
+        j++;
+        continue;
+      }
+      if (j >= diff2.length) {
+        // We should have only removals of the first diff
+        if(diff1[i][0] != DIFF_DELETE) {
+          throw "Incompatible diffs: " + uneval(diff1) + " at " + i + ", and " + uneval(diff2) + " at the end";
+        }
+        diffResult.push(diff1[i]);
+        i++;
+        continue;
+      }
+      let d1 = diff1[i];
+      let d2 = diff2[j];
+      if(d2[0] == DIFF_INSERT) { // We put additions before removal, so that it gives more context about where to append/prepend the object
+        diffResult.push(d2);
+        j++;
+      } else if(d1[0] == DIFF_DELETE) {
+        diffResult.push(d1);
+        i++;
+      } else if(d1[0] == DIFF_EQUAL) {
+        if(d2[0] == DIFF_EQUAL) {
+          // We take the minimum length that remains equal, pop that element and recursively continue.
+          let commonLength = Math.min(d1[1].length, d2[1].length);
+          if(commonLength == d1[1].length) {
+            diffResult.push(d1);
+            i++;
+            if(commonLength == d2[1].length) {
+              j++;
+            } else {
+              diff2[j] = [d2[0], d2[1].substring(commonLength)];
+            }
+          } else {
+            diffResult.push(d2);
+            j++;
+            diff1[i] = [d1[0], d1[1].substring(commonLength)];
+          }
+        } else {
+          // d1 is EQUAL
+          // d2 is a DELETE
+          let commonLength = Math.min(d1[1].length, d2[1].length);
+          if(commonLength == d1[1].length) { // We removed more than what is equal.
+            diffResult.push([DIFF_DELETE, d1[1]]);
+            i++;
+            if(commonLength == d2[1].length) { // We removed exactly what was equal
+              j++;
+            } else {
+              diff2[j] = [d2[0], d2[1].substring(commonLength)];
+            }
+          } else { // We removed less than what is equal.
+            diffResult.push(d2);
+            j++;
+            diff1[i] = [DIFF_EQUAL, d1[1].substring(commonLength)];
+          }
+        }
+      } else {
+        // d1 is a DIFF_INSERT
+        if(d2[0] == DIFF_EQUAL) {
+          let commonLength = Math.min(d1[1].length, d2[1].length);
+          if(commonLength == d2[1].length) { // We inserted more than what is equal.
+            diffResult.push([DIFF_INSERT, d2[1]]);
+            j++;
+            if(commonLength == d1[1].length) { // We inserted exactly what is equal
+              i++;
+            } else {
+              diff1[i] = [d1[0], d1[1].substring(commonLength)];
+            }
+          } else { // We inserted less than what is equal
+            diffResult.push(d1);
+            i++;
+            diff2[j] = [d2[0], d2[1].substring(commonLength)];
+          }
+        } else {
+          // d1 is DIFF_INSERT
+          // d2 is a DIFF_DELETE
+          if(d1[1].length == d2[1].length) {
+            // They cancel out
+            i++;
+            j++;
+          } else if(d1[1].length < d2[1].length) {
+            // d1 is completely cancelled,
+            i++;
+            diff2[j] = [d2[0], d2[1].substring(d1[1].length)];
+          } else {
+            // d2 is completely cancelled
+            j++;
+            diff1[i] = [d1[0], d1[1].substring(d2[1].length)];
+          }
+        }
+      }
+    }
+    console.log("Final: ", diffResult);
+    return diffResult;
+  }
+  editActions.internalStrDiffMerge = diffMerge;
   
   // TODO: Exclamation points should be closer to letters than html symbols like < or >
   let affinityArray = // First dimension: Left char. Second dimension: Right char
