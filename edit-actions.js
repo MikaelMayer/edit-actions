@@ -6184,6 +6184,14 @@ var editActions = {};
     diff2 = [...originalDiff2]; // Ensure we don't modify the original arrays.
     var diffResult = [];
     while(i < diff1.length || j < diff2.length) {
+      if (i < diff1.length && diff1[i][1] == "") {
+        i++;
+        continue;
+      }
+      if (j < diff2.length && diff2[j][1] == "") {
+        j++;
+        continue;
+      }
       //console.log("i=" + i + ", j=" + j + ", diff1=" + uneval(diff1) + ", diff2=" + uneval(diff2) + ", diffResult=" + uneval(diffResult));
       if (i >= diff1.length) {
         // We should have only additions

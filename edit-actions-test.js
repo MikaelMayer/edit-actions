@@ -13,6 +13,13 @@ var failAtFirst = true;
 
 var {INSERT, DELETE, EQUAL} = internalStrDiff;
 
+shouldBeEqual(
+  internalStrDiffMerge([[EQUAL, "a"]], [[EQUAL, "a"], [EQUAL, ""]]),
+  [[EQUAL, "a"]]);
+shouldBeEqual(
+  internalStrDiffMerge([[EQUAL, "a"], [EQUAL, ""]], [[EQUAL, "a"]]),
+  [[EQUAL, "a"]]);
+
 var diffRaw1 = internalStrDiff("xx<p>Call To Action</p>", "xx<p></p>");
 shouldBeEqual(diffRaw1, [[EQUAL, "xx<p>"], [DELETE, "Call To Action"], [EQUAL, "</p>"]]);
 shouldBeEqual(internalStrDiffApply(diffRaw1, "xx<p>Call To Action</p>"), "xx<p></p>");
