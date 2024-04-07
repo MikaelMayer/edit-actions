@@ -6184,7 +6184,7 @@ var editActions = {};
     diff2 = [...originalDiff2]; // Ensure we don't modify the original arrays.
     var diffResult = [];
     while(i < diff1.length || j < diff2.length) {
-      console.log("i=" + i + ", j=" + j + ", diff1=" + uneval(diff1) + ", diff2=" + uneval(diff2) + ", diffResult=" + uneval(diffResult));
+      //console.log("i=" + i + ", j=" + j + ", diff1=" + uneval(diff1) + ", diff2=" + uneval(diff2) + ", diffResult=" + uneval(diffResult));
       if (i >= diff1.length) {
         // We should have only additions
         if(diff2[j][0] != DIFF_INSERT) {
@@ -6282,7 +6282,7 @@ var editActions = {};
         }
       }
     }
-    console.log("Final: ", diffResult);
+    //console.log("Final: ", diffResult);
     return diffResult;
   }
   editActions.internalStrDiffMerge = diffMerge;
