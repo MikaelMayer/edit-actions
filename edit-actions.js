@@ -6386,6 +6386,7 @@ var editActions = {};
 
   function strDiffToEdit(text1, text2, linear_diff, withAppend = true) {
     // Conversion of List [DIFF_INSERT | DIFF_DELETE | DIFF_EQUAL, String] to ndStrDiff.
+    var linear_diff = [...linear_diff]; // Make a copy of the array
     var index = linear_diff.length - 1;
     var acc = Reuse();
     // [DIFF_EQUAL, "...<"], [DIFF_INSERT, "...br><"], [DIFF_EQUAL, "/p..."]
@@ -6401,6 +6402,9 @@ var editActions = {};
               acc = Prepend(s[1].length, s[1], Remove(f[1].length, acc));
               index -= 2;
               break;
+            } else if(f[0] == DIFF_INSERT) { // We merge the insertions
+              linear_diff.splice(index - 1, 2, [DIFF_INSERT, f[1] + s[1]]);
+              continue;
             } else if(withAppend && f[0] == DIFF_EQUAL) { // It's equal. Let's see if the affinity is towards left or towards the right.
               // Bracket adjustment
               if(f[1].endsWith("<") && s[1].endsWith("><")) {
