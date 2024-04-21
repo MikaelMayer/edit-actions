@@ -49,6 +49,8 @@ shouldBeEqual(internalStrDiffToEdit("xx<p>Call To Action</p>", "y<p>G</p>", diff
   Prepend(1, "y", Remove(2, Keep(3, Prepend(1, "G", Remove(14))))));
 shouldBeEqual(internalStrDiffToEdit("<p>One para</p>", "<p>One para<br>&nbsp;</p>", [[EQUAL, "<p>One para"], [INSERT, "<br>"], [INSERT, "&nbsp;"], [EQUAL, "</p>"]]),
   Keep(10, Replace(1, 11, Append(1, "<br>&nbsp;"))));
+  shouldBeEqual(internalStrDiffToEdit("<p>One para</p>", "<p>One para<br>&nbsp;", [[EQUAL, "<p>One para"], [INSERT, "<br>"], [INSERT, "&nbsp;"], [DELETE, "</p>"]]),
+  Keep(10, Replace(1, 11, Append(1, "<br>&nbsp;"), Remove(4))));
 
 // More tests for 100% coverage
 shouldBeEqual(internalStrDiffMerge([[EQUAL, "a"], [DELETE, "c"]], [[INSERT, "b"], [EQUAL, "a"]]),

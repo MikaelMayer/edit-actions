@@ -6404,6 +6404,7 @@ var editActions = {};
               break;
             } else if(f[0] == DIFF_INSERT) { // We merge the insertions
               linear_diff.splice(index - 1, 2, [DIFF_INSERT, f[1] + s[1]]);
+              index -= 1;
               continue;
             } else if(withAppend && f[0] == DIFF_EQUAL) { // It's equal. Let's see if the affinity is towards left or towards the right.
               // Bracket adjustment
