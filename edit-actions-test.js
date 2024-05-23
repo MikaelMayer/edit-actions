@@ -11,8 +11,48 @@ var testsPassed = 0; linesFailed = [], incompleteLines = [];
 var bs = "\\\\";
 var failAtFirst = true;
 
-var {INSERT, DELETE, EQUAL} = internalStrDiff;
+shouldBeEqual(
+  andThen(
+      Remove(4),
+      Replace(3, 4, Append(3, Create("c")), Reuse()),
+    ),
+    Remove(3)
+);
 
+shouldBeEqual(
+  andThen(
+      Remove(5),
+      Replace(3, 4, Append(3, Create("c")), Reuse()),
+    ),
+    Remove(4)
+);
+shouldBeEqual(
+  editActions.offsetAt(Offset(5), 
+      Replace(3, 4, Append(3, Create("c")), Reuse()),
+      false
+    ),
+    Remove(4)
+);
+shouldBeEqual(
+  editActions.offsetAt(Offset(0, 4), 
+      Replace(3, 4, Append(3, Create("c")), Reuse()),
+      false
+    ),
+    KeepOnly(3, Append(3,
+      KeepOnly(3),
+      New("c")))
+);
+shouldBeEqual(
+  andThen(
+    Keep(122035, Prepend(1, "2", Remove(3))),
+    Keep(122036, Replace(1, 2,
+      Append(1, editActions.New("c"))))),
+    Replace(122036, 122036,
+      Keep(122035, Prepend(1, "2", RemoveAll())),
+      Remove(1))
+);
+
+var {INSERT, DELETE, EQUAL} = internalStrDiff;
 shouldBeEqual(
   internalStrDiffMerge([[EQUAL, "a"]], [[EQUAL, "a"], [EQUAL, ""]]),
   [[EQUAL, "a"]]);

@@ -2857,13 +2857,21 @@ var editActions = {};
           // Include the first only if it had zero length.
           return Concat(editAction.count, editAction.first, newRight, editAction.replaceCount, editAction.firstReuse, editAction.secondReuse);
         } else {
+          // If editAction.second == Drop(n, X), then it will be returned, when it should still be part of a linear edit action.
+          // (linear meaning be either a Replace, a Prepend, or an Append)
+          if(newRight.ctor == Type.Down && !newRight.isRemove && isOffset(newRight.keyOrOffset)
+             && editAction.replaceCount === newRight.keyOrOffset.count && newRight.keyOrOffset.newLength === undefined) {
+            return Remove(newRight.keyOrOffset.count, newRight.subAction);
+          }
           return newRight;
         }
         });
       } else if(editAction.count < count) { // We remove the left part.
-        return offsetAtAux(Offset(count - editAction.count, newLength), editAction.second, isRemove);
+        return offsetAtAux(Offset(count - editAction.count, newLength), editAction.second, isRemove || editAction.replaceCount !== undefined);
+        // Not completely correct for linear edit actions.
       } else if(newLength !== undefined && count + newLength <= editAction.count) { // We remove the right part.
-        return offsetAtAux(offset, editAction.first, isRemove);
+        // Linear edit actions don't use KeepOnly or RemoveExcept() with a non-undefined newLength so this is safe
+        return offsetAtAux(offset, editAction.first, isRemove || editAction.replaceCount !== undefined);
       } else { // Hybrid. c < count && (n === undefined || c+n > count)
         let [keepCount, keepSub] = argumentsIfKeep(editAction);
         if(keepSub !== undefined && newLength === undefined && count < keepCount) {
